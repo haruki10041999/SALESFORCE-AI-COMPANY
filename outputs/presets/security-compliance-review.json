@@ -1,0 +1,16 @@
+{
+  "name": "セキュリティ・コンプライアンス確認",
+  "description": "権限設計・データアクセス・インジェクション対策を重点確認",
+  "topic": "Salesforce セキュリティレビュー",
+  "agents": [
+    "security-engineer",
+    "architect",
+    "qa-engineer"
+  ],
+  "skills": [
+    "security/secure-apex",
+    "security/security-rules",
+    "testing/apex-test"
+  ],
+  "persona": "detective"
+}

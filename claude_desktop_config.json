@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "salesforce-ai-company": {
+      "command": "node",
+      "args": [
+        "D:/Projects/mult-agent-ai/salesforce-ai-company/dist/mcp/server.js"
+      ]
+    }
+  }
+}

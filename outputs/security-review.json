@@ -1,0 +1,40 @@
+{
+  "task": "security review for account trigger",
+  "selectedAgents": [
+    "apex-developer",
+    "architect",
+    "product-manager",
+    "security-engineer"
+  ],
+  "outputs": [
+    {
+      "agent": "apex-developer",
+      "provider": "openai",
+      "model": "unknown",
+      "fallback": true,
+      "output": "Agent apex-developer analyzed task: security review for account trigger\n[FALLBACK MODE: OPENAI_API_KEY is not set]"
+    },
+    {
+      "agent": "architect",
+      "provider": "openai",
+      "model": "unknown",
+      "fallback": true,
+      "output": "Agent architect analyzed task: security review for account trigger\n[FALLBACK MODE: OPENAI_API_KEY is not set]"
+    },
+    {
+      "agent": "product-manager",
+      "provider": "openai",
+      "model": "unknown",
+      "fallback": true,
+      "output": "Agent product-manager analyzed task: security review for account trigger\n[FALLBACK MODE: OPENAI_API_KEY is not set]"
+    },
+    {
+      "agent": "security-engineer",
+      "provider": "openai",
+      "model": "unknown",
+      "fallback": true,
+      "output": "Agent security-engineer analyzed task: security review for account trigger\n[FALLBACK MODE: OPENAI_API_KEY is not set]"
+    }
+  ],
+  "textSummary": "AI Company Summary:\n- apex-developer: Agent apex-developer analyzed task: security review for account trigger\n[FALLBACK MODE: OPENAI_API_KEY is not set]\n- architect: Agent architect analyzed task: security review for account trigger\n[FALLBACK MODE: OPENAI_API_KEY is not set]\n- product-manager: Agent product-manager analyzed task: security review for account trigger\n[FALLBACK MODE: OPENAI_API_KEY is not set]\n- security-engineer: Agent security-engineer analyzed task: security review for account trigger\n[FALLBACK MODE: OPENAI_API_KEY is not set]"
+}

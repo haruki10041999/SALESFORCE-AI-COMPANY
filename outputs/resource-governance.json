@@ -1,0 +1,50 @@
+{
+  "config": {
+    "maxCounts": {
+      "skills": 30,
+      "tools": 40,
+      "presets": 20
+    },
+    "thresholds": {
+      "minUsageToKeep": 2,
+      "bugSignalToFlag": 2
+    },
+    "eventAutomation": {
+      "enabled": true,
+      "protectedTools": [
+        "apply_resource_actions",
+        "get_event_automation_config",
+        "get_resource_governance",
+        "get_system_events",
+        "record_resource_signal",
+        "review_resource_governance",
+        "update_event_automation_config"
+      ],
+      "rules": {
+        "errorAggregateDetected": {
+          "autoDisableTool": true
+        },
+        "governanceThresholdExceeded": {
+          "autoDisableRecommendedTools": false,
+          "maxToolsPerRun": 3
+        }
+      }
+    }
+  },
+  "usage": {
+    "skills": {},
+    "tools": {},
+    "presets": {}
+  },
+  "bugSignals": {
+    "skills": {},
+    "tools": {},
+    "presets": {}
+  },
+  "disabled": {
+    "skills": [],
+    "tools": [],
+    "presets": []
+  },
+  "updatedAt": "2026-04-17T10:49:48.651Z"
+}

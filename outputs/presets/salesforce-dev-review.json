@@ -1,0 +1,18 @@
+{
+  "name": "Salesforce 開発レビュー",
+  "description": "実装前後の標準レビュー（設計・実装・テスト）",
+  "topic": "Salesforce機能実装レビュー",
+  "agents": [
+    "architect",
+    "apex-developer",
+    "lwc-developer",
+    "qa-engineer"
+  ],
+  "skills": [
+    "architecture/salesforce-architecture",
+    "apex/apex-best-practices",
+    "lwc/lwc-best-practices",
+    "testing/apex-test"
+  ],
+  "persona": "engineer"
+}
