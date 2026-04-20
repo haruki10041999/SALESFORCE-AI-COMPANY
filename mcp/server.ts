@@ -12,6 +12,10 @@ import { buildDeployCommand } from "./tools/deploy-org.js";
 import { buildTestCommand } from "./tools/run-tests.js";
 import { summarizeBranchDiff } from "./tools/branch-diff-summary.js";
 import { buildBranchDiffPrompt } from "./tools/branch-diff-to-prompt.js";
+import { checkPrReadiness } from "./tools/pr-readiness-check.js";
+import { scanSecurityDelta } from "./tools/security-delta-scan.js";
+import { summarizeDeploymentImpact } from "./tools/deployment-impact-summary.js";
+import { suggestChangedTests } from "./tools/changed-tests-suggest.js";
 import {
   generateKamilessExport,
   generateKamilessSpecFromRequirements
@@ -21,6 +25,7 @@ import {
 // Core Modules
 // ============================================================
 import {
+  scoreCandidate,
   type ResourceCandidate,
   type ScoringConfig,
   selectResourcesByType,
@@ -55,6 +60,7 @@ import {
 import {
   initializeHandlersState,
   autoInitializeHandlers,
+  generateHandlersDashboard,
   type HandlersState
 } from "./handlers/auto-init.js";
 
@@ -185,7 +191,8 @@ async function buildChatPrompt(
   skillNames: string[],
   filePaths: string[],
   turns: number,
-  maxContextChars?: number
+  maxContextChars?: number,
+  appendInstruction?: string
 ): Promise<string> {
   const selectedAgents = agentNames.length > 0 ? agentNames : ["product-manager", "architect", "qa-engineer"];
 
@@ -254,7 +261,11 @@ async function buildChatPrompt(
     ? `複数エージェントで議論し、最大 ${turns} ターンで回答してください。`
     : "単一回答として整理してください。";
 
-  sections.push(`## タスク\n\nトピック: 「${topic}」\n\n${turnInstruction}\n\nルール:\n- 関連コードがある場合は根拠として参照する\n- 各エージェントの専門性と適用スキルに基づいて回答する\n- 不明点は推測を避け、必要な前提を明示する\n- 重要な設計判断や懸念点を簡潔に示す\n- ペルソナがある場合はその文体で回答する\n- 発言形式は必ず「**agent-name**: 発言内容」を使う（誰の発言か判別できる形にする）`);
+  const extraInstruction = appendInstruction
+    ? `\n\n### 追加指示\n\n${appendInstruction}`
+    : "";
+
+  sections.push(`## タスク\n\nトピック: 「${topic}」\n\n${turnInstruction}\n\nルール:\n- 関連コードがある場合は根拠として参照する\n- 各エージェントの専門性と適用スキルに基づいて回答する\n- 不明点は推測を避け、必要な前提を明示する\n- 重要な設計判断や懸念点を簡潔に示す\n- ペルソナがある場合はその文体で回答する\n- 発言形式は必ず「**agent-name**: 発言内容」を使う（誰の発言か判別できる形にする）${extraInstruction}`);
 
   return sections.join("\n\n---\n\n");
 }
@@ -268,6 +279,7 @@ interface AgentMessage {
 }
 
 const agentLog: AgentMessage[] = [];
+const handlersState = initializeHandlersState();
 
 type SystemEventName =
   | "session_start"
@@ -340,6 +352,19 @@ async function emitSystemEvent(event: SystemEventName, payload: Record<string, u
     await appendSystemEvent(record);
   } catch {
     // ignore event persistence failure
+  }
+
+  // system event と core event をブリッジする
+  if (event === "error_aggregate_detected" || event === "governance_threshold_exceeded") {
+    try {
+      await emitEvent({
+        type: event,
+        timestamp: record.timestamp,
+        payload: resolvedPayload
+      });
+    } catch {
+      // ignore bridge failure
+    }
   }
 }
 
@@ -675,6 +700,102 @@ govTool(
 );
 
 govTool(
+  "pr_readiness_check",
+  {
+    title: "PR Readiness Check",
+    description: "PR準備スコアと ready/needs-review/blocked ゲートを返します。",
+    inputSchema: {
+      repoPath: z.string(),
+      baseBranch: z.string(),
+      workingBranch: z.string()
+    }
+  },
+  async ({ repoPath, baseBranch, workingBranch }) => {
+    const result = checkPrReadiness({
+      repoPath,
+      integrationBranch: baseBranch,
+      workingBranch
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+);
+
+govTool(
+  "security_delta_scan",
+  {
+    title: "Security Delta Scan",
+    description: "差分からセキュリティ懸念（sharing, dynamic SOQL, CRUD/FLSなど）を検出します。",
+    inputSchema: {
+      repoPath: z.string(),
+      baseBranch: z.string(),
+      workingBranch: z.string(),
+      maxFindings: z.number().int().min(1).max(200).optional()
+    }
+  },
+  async ({ repoPath, baseBranch, workingBranch, maxFindings }) => {
+    const result = scanSecurityDelta({
+      repoPath,
+      integrationBranch: baseBranch,
+      workingBranch,
+      maxFindings
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+);
+
+govTool(
+  "deployment_impact_summary",
+  {
+    title: "Deployment Impact Summary",
+    description: "差分をメタデータ種別に集計し、デプロイ時の注意点を返します。",
+    inputSchema: {
+      repoPath: z.string(),
+      baseBranch: z.string(),
+      workingBranch: z.string()
+    }
+  },
+  async ({ repoPath, baseBranch, workingBranch }) => {
+    const result = summarizeDeploymentImpact({
+      repoPath,
+      integrationBranch: baseBranch,
+      workingBranch
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+);
+
+govTool(
+  "changed_tests_suggest",
+  {
+    title: "Changed Tests Suggest",
+    description: "変更差分から推奨テストクラスと実行コマンドを返します。",
+    inputSchema: {
+      repoPath: z.string(),
+      baseBranch: z.string(),
+      workingBranch: z.string(),
+      targetOrg: z.string().optional()
+    }
+  },
+  async ({ repoPath, baseBranch, workingBranch, targetOrg }) => {
+    const result = suggestChangedTests({
+      repoPath,
+      integrationBranch: baseBranch,
+      workingBranch,
+      targetOrg
+    });
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+    };
+  }
+);
+
+govTool(
   "list_agents",
   {
     title: "List Agents",
@@ -751,26 +872,17 @@ function tokenizeQuery(query: string): string[] {
 }
 
 function scoreByQuery(query: string, ...targets: string[]): number {
-  const normalizedQuery = normalizeForSearch(query);
-  if (!normalizedQuery) return 0;
+  if (!query.trim()) return 0;
 
-  const normalizedTargets = targets.map((t) => normalizeForSearch(t));
-  let score = 0;
+  const candidate: ResourceCandidate = {
+    name: targets[0] ?? "",
+    description: targets.slice(1).filter(Boolean).join(" "),
+    tags: tokenizeQuery(targets.join(" ")),
+    usage: 0,
+    bugSignals: 0
+  };
 
-  for (const target of normalizedTargets) {
-    if (!target) continue;
-    if (target === normalizedQuery) score += 30;
-    if (target.includes(normalizedQuery)) score += 12;
-  }
-
-  const tokens = tokenizeQuery(query);
-  for (const token of tokens) {
-    for (const target of normalizedTargets) {
-      if (target.includes(token)) score += 4;
-    }
-  }
-
-  return score;
+  return scoreCandidate(candidate, query, DEFAULT_SCORING_CONFIG);
 }
 
 async function suggestSkillsFromTopic(topic: string, limit = 3): Promise<string[]> {
@@ -795,7 +907,8 @@ const chatInputSchema = {
   persona: z.string().optional(),
   skills: z.array(z.string()).optional(),
   turns: z.number().int().min(1).max(30).optional(),
-  maxContextChars: z.number().int().min(500).max(200000).optional()
+  maxContextChars: z.number().int().min(500).max(200000).optional(),
+  appendInstruction: z.string().optional()
 };
 
 const triggerRuleSchema = z.object({
@@ -811,6 +924,7 @@ type TriggerRule = z.infer<typeof triggerRuleSchema>;
 interface OrchestrationSession {
   id: string;
   topic: string;
+  appendInstruction?: string;
   agents: string[];
   persona?: string;
   skills: string[];
@@ -917,7 +1031,8 @@ async function runChatTool({
   persona,
   skills,
   turns,
-  maxContextChars
+  maxContextChars,
+  appendInstruction
 }: {
   topic: string;
   filePaths?: string[];
@@ -926,6 +1041,7 @@ async function runChatTool({
   skills?: string[];
   turns?: number;
   maxContextChars?: number;
+  appendInstruction?: string;
 }) {
   const requestedSkills = skills ?? [];
   const autoSkills = requestedSkills.length === 0 ? await suggestSkillsFromTopic(topic, 3) : [];
@@ -947,7 +1063,8 @@ async function runChatTool({
     enabledSkills,
     filePaths ?? [],
     turns ?? 6,
-    maxContextChars
+    maxContextChars,
+    appendInstruction
   );
 
   return {
@@ -993,10 +1110,11 @@ govTool(
       skills: z.array(z.string()).optional(),
       turns: z.number().int().min(1).max(30).optional(),
       triggerRules: z.array(triggerRuleSchema).optional(),
-      maxContextChars: z.number().int().min(500).max(200000).optional()
+      maxContextChars: z.number().int().min(500).max(200000).optional(),
+      appendInstruction: z.string().optional()
     }
   },
-  async ({ topic, filePaths, agents, persona, skills, turns, triggerRules, maxContextChars }) => {
+  async ({ topic, filePaths, agents, persona, skills, turns, triggerRules, maxContextChars, appendInstruction }) => {
     const selectedAgents = agents ?? ["product-manager", "architect", "qa-engineer"];
     const sessionId = generateSessionId();
     const { enabled: enabledSkills, disabled: disabledSkills } = await filterDisabledSkills(skills ?? []);
@@ -1018,12 +1136,14 @@ govTool(
       enabledSkills,
       filePaths ?? [],
       turns ?? 6,
-      maxContextChars
+      maxContextChars,
+      appendInstruction
     );
 
     const session: OrchestrationSession = {
       id: sessionId,
       topic,
+      appendInstruction,
       agents: selectedAgents,
       persona,
       skills: enabledSkills,
@@ -1227,6 +1347,82 @@ govTool(
               agents: session.agents,
               queue: session.queue,
               triggerRules: session.triggerRules,
+              historyCount: session.history.length,
+              firedRuleCount: session.firedRules.length
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  }
+);
+
+govTool(
+  "save_orchestration_session",
+  {
+    title: "Save Orchestration Session",
+    description: "オーケストレーションセッションをファイルへ保存します。",
+    inputSchema: {
+      sessionId: z.string()
+    }
+  },
+  async ({ sessionId }) => {
+    const saved = await saveOrchestrationSession(sessionId);
+    if (!saved) {
+      return {
+        content: [{ type: "text", text: "Session not found: " + sessionId }]
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              saved: true,
+              sessionId: saved.sessionId,
+              filePath: saved.filePath,
+              historyCount: saved.historyCount
+            },
+            null,
+            2
+          )
+        }
+      ]
+    };
+  }
+);
+
+govTool(
+  "restore_orchestration_session",
+  {
+    title: "Restore Orchestration Session",
+    description: "保存済みオーケストレーションセッションをメモリへ復元します。",
+    inputSchema: {
+      sessionId: z.string()
+    }
+  },
+  async ({ sessionId }) => {
+    const session = await restoreOrchestrationSession(sessionId);
+    if (!session) {
+      return {
+        content: [{ type: "text", text: "Saved session not found: " + sessionId }]
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              restored: true,
+              id: session.id,
+              topic: session.topic,
+              queueLength: session.queue.length,
               historyCount: session.history.length,
               firedRuleCount: session.firedRules.length
             },
@@ -1472,6 +1668,7 @@ govTool(
 
 const HISTORY_DIR = join(ROOT, "outputs", "history");
 const PRESETS_DIR = join(ROOT, "outputs", "presets");
+const SESSIONS_DIR = join(ROOT, "outputs", "sessions");
 
 async function ensureDir(dir: string): Promise<void> {
   if (!existsSync(dir)) {
@@ -1535,6 +1732,35 @@ async function restoreChatHistory(id: string): Promise<ChatSession | null> {
     const session = JSON.parse(content) as ChatSession;
     agentLog.length = 0;
     agentLog.push(...session.entries);
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+async function saveOrchestrationSession(sessionId: string): Promise<{ sessionId: string; filePath: string; historyCount: number } | null> {
+  const session = orchestrationSessions.get(sessionId);
+  if (!session) {
+    return null;
+  }
+
+  await ensureDir(SESSIONS_DIR);
+  const filePath = join(SESSIONS_DIR, sessionId + ".json");
+  await fsPromises.writeFile(filePath, JSON.stringify(session, null, 2), "utf-8");
+
+  return {
+    sessionId,
+    filePath: toPosixPath(relative(ROOT, filePath)),
+    historyCount: session.history.length
+  };
+}
+
+async function restoreOrchestrationSession(sessionId: string): Promise<OrchestrationSession | null> {
+  const filePath = join(SESSIONS_DIR, sessionId + ".json");
+  try {
+    const content = await fsPromises.readFile(filePath, "utf-8");
+    const session = JSON.parse(content) as OrchestrationSession;
+    orchestrationSessions.set(session.id, session);
     return session;
   } catch {
     return null;
@@ -1699,6 +1925,10 @@ const BUILTIN_TOOL_CATALOG = [
   "run_tests",
   "branch_diff_summary",
   "branch_diff_to_prompt",
+  "pr_readiness_check",
+  "security_delta_scan",
+  "deployment_impact_summary",
+  "changed_tests_suggest",
   "list_agents",
   "get_agent",
   "list_skills",
@@ -1710,6 +1940,8 @@ const BUILTIN_TOOL_CATALOG = [
   "evaluate_triggers",
   "dequeue_next_agent",
   "get_orchestration_session",
+  "save_orchestration_session",
+  "restore_orchestration_session",
   "record_agent_message",
   "get_agent_log",
   "parse_and_record_chat",
@@ -1726,6 +1958,7 @@ const BUILTIN_TOOL_CATALOG = [
   "auto_select_resources",
   "smart_chat",
   "analyze_chat_trends",
+  "get_handlers_dashboard",
   "export_to_markdown",
   "batch_chat"
 ];
@@ -2387,10 +2620,11 @@ govTool(
     inputSchema: {
       name: z.string(),
       overrideTopic: z.string().optional(),
-      maxContextChars: z.number().int().min(500).max(200000).optional()
+      maxContextChars: z.number().int().min(500).max(200000).optional(),
+      appendInstruction: z.string().optional()
     }
   },
-  async ({ name, overrideTopic, maxContextChars }) => {
+  async ({ name, overrideTopic, maxContextChars, appendInstruction }) => {
     await emitSystemEvent("preset_before_execute", {
       presetName: name,
       overrideTopic: overrideTopic ?? null
@@ -2418,7 +2652,8 @@ govTool(
       enabledSkills,
       preset.filePaths ?? [],
       6,
-      maxContextChars
+      maxContextChars,
+      appendInstruction
     );
 
     return {
@@ -2927,10 +3162,11 @@ govTool(
       persona: z.string().optional(),
       skills: z.array(z.string()).optional(),
       repoPath: z.string().optional(),
-      maxContextChars: z.number().int().min(500).max(200000).optional()
+      maxContextChars: z.number().int().min(500).max(200000).optional(),
+      appendInstruction: z.string().optional()
     }
   },
-  async ({ topic, agents, persona, skills, repoPath, maxContextChars }) => {
+  async ({ topic, agents, persona, skills, repoPath, maxContextChars, appendInstruction }) => {
     // リポジトリ分析して関連ファイルを自動検出
     const targetPath = repoPath ?? ROOT;
     let autoFilePaths: string[] = [];
@@ -2956,7 +3192,8 @@ govTool(
       enabledSkills,
       autoFilePaths,
       6,
-      maxContextChars
+      maxContextChars,
+      appendInstruction
     );
 
     return {
@@ -2995,8 +3232,9 @@ govTool(
         };
       }
       stats[entry.agent].count++;
-      stats[entry.agent].avgLength +=
-        entry.message.length / stats[entry.agent].count;
+      const prevAvg = stats[entry.agent].avgLength;
+      stats[entry.agent].avgLength =
+        prevAvg + (entry.message.length - prevAvg) / stats[entry.agent].count;
       if (entry.topic && !stats[entry.agent].topics.includes(entry.topic)) {
         stats[entry.agent].topics.push(entry.topic);
       }
@@ -3017,6 +3255,21 @@ govTool(
           )
         }
       ]
+    };
+  }
+);
+
+govTool(
+  "get_handlers_dashboard",
+  {
+    title: "Get Handlers Dashboard",
+    description: "イベントハンドラーの稼働統計を返します。",
+    inputSchema: {}
+  },
+  async () => {
+    const dashboard = generateHandlersDashboard(handlersState);
+    return {
+      content: [{ type: "text", text: JSON.stringify(dashboard, null, 2) }]
     };
   }
 );
@@ -3090,10 +3343,11 @@ govTool(
       agents: z.array(z.string()).optional(),
       persona: z.string().optional(),
       skills: z.array(z.string()).optional(),
-      maxContextChars: z.number().int().min(500).max(200000).optional()
+      maxContextChars: z.number().int().min(500).max(200000).optional(),
+      appendInstruction: z.string().optional()
     }
   },
-  async ({ topics, agents, persona, skills, maxContextChars }) => {
+  async ({ topics, agents, persona, skills, maxContextChars, appendInstruction }) => {
     const results: string[] = [];
 
     for (const topic of topics) {
@@ -3104,7 +3358,8 @@ govTool(
         skills ?? [],
         [],
         4,
-        maxContextChars
+        maxContextChars,
+        appendInstruction
       );
       results.push("## " + topic + "\n\n" + prompt);
     }
@@ -3383,12 +3638,21 @@ async function validateAndCreateSkillWithQuality(
   qualityScore?: number;
   duplicateFound?: boolean;
 }> {
-  // 名前の正規化・重複チェック
+  // 類似度ベース重複チェック
   const existingSkills = await listSkillsCatalog();
-  if (existingSkills.some(s => s.name.toLowerCase() === skillName.toLowerCase())) {
+  const duplicateCheck = checkForDuplicates(
+    {
+      name: skillName,
+      summary: skillContent.slice(0, 200)
+    },
+    existingSkills.map((name) => ({ name })),
+    0.8
+  );
+  if (duplicateCheck.isDuplicate) {
     return {
       success: false,
-      message: `スキル名が重複: ${skillName}`
+      message: `類似スキルが存在: ${duplicateCheck.similarResources[0]?.name ?? skillName}`,
+      duplicateFound: true
     };
   }
 
@@ -3431,12 +3695,21 @@ async function validateAndCreatePresetWithQuality(
   qualityScore?: number;
   duplicateFound?: boolean;
 }> {
-  // 重複チェック
+  // 類似度ベース重複チェック
   const existingPresets = await listPresetsCatalog();
-  if (existingPresets.some(p => p.toLowerCase() === presetName.toLowerCase())) {
+  const duplicateCheck = checkForDuplicates(
+    {
+      name: presetName,
+      description: presetData.description
+    },
+    existingPresets.map((name) => ({ name })),
+    0.8
+  );
+  if (duplicateCheck.isDuplicate) {
     return {
       success: false,
-      message: `プリセット名が重複: ${presetName}`
+      message: `類似プリセットが存在: ${duplicateCheck.similarResources[0]?.name ?? presetName}`,
+      duplicateFound: true
     };
   }
 
@@ -3475,12 +3748,21 @@ async function validateAndCreateToolWithQuality(
   qualityScore?: number;
   duplicateFound?: boolean;
 }> {
-  // 重複チェック
+  // 類似度ベース重複チェック
   const existingTools = listToolsCatalog(state);
-  if (existingTools.some(t => t.toLowerCase() === toolName.toLowerCase())) {
+  const duplicateCheck = checkForDuplicates(
+    {
+      name: toolName,
+      description: toolDescription
+    },
+    existingTools.map((name) => ({ name })),
+    0.8
+  );
+  if (duplicateCheck.isDuplicate) {
     return {
       success: false,
-      message: `ツール名が重複: ${toolName}`
+      message: `類似ツールが存在: ${duplicateCheck.similarResources[0]?.name ?? toolName}`,
+      duplicateFound: true
     };
   }
 
@@ -3513,7 +3795,6 @@ async function main(): Promise<void> {
   // ============================================================
   // Phase 5: Auto-Initialize Handlers (Event-Driven Auto-Execution)
   // ============================================================
-  const handlersState = initializeHandlersState();
   autoInitializeHandlers(handlersState);
   console.error("[Server] Handlers auto-initialization complete");
 

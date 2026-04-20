@@ -32,6 +32,10 @@ import {
   recordQualityCheckFailure,
   initializeQualityCheckFailureTracker
 } from "./governance/quality-check-failed.handler.js";
+import {
+  handleGovernanceThresholdExceeded,
+  DEFAULT_THRESHOLD_CONFIG
+} from "./governance/threshold.handler.js";
 
 /**
  * グローバルハンドラー状態（server.ts で管理）
@@ -41,6 +45,7 @@ export interface HandlersState {
   deletedTracker: ReturnType<typeof initializeDeletedResourceTracker>;
   errorTracker: ReturnType<typeof initializeErrorAggregateTracker>;
   qualityTracker: ReturnType<typeof initializeQualityCheckFailureTracker>;
+  registeredHandlers: number;
 }
 
 /**
@@ -51,7 +56,8 @@ export function initializeHandlersState(): HandlersState {
     createdTracker: initializeCreatedResourceTracker(),
     deletedTracker: initializeDeletedResourceTracker(),
     errorTracker: initializeErrorAggregateTracker(),
-    qualityTracker: initializeQualityCheckFailureTracker()
+    qualityTracker: initializeQualityCheckFailureTracker(),
+    registeredHandlers: 0
   };
 }
 
@@ -63,10 +69,18 @@ export function autoInitializeHandlers(
 ): void {
   console.error("[Handlers] 自動初期化を開始しています...");
 
+  const register = (
+    eventType: SystemEvent["type"],
+    listener: (event: SystemEvent) => Promise<void>
+  ) => {
+    onEvent(eventType, listener);
+    handlersState.registeredHandlers += 1;
+  };
+
   // ============================================================
   // resource_gap_detected ハンドラー
   // ============================================================
-  onEvent("resource_gap_detected", async (event: SystemEvent) => {
+  register("resource_gap_detected", async (event: SystemEvent) => {
     console.error(`[Handler] resource_gap_detected: ${event.payload.topic}`);
 
     const gap = {
@@ -90,7 +104,7 @@ export function autoInitializeHandlers(
   // ============================================================
   // resource_created ハンドラー
   // ============================================================
-  onEvent("resource_created", async (event: SystemEvent) => {
+  register("resource_created", async (event: SystemEvent) => {
     console.error(
       `[Handler] resource_created: ${event.payload.resourceType}:${event.payload.name}`
     );
@@ -108,7 +122,7 @@ export function autoInitializeHandlers(
   // ============================================================
   // resource_deleted ハンドラー
   // ============================================================
-  onEvent("resource_deleted", async (event: SystemEvent) => {
+  register("resource_deleted", async (event: SystemEvent) => {
     console.error(
       `[Handler] resource_deleted: ${event.payload.resourceType}:${event.payload.name}`
     );
@@ -123,7 +137,7 @@ export function autoInitializeHandlers(
   // ============================================================
   // error_aggregate_detected ハンドラー
   // ============================================================
-  onEvent("error_aggregate_detected", async (event: SystemEvent) => {
+  register("error_aggregate_detected", async (event: SystemEvent) => {
     console.error(`[Handler] error_aggregate_detected: ${event.payload.toolName}`);
 
     recordToolError(
@@ -136,7 +150,7 @@ export function autoInitializeHandlers(
   // ============================================================
   // quality_check_failed ハンドラー
   // ============================================================
-  onEvent("quality_check_failed", async (event: SystemEvent) => {
+  register("quality_check_failed", async (event: SystemEvent) => {
     console.error(
       `[Handler] quality_check_failed: ${event.payload.resourceType}:${event.payload.name}`
     );
@@ -149,7 +163,48 @@ export function autoInitializeHandlers(
     );
   });
 
-  console.error("[Handlers] 6個のハンドラーを登録完了");
+  // ============================================================
+  // governance_threshold_exceeded ハンドラー
+  // ============================================================
+  register("governance_threshold_exceeded", async (event: SystemEvent) => {
+    const counts = (event.payload.counts as Record<string, number> | undefined) ?? {};
+    const maxCounts = (event.payload.maxCounts as Record<string, number> | undefined) ?? {};
+    const recommendations = (event.payload.recommendations as Array<{
+      resourceType: "skills" | "tools" | "presets";
+      name: string;
+      usage: number;
+      bugSignals: number;
+      score: number;
+    }> | undefined) ?? [];
+
+    for (const resourceType of ["skills", "tools", "presets"] as const) {
+      const currentCount = counts[resourceType] ?? 0;
+      const maxCount = maxCounts[resourceType] ?? 0;
+      const candidates = recommendations
+        .filter((r) => r.resourceType === resourceType)
+        .map((r) => ({
+          name: r.name,
+          usage: r.usage,
+          bugSignals: r.bugSignals,
+          score: r.score,
+          riskLevel: (r.bugSignals > 5
+            ? "high"
+            : r.bugSignals > 2
+              ? "medium"
+              : "low") as "high" | "medium" | "low"
+        }));
+
+      await handleGovernanceThresholdExceeded(
+        resourceType,
+        currentCount,
+        maxCount,
+        candidates,
+        DEFAULT_THRESHOLD_CONFIG
+      );
+    }
+  });
+
+  console.error(`[Handlers] ${handlersState.registeredHandlers}個のハンドラーを登録完了`);
 }
 
 /**
@@ -172,7 +227,7 @@ export function generateHandlersDashboard(
   }>;
 } {
   return {
-    registeredHandlers: 6,
+    registeredHandlers: handlersState.registeredHandlers,
     statistics: {
       created: handlersState.createdTracker.totalCreated,
       deleted: handlersState.deletedTracker.deletedResources.length,

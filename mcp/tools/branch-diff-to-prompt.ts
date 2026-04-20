@@ -27,6 +27,12 @@ function recommendAgents(paths: string[]): string[] {
   if (paths.some((p) => /\/permissionsets\/|\/profiles\//i.test(p))) {
     agents.push("security-engineer");
   }
+  if (paths.some((p) => /\.yml$|\.yaml$|\.sh$|Dockerfile|\.github\//i.test(p))) {
+    agents.push("devops-engineer");
+  }
+  if (paths.some((p) => /\.object-meta\.xml$|\.field-meta\.xml$/i.test(p))) {
+    agents.push("data-modeler");
+  }
   if (paths.length >= 10) {
     agents.push("architect");
   }
