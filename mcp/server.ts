@@ -3515,7 +3515,7 @@ async function main(): Promise<void> {
   // ============================================================
   const handlersState = initializeHandlersState();
   autoInitializeHandlers(handlersState);
-  console.log("[Server] Handlers auto-initialization complete");
+  console.error("[Server] Handlers auto-initialization complete");
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
