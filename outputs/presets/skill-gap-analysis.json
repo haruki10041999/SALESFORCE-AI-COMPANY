@@ -1,0 +1,12 @@
+{
+  "name": "スキルギャップ分析",
+  "description": "特定トピックのスキルカバレッジを確認し不足スキルを提案する",
+  "topic": "スキルカバレッジ分析",
+  "agents": [
+    "architect",
+    "apex-developer",
+    "qa-engineer"
+  ],
+  "skills": [],
+  "persona": "detective"
+}

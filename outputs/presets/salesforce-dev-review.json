@@ -14,5 +14,26 @@
     "lwc/lwc-best-practices",
     "testing/apex-test"
   ],
-  "persona": "engineer"
+  "persona": "engineer",
+  "triggerRules": [
+    {
+      "whenAgent": "architect",
+      "thenAgent": "apex-developer",
+      "messageIncludes": "実装",
+      "reason": "設計方針が出たら実装観点でフォローアップ"
+    },
+    {
+      "whenAgent": "apex-developer",
+      "thenAgent": "qa-engineer",
+      "messageIncludes": "クラス",
+      "reason": "実装案が出たらテスト観点を確認"
+    },
+    {
+      "whenAgent": "qa-engineer",
+      "thenAgent": "architect",
+      "messageIncludes": "懸念",
+      "reason": "テスト懸念があれば設計の再評価を促す",
+      "once": true
+    }
+  ]
 }
