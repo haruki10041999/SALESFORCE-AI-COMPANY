@@ -64,6 +64,21 @@ import {
   type HandlersState
 } from "./handlers/auto-init.js";
 
+// ============================================================
+// Memory / Prompt-Engine / Statistics
+// ============================================================
+import { addMemory, searchMemory, listMemory } from "../memory/project-memory.js";
+import { addRecord, searchByKeyword } from "../memory/vector-store.js";
+import {
+  exportStatisticsAsCsv,
+  exportStatisticsAsJson,
+  type HandlersStatistics
+} from "./handlers/statistics-manager.js";
+import {
+  checkDailyLimitExceeded,
+  type ResourceOperation
+} from "./core/governance/governance-manager.js";
+
 // Resolve project root from this file location so cross-repo clients can share one server.
 const THIS_FILE = fileURLToPath(import.meta.url);
 const THIS_DIR = dirname(THIS_FILE);
@@ -240,6 +255,18 @@ async function buildChatPrompt(
 
   const sections: string[] = [];
 
+  // FEAT-A: context/ ディレクトリを自動注入
+  const contextDir = join(ROOT, "context");
+  if (existsSync(contextDir)) {
+    const contextFiles = findMdFilesRecursive(contextDir);
+    const contextContent = contextFiles
+      .map((f) => readFileSync(f, "utf-8"))
+      .join("\n\n");
+    if (contextContent.trim()) {
+      sections.push(`## プロジェクトコンテキスト\n\n${contextContent}`);
+    }
+  }
+
   if (codeResults.length > 0) {
     sections.push(`## コードコンテキスト\n\n${codeResults.join("\n\n")}`);
   }
@@ -302,6 +329,7 @@ interface SystemEventRecord {
 
 const EVENT_DIR = join(ROOT, "outputs", "events");
 const EVENT_LOG_FILE = join(EVENT_DIR, "system-events.jsonl");
+const OPERATIONS_LOG_FILE = join(ROOT, "outputs", "operations-log.jsonl");
 const recentSystemEvents: SystemEventRecord[] = [];
 const recentFailuresByTool = new Map<string, number[]>();
 const errorAggregateLastEmitted = new Map<string, number>();
@@ -581,11 +609,16 @@ govTool(
     description: "Build deployment command for Salesforce org.",
     inputSchema: {
       targetOrg: z.string(),
-      dryRun: z.boolean().optional()
+      dryRun: z.boolean().optional(),
+      sourceDir: z.string().optional(),
+      testLevel: z.enum(["NoTestRun", "RunLocalTests", "RunAllTestsInOrg", "RunSpecifiedTests"]).optional(),
+      specificTests: z.array(z.string()).optional(),
+      wait: z.number().int().min(1).max(120).optional(),
+      ignoreWarnings: z.boolean().optional()
     }
   },
-  async ({ targetOrg, dryRun }) => {
-    const result = buildDeployCommand(targetOrg, dryRun ?? true);
+  async ({ targetOrg, dryRun, sourceDir, testLevel, specificTests, wait, ignoreWarnings }) => {
+    const result = buildDeployCommand({ targetOrg, dryRun, sourceDir, testLevel, specificTests, wait, ignoreWarnings });
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
     };
@@ -598,11 +631,15 @@ govTool(
     title: "Run Tests",
     description: "Build Apex test run command.",
     inputSchema: {
-      targetOrg: z.string()
+      targetOrg: z.string(),
+      classNames: z.array(z.string()).optional(),
+      suiteName: z.string().optional(),
+      wait: z.number().int().min(1).max(120).optional(),
+      outputDir: z.string().optional()
     }
   },
-  async ({ targetOrg }) => {
-    const command = buildTestCommand(targetOrg);
+  async ({ targetOrg, classNames, suiteName, wait, outputDir }) => {
+    const command = buildTestCommand({ targetOrg, classNames, suiteName, wait, outputDir });
     return {
       content: [{ type: "text", text: command }]
     };
@@ -1676,6 +1713,21 @@ async function ensureDir(dir: string): Promise<void> {
   }
 }
 
+async function loadRecentOperations(): Promise<ResourceOperation[]> {
+  if (!existsSync(OPERATIONS_LOG_FILE)) return [];
+  const lines = (await fsPromises.readFile(OPERATIONS_LOG_FILE, "utf-8"))
+    .split("\n")
+    .filter((l) => l.trim());
+  return lines.map((l) => {
+    try { return JSON.parse(l) as ResourceOperation; } catch { return null; }
+  }).filter((x): x is ResourceOperation => x !== null);
+}
+
+async function appendOperationLog(op: ResourceOperation): Promise<void> {
+  await ensureDir(join(ROOT, "outputs"));
+  await fsPromises.appendFile(OPERATIONS_LOG_FILE, JSON.stringify(op) + "\n", "utf-8");
+}
+
 interface ChatSession {
   id: string;
   timestamp: string;
@@ -1775,6 +1827,13 @@ interface ChatPreset {
   skills: string[];
   persona?: string;
   filePaths?: string[];
+  triggerRules?: Array<{
+    whenAgent: string;
+    thenAgent: string;
+    messageIncludes?: string;
+    reason?: string;
+    once?: boolean;
+  }>;
 }
 
 async function createPreset(preset: ChatPreset): Promise<void> {
@@ -1959,8 +2018,15 @@ const BUILTIN_TOOL_CATALOG = [
   "smart_chat",
   "analyze_chat_trends",
   "get_handlers_dashboard",
+  "export_handlers_statistics",
   "export_to_markdown",
-  "batch_chat"
+  "batch_chat",
+  "add_memory",
+  "search_memory",
+  "list_memory",
+  "add_vector_record",
+  "search_vector",
+  "build_prompt"
 ];
 
 function buildDefaultGovernanceState(): GovernanceState {
@@ -2290,16 +2356,18 @@ govTool(
   "search_resources",
   {
     title: "Search Resources",
-    description: "スキル・ツール・プリセットを横断検索し、関連度スコア付きで返します。",
+    description: "スキル・ツール・プリセットを横断検索し、関連度スコア付きで返します。includeDisabled: false で無効化リソースを除外できます。",
     inputSchema: {
       query: z.string(),
       resourceTypes: z.array(z.enum(["skills", "tools", "presets"])).optional(),
-      limitPerType: z.number().int().min(1).max(20).optional()
+      limitPerType: z.number().int().min(1).max(20).optional(),
+      includeDisabled: z.boolean().optional()
     }
   },
-  async ({ query, resourceTypes, limitPerType }) => {
+  async ({ query, resourceTypes, limitPerType, includeDisabled }) => {
     const types = resourceTypes ?? ["skills", "tools", "presets"];
     const limit = limitPerType ?? 5;
+    const showDisabled = includeDisabled !== false; // デフォルト: true（後方互換）
     const state = await loadGovernanceState();
 
     const skillRows = types.includes("skills")
@@ -2310,7 +2378,7 @@ govTool(
           score: scoreByQuery(query, s.name, s.summary),
           disabled: state.disabled.skills.includes(s.name)
         }))
-        .filter((x) => x.score > 0)
+        .filter((x) => x.score > 0 && (showDisabled || !x.disabled))
         .sort((a, b) => b.score - a.score)
         .slice(0, limit)
       : [];
@@ -2324,7 +2392,7 @@ govTool(
           score: scoreByQuery(query, name, meta.title ?? "", meta.description ?? ""),
           disabled: state.disabled.tools.includes(name)
         }))
-        .filter((x) => x.score > 0)
+        .filter((x) => x.score > 0 && (showDisabled || !x.disabled))
         .sort((a, b) => b.score - a.score)
         .slice(0, limit)
       : [];
@@ -2339,7 +2407,7 @@ govTool(
           score: scoreByQuery(query, p.name, p.description, p.topic, p.agents.join(" ")),
           disabled: state.disabled.presets.includes(p.name)
         }))
-        .filter((x) => x.score > 0)
+        .filter((x) => x.score > 0 && (showDisabled || !x.disabled))
         .sort((a, b) => b.score - a.score)
         .slice(0, limit)
       : [];
@@ -2544,7 +2612,7 @@ govTool(
   "create_preset",
   {
     title: "Create Chat Preset",
-    description: "チャットプリセットを作成します。",
+    description: "チャットプリセットを作成します。triggerRules を含めることで orchestrate_chat 相当のフローをプリセット化できます。",
     inputSchema: {
       name: z.string(),
       description: z.string(),
@@ -2552,10 +2620,17 @@ govTool(
       agents: z.array(z.string()),
       skills: z.array(z.string()).optional(),
       persona: z.string().optional(),
-      filePaths: z.array(z.string()).optional()
+      filePaths: z.array(z.string()).optional(),
+      triggerRules: z.array(z.object({
+        whenAgent: z.string(),
+        thenAgent: z.string(),
+        messageIncludes: z.string().optional(),
+        reason: z.string().optional(),
+        once: z.boolean().optional()
+      })).optional()
     }
   },
-  async ({ name, description, topic, agents, skills, persona, filePaths }) => {
+  async ({ name, description, topic, agents, skills, persona, filePaths, triggerRules }) => {
     await createPreset({
       name,
       description,
@@ -2563,7 +2638,8 @@ govTool(
       agents,
       skills: skills ?? [],
       persona,
-      filePaths
+      filePaths,
+      triggerRules
     });
     return {
       content: [
@@ -2616,15 +2692,17 @@ govTool(
   "run_preset",
   {
     title: "Run Chat Preset",
-    description: "プリセット設定を使って chat を実行します。",
+    description: "プリセット設定を使って chat を実行します。overrideAgents でエージェントを完全置換、additionalSkills でスキルを追加できます。",
     inputSchema: {
       name: z.string(),
       overrideTopic: z.string().optional(),
+      overrideAgents: z.array(z.string()).optional(),
+      additionalSkills: z.array(z.string()).optional(),
       maxContextChars: z.number().int().min(500).max(200000).optional(),
       appendInstruction: z.string().optional()
     }
   },
-  async ({ name, overrideTopic, maxContextChars, appendInstruction }) => {
+  async ({ name, overrideTopic, overrideAgents, additionalSkills, maxContextChars, appendInstruction }) => {
     await emitSystemEvent("preset_before_execute", {
       presetName: name,
       overrideTopic: overrideTopic ?? null
@@ -2643,11 +2721,13 @@ govTool(
       };
     }
 
-    const { enabled: enabledSkills } = await filterDisabledSkills(preset.skills ?? []);
+    const effectiveAgents = overrideAgents ?? preset.agents;
+    const effectiveSkills = [...(preset.skills ?? []), ...(additionalSkills ?? [])];
+    const { enabled: enabledSkills } = await filterDisabledSkills(effectiveSkills);
     const topic = overrideTopic ?? preset.topic;
     const prompt = await buildChatPrompt(
       topic,
-      preset.agents,
+      effectiveAgents,
       preset.persona,
       enabledSkills,
       preset.filePaths ?? [],
@@ -2879,9 +2959,20 @@ govTool(
     await ensureDir(TOOL_PROPOSALS_DIR);
 
     const results: Array<{ action: string; resourceType: string; name: string; result: string }> = [];
+    const recentOps = await loadRecentOperations();
 
     for (const item of actions) {
       const { resourceType, action, name, content, preset } = item;
+
+      // FEAT-L: 日次制限チェック
+      if (action === "create" && checkDailyLimitExceeded(recentOps, "create", state.config.thresholds?.dailyCreateLimit ?? 5)) {
+        results.push({ action, resourceType, name, result: "daily_limit_exceeded (create: 5/day)" });
+        continue;
+      }
+      if (action === "delete" && checkDailyLimitExceeded(recentOps, "delete", state.config.thresholds?.dailyDeleteLimit ?? 3)) {
+        results.push({ action, resourceType, name, result: "daily_limit_exceeded (delete: 3/day)" });
+        continue;
+      }
 
       if (action === "disable") {
         if (!state.disabled[resourceType].includes(name)) {
@@ -3132,6 +3223,23 @@ govTool(
 
     await saveGovernanceState(state);
     await refreshDisabledToolsCache();
+
+    // FEAT-L: 成功した create/delete 操作を operations-log.jsonl に記録
+    for (const r of results) {
+      if ((r.action === "create" || r.action === "delete") &&
+          !r.result.startsWith("daily_limit_exceeded") &&
+          !r.result.startsWith("max reached") &&
+          !r.result.startsWith("not-found") &&
+          !r.result.startsWith("quality_check_failed")) {
+        await appendOperationLog({
+          type: r.action as "create" | "delete",
+          resourceType: r.resourceType as "skills" | "tools" | "presets",
+          name: r.name,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+
     return {
       content: [
         {
@@ -3215,28 +3323,48 @@ govTool(
   "analyze_chat_trends",
   {
     title: "Analyze Chat Trends",
-    description: "エージェントログの傾向を分析します。",
-    inputSchema: {}
+    description: "エージェントログの傾向を分析します。historyId で特定セッション、since で期間絞り込み、groupBy でグループ化方法を指定できます。",
+    inputSchema: {
+      historyId: z.string().optional(),
+      since: z.string().optional(),
+      groupBy: z.enum(["agent", "topic"]).optional()
+    }
   },
-  async () => {
+  async ({ historyId, since, groupBy }) => {
+    let targetEntries: AgentMessage[] = agentLog;
+
+    if (historyId) {
+      const session = await loadChatHistories().then((ss) => ss.find((s) => s.id === historyId));
+      if (!session) {
+        return { content: [{ type: "text", text: `History not found: ${historyId}` }] };
+      }
+      targetEntries = session.entries;
+    }
+
+    if (since) {
+      const cutoff = new Date(since);
+      targetEntries = targetEntries.filter((e) => new Date(e.timestamp) >= cutoff);
+    }
+
+    const key = groupBy ?? "agent";
+
     const stats: {
-      [agent: string]: { count: number; avgLength: number; topics: string[] };
+      [group: string]: { count: number; avgLength: number; topics?: string[]; agents?: string[] };
     } = {};
 
-    for (const entry of agentLog) {
-      if (!stats[entry.agent]) {
-        stats[entry.agent] = {
-          count: 0,
-          avgLength: 0,
-          topics: []
-        };
+    for (const entry of targetEntries) {
+      const g = key === "topic" ? (entry.topic ?? "unknown") : entry.agent;
+      if (!stats[g]) {
+        stats[g] = { count: 0, avgLength: 0, ...(key === "agent" ? { topics: [] } : { agents: [] }) };
       }
-      stats[entry.agent].count++;
-      const prevAvg = stats[entry.agent].avgLength;
-      stats[entry.agent].avgLength =
-        prevAvg + (entry.message.length - prevAvg) / stats[entry.agent].count;
-      if (entry.topic && !stats[entry.agent].topics.includes(entry.topic)) {
-        stats[entry.agent].topics.push(entry.topic);
+      stats[g].count++;
+      const prev = stats[g].avgLength;
+      stats[g].avgLength = prev + (entry.message.length - prev) / stats[g].count;
+      if (key === "agent" && entry.topic && !stats[g].topics!.includes(entry.topic)) {
+        stats[g].topics!.push(entry.topic);
+      }
+      if (key === "topic" && !stats[g].agents!.includes(entry.agent)) {
+        stats[g].agents!.push(entry.agent);
       }
     }
 
@@ -3246,8 +3374,11 @@ govTool(
           type: "text",
           text: JSON.stringify(
             {
-              totalMessages: agentLog.length,
-              uniqueAgents: Object.keys(stats).length,
+              totalMessages: targetEntries.length,
+              uniqueGroups: Object.keys(stats).length,
+              groupBy: key,
+              historyId: historyId ?? "current",
+              since: since ?? null,
               stats
             },
             null,
@@ -3274,17 +3405,178 @@ govTool(
   }
 );
 
+// FEAT-H: export_handlers_statistics
+govTool(
+  "export_handlers_statistics",
+  {
+    title: "Export Handlers Statistics",
+    description: "ハンドラー統計を CSV または JSON 形式でエクスポートします。outputPath を指定するとファイルにも書き出します。",
+    inputSchema: {
+      format: z.enum(["json", "csv"]).optional(),
+      outputPath: z.string().optional()
+    }
+  },
+  async ({ format, outputPath }) => {
+    const stats: HandlersStatistics = {
+      created: handlersState.createdTracker,
+      deleted: handlersState.deletedTracker,
+      errors: handlersState.errorTracker,
+      qualityFailures: handlersState.qualityTracker,
+      lastUpdated: new Date().toISOString()
+    };
+    const content = format === "csv"
+      ? exportStatisticsAsCsv(stats)
+      : exportStatisticsAsJson(stats);
+
+    if (outputPath) {
+      const dest = resolve(outputPath);
+      await ensureDir(dirname(dest));
+      await fsPromises.writeFile(dest, content, "utf-8");
+    }
+
+    return { content: [{ type: "text", text: content }] };
+  }
+);
+
+
+
+govTool(
+  "add_memory",
+  {
+    title: "Add Memory",
+    description: "テキストをインメモリに記録します。",
+    inputSchema: {
+      text: z.string().min(1)
+    }
+  },
+  async ({ text }) => {
+    addMemory(text);
+    return {
+      content: [{ type: "text", text: `記録しました: ${text.slice(0, 80)}${text.length > 80 ? "..." : ""}` }]
+    };
+  }
+);
+
+govTool(
+  "search_memory",
+  {
+    title: "Search Memory",
+    description: "インメモリから部分一致でテキストを検索します。",
+    inputSchema: {
+      query: z.string().min(1)
+    }
+  },
+  async ({ query }) => {
+    const results = searchMemory(query);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({ query, results, count: results.length }, null, 2)
+        }
+      ]
+    };
+  }
+);
+
+govTool(
+  "list_memory",
+  {
+    title: "List Memory",
+    description: "インメモリの全記録を返します。",
+    inputSchema: {}
+  },
+  async () => {
+    const items = listMemory();
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({ count: items.length, items }, null, 2)
+        }
+      ]
+    };
+  }
+);
+
+govTool(
+  "add_vector_record",
+  {
+    title: "Add Vector Record",
+    description: "id / text / tags でベクターストアにレコードを追加します。",
+    inputSchema: {
+      id: z.string().min(1),
+      text: z.string().min(1),
+      tags: z.array(z.string()).optional()
+    }
+  },
+  async ({ id, text, tags }) => {
+    addRecord({ id, text, tags: tags ?? [] });
+    return {
+      content: [{ type: "text", text: `Vector record added: ${id}` }]
+    };
+  }
+);
+
+govTool(
+  "search_vector",
+  {
+    title: "Search Vector",
+    description: "ベクターストアをキーワードで検索します（text と tags に対してマッチ）。",
+    inputSchema: {
+      query: z.string().min(1)
+    }
+  },
+  async ({ query }) => {
+    const results = searchByKeyword(query);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({ query, count: results.length, results }, null, 2)
+        }
+      ]
+    };
+  }
+);
+
+govTool(
+  "build_prompt",
+  {
+    title: "Build Prompt",
+    description:
+      "単一エージェント用のプロンプトを base-prompt.md + reasoning-framework.md を組み合わせて生成します。chat より軽量な単発タスク向け。",
+    inputSchema: {
+      agentName: z.string(),
+      agentContent: z.string(),
+      task: z.string()
+    }
+  },
+  async ({ agentName, agentContent, task }) => {
+    const basePath = join(ROOT, "prompt-engine", "base-prompt.md");
+    const reasoningPath = join(ROOT, "prompt-engine", "reasoning-framework.md");
+    const base = existsSync(basePath) ? readFileSync(basePath, "utf-8") : "";
+    const reasoning = existsSync(reasoningPath) ? readFileSync(reasoningPath, "utf-8") : "";
+    const prompt = `${base}\n\nAgent\n${agentName}\n\n${agentContent}\n\nTask\n${task}\n\n${reasoning}`;
+    return {
+      content: [{ type: "text", text: prompt }]
+    };
+  }
+);
+
+
 govTool(
   "export_to_markdown",
   {
     title: "Export Chat to Markdown",
-    description: "チャット履歴を Markdown 形式でエクスポートします。",
+    description: "チャット履歴を Markdown 形式でエクスポートします。outputPath を指定するとファイルにも書き出します。",
     inputSchema: {
       historyId: z.string().optional(),
-      title: z.string().optional()
+      title: z.string().optional(),
+      outputPath: z.string().optional()
     }
   },
-  async ({ historyId, title }) => {
+  async ({ historyId, title, outputPath }) => {
     const sessions = await loadChatHistories();
     let targetSession: ChatSession | undefined;
 
@@ -3318,6 +3610,12 @@ govTool(
       "\n\n---\n\n" +
       "Salesforce AI Company MCP exported markdown.";
 
+    if (outputPath) {
+      const dest = resolve(outputPath);
+      await ensureDir(dirname(dest));
+      await fsPromises.writeFile(dest, markdown, "utf-8");
+    }
+
     return {
       content: [
         {
@@ -3337,40 +3635,60 @@ govTool(
   "batch_chat",
   {
     title: "Batch Chat",
-    description: "複数トピックを順次処理して統合レポートを返します。",
+    description: "複数トピックを処理して統合レポートを返します。topicConfigs でトピックごとにエージェント・指示を変えることができ、parallel: true で並列実行します。",
     inputSchema: {
-      topics: z.array(z.string()).min(1).max(10),
+      topics: z.array(z.string()).min(1).max(10).optional(),
+      topicConfigs: z.array(z.object({
+        topic: z.string(),
+        agents: z.array(z.string()).optional(),
+        appendInstruction: z.string().optional()
+      })).min(1).max(10).optional(),
       agents: z.array(z.string()).optional(),
       persona: z.string().optional(),
       skills: z.array(z.string()).optional(),
       maxContextChars: z.number().int().min(500).max(200000).optional(),
-      appendInstruction: z.string().optional()
+      appendInstruction: z.string().optional(),
+      parallel: z.boolean().optional()
     }
   },
-  async ({ topics, agents, persona, skills, maxContextChars, appendInstruction }) => {
-    const results: string[] = [];
+  async ({ topics, topicConfigs, agents, persona, skills, maxContextChars, appendInstruction, parallel }) => {
+    const defaultAgents = ["product-manager", "architect", "qa-engineer"];
+    const configs = topicConfigs ?? (topics ?? []).map((t) => ({ topic: t }));
+    if (configs.length === 0) {
+      return { content: [{ type: "text", text: "topics または topicConfigs を指定してください。" }] };
+    }
 
-    for (const topic of topics) {
-      const prompt = await buildChatPrompt(
-        topic,
-        agents ?? ["product-manager", "architect", "qa-engineer"],
+    const buildOne = async (cfg: { topic: string; agents?: string[]; appendInstruction?: string }) =>
+      buildChatPrompt(
+        cfg.topic,
+        cfg.agents ?? agents ?? defaultAgents,
         persona,
         skills ?? [],
         [],
         4,
         maxContextChars,
-        appendInstruction
+        cfg.appendInstruction ?? appendInstruction
       );
-      results.push("## " + topic + "\n\n" + prompt);
-    }
 
+    const prompts = parallel
+      ? await Promise.all(configs.map(buildOne))
+      : await configs.reduce(
+          async (acc, cfg) => {
+            const arr = await acc;
+            arr.push(await buildOne(cfg));
+            return arr;
+          },
+          Promise.resolve([] as string[])
+        );
+
+    const results = configs.map((cfg, i) => "## " + cfg.topic + "\n\n" + prompts[i]);
     const batchReport = results.join("\n\n---\n\n");
 
     return {
       content: [
         {
           type: "text",
-          text: "# バッチ処理レポート\n\n**処理トピック数**: " + topics.length + "\n\n" + batchReport
+          text: "# バッチ処理レポート\n\n**処理トピック数**: " + configs.length + (parallel ? "（並列実行）" : "（逐次実行）") + "\n\n" + batchReport
         }
       ]
     };
