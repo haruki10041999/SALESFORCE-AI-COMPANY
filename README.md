@@ -1,53 +1,483 @@
-# Salesforce AI Company 仕様書
+# Salesforce AI Company - 5-Phase Evolution Architecture
 
-## 1. 文書目的
+## 📋 Overview
 
-本書は Salesforce AI Company の現行実装に対する仕様書です。
-対象は MCP サーバー本体、登録ツール、永続化データ、イベント機構、リソース管理、および動作検証方法です。
+**Salesforce AI Company** は、MCP サーバーとして Salesforce 開発を支援する AI エージェント・スキル・ツールを**動的に選択・補完・拡張する**システムです。
 
-本書の目的は次の 3 点です。
+### 5-Phase Evolution
 
-1. 実装されている振る舞いを仕様として固定すること
-2. 利用者と保守者の双方が入出力と副作用を把握できるようにすること
-3. 変更後に何をどう検証すればよいかを明確にすること
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Phase 1: リソース選択の高度化 (Resource Scoring)              │
+│  → 検索クエリに基づく実装されたスコアリングアルゴリズム      │
+│  → DEFAULT_SCORING_CONFIG に定義された数式による正確な選定    │
+└─────────────────────────────────────────────────────────────────┘
+                ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  Phase 2: リソース不足の検知と補完 (Gap Detection & Suggestion)│
+│  → トップスコアと閾値の比較によるギャップ検出                │
+│  → severity 分類 (none/low/medium/high)                         │
+│  → リソース提案の自動生成                                      │
+└─────────────────────────────────────────────────────────────────┘
+                ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  Phase 3: イベント駆動による自動拡張 (Quality & Deduplication)│
+│  → 品質チェック (Skills/Tools/Presets の3つプロファイル)     │
+│  → 重複検出 (Levenshtein距離による類似度判定)                │
+│  → apply_resource_actions へ統合                               │
+└─────────────────────────────────────────────────────────────────┘
+                ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  Phase 4: 安全な自己進化 (Event-Driven Handlers)              │
+│  → 6つのハンドラーが6つのイベント型に反応                    │
+│  → イベント履歴管理とエラーパターン検出                      │
+│  → 統計管理による全体的な可視化                                │
+└─────────────────────────────────────────────────────────────────┘
+                ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  Phase 5: 責務分離と自動実行 (Handlers Auto-Initialization)   │
+│  → server.ts 起動時に全ハンドラーを自動登録                  │
+│  → イベント駆動による自動実行                                  │
+│  → 人的介入なしで自己進化を継続                                │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-## 2. システム概要
+---
 
-Salesforce AI Company は、GitHub Copilot や Claude Desktop などの MCP クライアントから利用する Salesforce 向けマルチエージェント支援サーバーです。
+## 🏗️ Architecture
 
-主な責務は以下です。
+### Class Diagram: Core Modules
 
-1. エージェント、スキル、ペルソナ、コード断片から会話用プロンプトを構築する
-2. 会話ログを記録、保存、復元する
-3. 疑似オーケストレーションで次エージェント候補を決定する
-4. スキル、ツール、プリセットを検索、自動選択、管理する
-5. イベントを記録し、一部イベントを自動アクションへ接続する
+```mermaid
+classDiagram
+  class ResourceSelector {
+    +scoreCandidate(candidate, query, config): number
+    +selectResources(candidates, type, limit): ResourceSelectionResult
+    +DEFAULT_SCORING_CONFIG: ScoringConfig
+  }
 
-## 3. 対象環境
+  class ResourceGapDetector {
+    +detectGap(type, topic, topScore, threshold): GapDetectionResult
+    +calculateGapSeverity(): 'none'|'low'|'medium'|'high'
+    +createGapEvent(): GapEvent
+  }
 
-- Node.js 18 以上
-- TypeScript 5 系
-- GitHub Copilot を使う VS Code
-- または Claude Desktop
+  class ResourceSuggester {
+    +suggestResource(gap): ResourceSuggestion
+    +generateResourceName(topic, type): string
+    +normalizeResourceSuggestion(): string
+  }
 
-## 4. 実装構成
+  class QualityChecker {
+    +checkSkillQuality(skill): QualityCheckResult
+    +checkToolQuality(tool): QualityCheckResult
+    +checkPresetQuality(preset): QualityCheckResult
+  }
 
-主要な実装とデータ配置は以下です。
+  class Deduplication {
+    +calculateSimilarity(r1, r2): 0-1
+    +checkForDuplicates(newResource, existing): SimilarityCheckResult
+    +generateUniqueName(baseName, existing): string
+  }
 
-- サーバー本体: mcp/server.ts
-- 個別ツール実装: mcp/tools/*.ts
-- エージェント定義: agents/*.md
-- ペルソナ定義: personas/*.md
-- スキル定義: skills/**/*.md
-- プロンプト設計資産: prompt-engine/*
-- 永続化出力: outputs/*
-- テスト: tests/*.test.ts
+  class GovernanceManager {
+    +calculateResourceScore(usage, bugSignals): number
+    +assessRiskLevel(usage, bugs): 'low'|'medium'|'high'
+    +isOverCapacity(type, count, config): boolean
+  }
 
-出力ディレクトリの用途は以下です。
+  class EventDispatcher {
+    +on(type, listener): void
+    +emit(event): void
+    +getHistory(): SystemEvent[]
+    +getGlobalDispatcher(): EventDispatcher
+  }
 
-- outputs/history: 保存済みチャット履歴 JSON
-- outputs/presets: チャットプリセット JSON
-- outputs/events/system-events.jsonl: システムイベントログ
+  ResourceSelector --> ResourceGapDetector: scoreで検知
+  ResourceGapDetector --> ResourceSuggester: gapから提案生成
+  ResourceSuggester --> QualityChecker: 提案を品質チェック
+  QualityChecker --> Deduplication: 重複検査後に作成
+  Deduplication --> GovernanceManager: 作成後にスコア算出
+  EventDispatcher --> ResourceGapDetector: イベント発行
+  EventDispatcher --> QualityChecker: quality_check_failed発行
+```
+
+### Sequence Diagram: Event Flow
+
+```mermaid
+sequenceDiagram
+  participant User as User
+  participant Tool as apply_resource_actions
+  participant QC as QualityChecker
+  participant Dedup as Deduplication
+  participant Event as EventDispatcher
+  participant Handler as Handlers
+
+  User->>Tool: リソース作成要求
+  Tool->>QC: checkResourceQuality()
+    
+  alt 品質チェック失敗
+    QC-->>Event: quality_check_failed イベント発行
+    Event->>Handler: handleQualityCheckFailed()
+    Handler->>Handler: パターン検出 → 改善提案生成
+  else 品質チェック成功
+    QC-->>Tool: pass:true
+    Tool->>Dedup: checkForDuplicates()
+        
+    alt 重複検出
+      Dedup-->>Tool: isDuplicate:true
+      Tool-->>User: 重複警告
+    else 重複なし
+      Dedup-->>Tool: isDuplicate:false
+      Tool->>Event: resource_created イベント発行
+      Event->>Handler: handleResourceCreated()
+      Handler->>Handler: 作成トラッカー更新 → 統計集計
+      Tool-->>User: 成功
+    end
+  end
+```
+
+### State Diagram: Resource Lifecycle
+
+```mermaid
+stateDiagram-v2
+  [*] --> GapDetected: topScore < threshold
+    
+  GapDetected --> SuggestionGenerated: detectGap() → suggestResource()
+  SuggestionGenerated --> QualityChecking: 提案が品質チェック前に
+    
+  QualityChecking --> QualityFailed: エラー/警告あり
+  QualityFailed --> FailureTracked: recordQualityCheckFailure()
+  FailureTracked --> [*]
+    
+  QualityChecking --> DuplicateChecking: 品質合格
+  DuplicateChecking --> DuplicateFound: 類似度 > 0.8
+  DuplicateFound --> [*]
+    
+  DuplicateChecking --> ResourceCreated: 一意性確認
+  ResourceCreated --> CreatedTracked: handleResourceCreated()
+  CreatedTracked --> InUse: 統計に記録
+    
+  InUse --> Evaluated: 使用/バグ追跡
+  Evaluated --> Deleted: 低スコアまたはガバナンス違反
+  Deleted --> DeletedTracked: recordResourceDeletion()
+  DeletedTracked --> [*]
+```
+
+### Component Diagram: Modular Separation
+
+```mermaid
+graph TB
+  subgraph Core["Core Modules (mcp/core/)"]
+    RS["resource-selector.ts"]
+    RGD["resource-gap-detector.ts"]
+    RS_GR["resource-suggester.ts"]
+    QC["quality-checker.ts"]
+    DED["deduplication.ts"]
+    GM["governance-manager.ts"]
+    ED["event-dispatcher.ts"]
+  end
+
+  subgraph Handlers["Handlers (mcp/handlers/)"]
+    RGH["resource-gap.handler.ts"]
+    RCH["resource-created.handler.ts"]
+    RDH["resource-deleted.handler.ts"]
+    EAH["error-aggregate.handler.ts"]
+    QFH["quality-check-failed.handler.ts"]
+    TH["threshold.handler.ts"]
+    SM["statistics-manager.ts"]
+    AI["auto-init.ts"]
+  end
+
+  subgraph Server["Server (server.ts)"]
+    SS["apply_resource_actions"]
+    MAIN["main()"]
+  end
+
+  SS -->|品質チェック| QC
+  SS -->|重複検出| DED
+  SS -->|イベント発行| ED
+    
+  ED -->|リッスン| RGH
+  ED -->|リッスン| RCH
+  ED -->|リッスン| RDH
+  ED -->|リッスン| EAH
+  ED -->|リッスン| QFH
+    
+  RGH -->|スコア検証| RS
+  RCH -->|トラッキング| SM
+  RDH -->|トラッキング| SM
+  EAH -->|パターン検出| GM
+  QFH -->|パターン検出| QC
+    
+  AI -->|初期化| RGH
+  AI -->|初期化| RCH
+  AI -->|初期化| RDH
+  AI -->|初期化| EAH
+  AI -->|初期化| QFH
+    
+  MAIN -->|呼び出し| AI
+  MAIN -->|起動時実行| SS
+```
+
+---
+
+## 📦 Module Reference
+
+### Phase 1: Resource Selector
+
+**File**: mcp/core/resource/resource-selector.ts
+
+| Interface | Purpose |
+|-----------|---------|
+| `ResourceCandidate` | スコアリング対象のリソース |
+| `ScoringConfig` | スコアリング係数の設定 |
+| `ResourceSelectionResult` | 選定結果（selected[]、isGap） |
+
+**Scoring Formula**:
+```
+score = nameMatch + tagMatch + descriptionMatch + usageScore 
+     - (bugPenalty) + recencyBonus
+```
+
+**Example Usage**:
+```typescript
+const score = scoreCandidate(skill, "apex testing");
+const result = selectResources(candidates, "skills", 3);
+if (result.isGap) {
+  // トップスコア < 5 のときギャップ検出
+}
+```
+
+---
+
+### Phase 2: Resource Gap Detection
+
+**File**: mcp/core/resource/resource-gap-detector.ts
+
+| Method | Input | Output |
+|--------|-------|--------|
+| `detectGap()` | type, topic, topScore, threshold=5 | GapDetectionResult |
+| `calculateGapSeverity()` | ratio = topScore/threshold | "none" \| "low" \| "medium" \| "high" |
+| `createGapEvent()` | GapDetectionResult | GapEvent \| null |
+
+**Severity Mapping**:
+- **none**: topScore ≥ threshold
+- **low**: 0.5 ≤ ratio < 1.0
+- **medium**: 0.2 ≤ ratio < 0.5
+- **high**: ratio < 0.2
+
+---
+
+### Phase 3: Quality & Deduplication
+
+#### Quality Checker
+**File**: mcp/core/quality/quality-checker.ts
+
+**Quality Profiles**:
+
+| Type | Requirements | Score Impact |
+|------|-------------|--------------|
+| **Skill** | tags ≥ 2, summary ≥ 10 chars | nameMatch: 50%, tags: 30%, content: 20% |
+| **Tool** | description ≥ 10 chars | description: 100% |
+| **Preset** | agents ≥ 1, name 2-100 chars | structure: 100% |
+
+#### Deduplication
+**File**: mcp/core/quality/deduplication.ts
+
+| Method | Purpose |
+|--------|---------|
+| `calculateSimilarity()` | Levenshtein距離 + コンテンツ比較 → 0-1 |
+| `checkForDuplicates()` | threshold = 0.8 で類似リソース検出 |
+| `generateUniqueName()` | 既存名と競合しない一意の名前を生成 |
+
+---
+
+### Phase 4: Handlers
+
+**Directory**: mcp/handlers/
+
+| Handler | Event | Purpose |
+|---------|-------|---------|
+| resource-gap.handler.ts | `resource_gap_detected` | ギャップ検出時に提案を自動生成 |
+| resource-created.handler.ts | `resource_created` | 作成リソースを追跡・カウント |
+| resource-deleted.handler.ts | `resource_deleted` | 削除パターンを追跡 |
+| error-aggregate.handler.ts | `error_aggregate_detected` | エラー集約を検出 → 自動無効化 |
+| quality-check-failed.handler.ts | `quality_check_failed` | 品質失敗パターンから改善提案 |
+| threshold.handler.ts | `governance_threshold_exceeded` | キャパシティ超過時の自動クリーンアップ |
+
+**Statistics Manager**: 全ハンドラーの統計を集約 → CSV/JSON エクスポート
+
+---
+
+### Phase 5: Handlers Auto-Initialization
+
+**File**: mcp/handlers/auto-init.ts
+
+```typescript
+// server.ts の main() で自動実行
+const handlersState = initializeHandlersState();
+autoInitializeHandlers(handlersState);
+```
+
+| Function | Effect |
+|----------|--------|
+| `initializeHandlersState()` | 4つのハンドラートラッカーを初期化 |
+| `autoInitializeHandlers()` | 6つのイベント型に全ハンドラーを登録 |
+| `generateHandlersDashboard()` | 統計情報をダッシュボード形式で返す |
+
+---
+
+## 🧪 Testing
+
+### Test Files
+
+```bash
+# Core module tests
+npm test -- tests/core-modules.test.ts
+
+# Handler tests
+npm test -- tests/handlers-modules.test.ts
+
+# Quality & duplicate tests
+npm test -- tests/apply-resource-actions.test.ts
+
+# すべてのテスト実行
+npm test
+```
+
+### Test Coverage
+
+- ✅ Resource Selector (scoring, selection, gap detection)
+- ✅ Gap Detector (high/low gap, event creation)
+- ✅ Quality Checker (skill/tool/preset validation)
+- ✅ Deduplication (similarity, duplicate detection)
+- ✅ Governance Manager (scoring, risk assessment)
+- ✅ 6 Handlers (creation, deletion, error, quality, threshold tracking)
+- ✅ Statistics Manager (aggregation, export)
+
+---
+
+## 🚀 Quick Start
+
+### Installation
+
+```bash
+npm install
+npm run build
+```
+
+### Run Server
+
+```bash
+npm start
+```
+
+Server starts with:
+1. Custom tools loading
+2. **Phase 5**: Handlers auto-initialization
+3. Event dispatcher ready
+4. All 6 handlers listening on their event types
+
+### Example: Using auto_select_resources
+
+```typescript
+// User request: "I need Apex testing skills"
+const result = await auto_select_resources({
+  topic: "Apex testing",
+  limitPerType: 3
+});
+
+// Phase 1: scoreCandidate() による高度な選定
+// Phase 2: selectResources() でギャップ検出 (isGap: true/false)
+// Phase 3: quality-checker により品質確認
+// Phase 4: イベント発行 → handlers が自動反応
+// Phase 5: statistics-manager が統計更新
+```
+
+---
+
+## 📊 Key Metrics
+
+**Current Implementation**:
+- **Core Modules**: 8 files
+- **Handlers**: 7 files
+- **Event Types**: 6
+- **Quality Profiles**: 3
+- **Risk Levels**: 3
+- **Gap Severities**: 4
+- **Test Coverage**: 87+ tests
+
+---
+
+## 🔄 Event-Driven Architecture
+
+All handlers execute **automatically** on server startup:
+
+```
+server start
+  ↓
+main() called
+  ↓
+initializeHandlersState()    ← HandlerState初期化
+  ↓
+autoInitializeHandlers()     ← 6つのハンドラー登録
+  ↓
+dispatcher.on(...) listeners ready
+  ↓
+apply_resource_actions emits events
+  ↓
+Handlers auto-execute (no human intervention needed)
+```
+
+---
+
+## 📝 Development
+
+### Add New Handler
+
+1. **Create handler file** in `mcp/handlers/{category}/`
+2. **Define interface** matching event payload
+3. **Register in auto-init.ts**: `onEvent("type", handler)`
+4. **Add test** in `tests/handlers-modules.test.ts`
+5. **Add event emit** in relevant core module
+
+### Add New Event Type
+
+1. **Define in event-dispatcher.ts**: `SystemEventTypes`
+2. **Create factory** in event-dispatcher.ts
+3. **Emit in core module** where applicable
+4. **Register handler** in auto-init.ts
+5. **Test with** system-events.jsonl
+
+---
+
+## 📚 References
+
+- [Core Modules Documentation](mcp/core/README.md)
+- [Handlers Documentation](mcp/handlers/README.md)
+- [Event Dispatcher](mcp/core/event/event-dispatcher.ts)
+- [Quality Checker](mcp/core/quality/quality-checker.ts)
+- [Test Files](tests/)
+
+---
+
+## ✨ Features
+
+✅ **Advanced Resource Selection** - Sophisticated scoring algorithm  
+✅ **Gap Detection** - Automatic insufficient resource detection  
+✅ **Quality Enforcement** - 3 quality profiles with validation  
+✅ **Duplicate Prevention** - Levenshtein-based similarity detection  
+✅ **Event-Driven** - 6 handlers on 6 event types  
+✅ **Auto-Initialization** - Handlers registered on server start  
+✅ **Statistics Tracking** - Unified handler statistics export  
+✅ **Self-Evolution** - No human intervention needed for auto-expansion  
+
+---
+
+## 📄 License
+
+MIT
 - outputs/resource-governance.json: リソース管理状態
 - outputs/custom-tools: apply_resource_actions で作成されたカスタムツール定義
 - outputs/tool-proposals: 将来拡張用の提案出力置き場
@@ -884,216 +1314,7 @@ review_resource_governance:
 
 ## 17. generate_kamiless_export ツール仕様
 
-### 17.1 概要
+この章は社外秘情報を含むため、公開 README からは分離しました。
 
-`*.kamiless.json` オーサリング仕様ファイルを読み込み、Docutize Form の `ImportExportFormTemplateController.importJson()` と互換性のある Export JSON を生成します。
-kamiless-cli バイナリを必要とせず、MCP サーバー単体で動作します。
-
-### 17.2 入力パラメータ
-
-| パラメータ | 型 | 必須 | 説明 |
-|------------|-----|------|------|
-| `specPath` | String | ✗ | `*.kamiless.json` ファイルへのパス。省略可 |
-| `specDir` | String | ✗ | `*.kamiless.json` を検索するディレクトリ。省略可 |
-| `outputPath` | String | ✗ | 出力先ファイルパス。省略時は `<入力ファイル名>-export.json` を自動生成 |
-
-**入力分岐**
-
-| 指定組み合わせ | 拦動 |
-|---------------|------|
-| `specPath` あり | 指定ファイルを変換 |
-| `specDir` のみ | そのディレクトリ配下を再帰検索 |
-| 両方省略 | プロジェクトルート配下を再帰検索 |
-
-- 1件のみ検出→自動変換
-- 複数検出→候補一覧を返し、`specPath` で絞り込みを促す
-- 0件→エラーでパス指定を促す
-
-### 17.3 入力ファイル形式（`*.kamiless.json`）
-
-ルートに `kamiless_spec_version: 1` を持つ JSON。
-
-```json
-{
-  "kamiless_spec_version": 1,
-  "name": "contact-form",
-  "title": "お問い合わせフォーム",
-  "apply_type": "apply",
-  "public_status": "draft",
-  "document_name": "contact_doc",
-  "sections": [
-    {
-      "key": "section-1",
-      "section_number": 1,
-      "section_label": "基本情報",
-      "form_layout_number": 1,
-      "fields": [
-        {
-          "key": "name-field",
-          "field_number": 1,
-          "field_label": "氏名",
-          "field_name": "Name",
-          "field_type": "Text",
-          "object_name": "Contact",
-          "required": true
-        }
-      ]
-    }
-  ],
-  "layouts": [
-    {
-      "key": "page-1",
-      "layout_number": 1,
-      "name": "Page 1",
-      "parts": [
-        {
-          "key": "part-name",
-          "name": "part-001",
-          "label": "氏名",
-          "field_type": "text",
-          "target_field": "name-field",
-          "size": { "width": 6, "height": 1 }
-        }
-      ]
-    }
-  ]
-}
-```
-
-### 17.4 背景画像の扱い
-
-#### image_file を指定する場合
-
-`layouts[].image_file` に specPath からの相対パス（または絶対パス）で画像ファイルを指定します。
-
-```json
-"layouts": [
-  {
-    "key": "page-1",
-    "layout_number": 1,
-    "image_file": "images/page1_bg.png"
-  }
-]
-```
-
-- 対応形式: JPEG / PNG / GIF / WebP
-- 画像は `Buffer.toString('base64')` で Base64 化して `image.data` に格納
-- 寸法（width / height）はバイナリヘッダから自動抽出（外部ライブラリ不要）
-- `dpi` は常に 96 として出力
-
-#### image_file を省略する場合（デフォルト白背景）
-
-`image_file` を書かなければ、ツールが **A4サイズ（794×1123 px, 96 DPI）の白背景 PNG** を自動生成して付与します。
-
-- Node.js 標準の `zlib.deflateSync` + CRC-32 テーブルで PNG バイナリをオンザフライ生成
-- 外部ライブラリ・ファイル不要
-- 同一レイアウト内で複数回参照されてもバッファはキャッシュされ一度だけ計算
-- 出力の `image.path_on_client` は `"default_background.png"` になる
-
-`image` フィールドは常に出力 JSON に含まれます（省略されることはありません）。
-
-### 17.5 FormPart 座標の自動レイアウト
-
-`parts[].position` を省略すると、サーバー側が自動的に座標を計算します。
-
-| 条件 | 挙動 |
-|------|------|
-| `position` あり | 指定値をそのまま使用 |
-| `position` なし | `x: 0` で前パートの末尾 y に縦積み配置 |
-
-縦積みの単位は `size.height`（デフォルト 1）です。
-すべてのパートを `position` 省略で書いた場合、上から順に均等に並びます。
-
-### 17.6 フィールド拡張への対応
-
-仕様改訂で `*.kamiless.json` に新しいフィールドが追加された場合、**コード変更なし**で出力 JSON に自動的に含まれます。
-
-- 各スペックインターフェースに `[key: string]: unknown` を付与
-- `KNOWN_*_KEYS` セットで処理済みキーを管理
-- `pickExtra()` ヘルパーで未知キーをスプレッド
-
-### 17.7 ID 割り当て規則
-
-| オブジェクト | プレフィックス | 例 |
-|-------------|---------------|---------|
-| FormTemplate | `a0H` | `a0HIn00000000001` |
-| FormLayout | `a0E` | `a0EIn00000000001` |
-| FormPart | `a0F` | `a0FIn00000000001` |
-| TargetFieldSection | `a0T` | `a0TIn00000000001` |
-| TargetField | `a0V` | `a0VIn00000000001` |
-| ContentVersion（画像） | `068` | `068In00000000001` |
-
-すべて合成 ID（Salesforce 組織への永続化は不要）。
-
-### 17.8 エラーと検証
-
-| エラー条件 | メッセージ例 |
-|------------|-------------|
-| specPath が存在しない | `Spec file not found: ...` |
-| `kamiless_spec_version !== 1` | `Unsupported spec version: ...` |
-| `name` が未設定 | `Missing required field: name` |
-| セクションキー重複 | `Duplicate section key: ...` |
-| パートキー重複 | `Duplicate form part key: ...` |
-| `target_field` が未定義キーを参照 | `FormPart '...' references unknown target_field: ...` |
-| 画像ファイルが存在しない | `Image file not found: ...` |
-| 未対応の画像形式 | `Unsupported image format: ...` |
-| FormPart 参照先が未登録 | `[Reference Resolution] FormPart not found: '...'` |
-
-### 17.9 実装ファイル
-
-- **実装**: `mcp/tools/kamiless-export-generator.ts`
-- **登録**: `mcp/server.ts` の `generate_kamiless_export` govTool
-- **仕様書**: `TEST_DATA_GENERATION_SPEC.md`（docutize_form/kamiless-plugin 内）
-
-### 17.10 generate_kamiless_from_requirements
-
-テスト要件の自然文または箇条書きから `*.kamiless.json` を自動生成します。必要に応じて export JSON まで連続生成できます。
-
-入力パラメータ:
-
-| パラメータ | 型 | 必須 | 説明 |
-|------------|-----|------|------|
-| `requirementsText` | String | △ | 要件本文そのもの |
-| `requirementsPath` | String | △ | 要件テキストファイルへのパス |
-| `diffText` | String | ✗ | git diff や変更差分テキスト。追加行から項目候補を抽出 |
-| `diffPath` | String | ✗ | diff テキストファイルへのパス |
-| `specOutputPath` | String | ✗ | 出力する `*.kamiless.json` のパス |
-| `exportOutputPath` | String | ✗ | 続けて export JSON も作る場合の出力先 |
-| `formName` | String | ✗ | 生成するフォーム名の上書き |
-| `title` | String | ✗ | 生成するタイトルの上書き |
-| `defaultObjectName` | String | ✗ | 項目に object 指定が無い場合の既定 object |
-
-`requirementsText` または `requirementsPath` のどちらか一方は必須です。
-`diffText` / `diffPath` は任意で、要件に追加して「変更差分から項目候補を広げる」用途で使います。
-
-解釈できる代表形式:
-
-```text
-フォーム名: requirements-form
-タイトル: 要件自動生成フォーム
-オブジェクト名: Applicant__c
-セクション: 申込者情報
-- 氏名 | Text | Applicant__c.Name__c | 必須
-- メールアドレス | Email | Applicant__c.Email__c | 必須
-- お問い合わせ内容 | LongTextArea | Applicant__c.Inquiry__c
-セクション: 同意
-- 利用規約に同意 | Checkbox | Applicant__c.AgreeTerms__c | 必須
-```
-
-解釈ルール:
-
-1. `フォーム名:` `タイトル:` `セクション:` などのメタ行を読む
-2. 箇条書きまたは `項目: 氏名, メールアドレス` 形式から項目を抽出する
-3. `Text / Email / Phone / Date / Checkbox / Radio / Picklist / LongTextArea / Number` を型として認識する
-4. `必須` または `required` を含むと required 扱いにする
-5. `Object.Field` 形式があれば `object_name` と `field_name` に反映する
-6. `options=` または `選択肢=` があれば select options として使う
-
-diff 解釈ルール:
-
-1. `+` で始まる追加行だけを対象にする
-2. `label` / `field_label` / `field_type` / `object_name` / `field_name` / `required` / `options` を持つオブジェクト断片を候補として組み立てる
-3. 組み立てた候補を通常の要件行へ変換して、要件本文の後ろに追加して解釈する
-4. diff だけではラベルが取れない断片は無視する
-
-解釈できなかった行はレスポンスの `未解釈行` に一覧表示されます。
+- 社内向け保管先: docs/internal/README.section17.confidential.md
+- 本ファイルは `.gitignore` 登録済み（Git 管理対象外）

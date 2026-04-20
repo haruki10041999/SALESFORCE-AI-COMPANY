@@ -17,6 +17,47 @@ import {
   generateKamilessSpecFromRequirements
 } from "./tools/kamiless-export-generator.js";
 
+// ============================================================
+// Core Modules
+// ============================================================
+import {
+  type ResourceCandidate,
+  type ScoringConfig,
+  selectResourcesByType,
+  DEFAULT_SCORING_CONFIG
+} from "./core/resource/resource-selector.js";
+import {
+  detectGap,
+  detectGapsForTopic
+} from "./core/resource/resource-gap-detector.js";
+import {
+  suggestResource,
+  suggestResourcesForGaps
+} from "./core/resource/resource-suggester.js";
+import {
+  checkResourceQuality
+} from "./core/quality/quality-checker.js";
+import {
+  checkForDuplicates,
+  generateUniqueName
+} from "./core/quality/deduplication.js";
+import {
+  type SystemEvent,
+  getGlobalDispatcher,
+  onEvent,
+  emitEvent,
+  createResourceCreatedEvent
+} from "./core/event/event-dispatcher.js";
+
+// ============================================================
+// Phase 5: Handlers Auto-Initialization
+// ============================================================
+import {
+  initializeHandlersState,
+  autoInitializeHandlers,
+  type HandlersState
+} from "./handlers/auto-init.js";
+
 // Resolve project root from this file location so cross-repo clients can share one server.
 const THIS_FILE = fileURLToPath(import.meta.url);
 const THIS_DIR = dirname(THIS_FILE);
@@ -2629,9 +2670,48 @@ govTool(
             results.push({ action, resourceType, name, result: "max reached (" + count + ")" });
             continue;
           }
+          
+          // 品質チェック（Phase 3 強化）
+          const contentToWrite = content ?? ("# " + name + "\n\n(ここにスキル内容を記述)");
+          const qualityValidation = await validateAndCreateSkillWithQuality(name, contentToWrite, state);
+          
+          if (!qualityValidation.success) {
+            results.push({ action, resourceType, name, result: "quality_check_failed: " + qualityValidation.message });
+            // イベント発火
+            try {
+              await emitEvent({
+                type: "quality_check_failed",
+                timestamp: new Date().toISOString(),
+                payload: {
+                  resourceType: "skills",
+                  name,
+                  errors: [qualityValidation.message]
+                }
+              });
+            } catch (e) {
+              // ignore
+            }
+            continue;
+          }
+          
           await ensureDir(dirname(skillPath));
-          await fsPromises.writeFile(skillPath, content ?? ("# " + name + "\n\n(ここにスキル内容を記述)"));
-          results.push({ action, resourceType, name, result: "created" });
+          await fsPromises.writeFile(skillPath, contentToWrite);
+          results.push({ action, resourceType, name, result: "created (quality_score: " + (qualityValidation.qualityScore ?? 0) + ")" });
+          
+          // リソース作成イベント発火
+          try {
+            await emitEvent({
+              type: "resource_created",
+              timestamp: new Date().toISOString(),
+              payload: {
+                resourceType: "skills",
+                name,
+                source: "apply_resource_actions"
+              }
+            });
+          } catch (e) {
+            // ignore
+          }
           continue;
         }
         if (action === "delete") {
@@ -2654,22 +2734,71 @@ govTool(
             results.push({ action, resourceType, name, result: "max reached (" + count + ")" });
             continue;
           }
+          
+          // プリセット準備
+          let presetToCreate: ChatPreset;
           if (preset) {
-            await createPreset({
+            presetToCreate = {
               ...preset,
               skills: preset.skills ?? []
-            });
+            };
           } else {
-            const fallbackPreset: ChatPreset = {
+            presetToCreate = {
               name,
               description: "自動作成プリセット",
               topic: name,
               agents: ["product-manager", "architect", "qa-engineer"],
               skills: []
             };
-            await createPreset(fallbackPreset);
           }
-          results.push({ action, resourceType, name, result: "created" });
+          
+          // 品質チェック（Phase 3 強化）
+          const qualityValidation = await validateAndCreatePresetWithQuality(
+            name,
+            {
+              description: presetToCreate.description,
+              agents: presetToCreate.agents,
+              topic: presetToCreate.topic
+            },
+            state
+          );
+          
+          if (!qualityValidation.success) {
+            results.push({ action, resourceType, name, result: "quality_check_failed: " + qualityValidation.message });
+            // イベント発火
+            try {
+              await emitEvent({
+                type: "quality_check_failed",
+                timestamp: new Date().toISOString(),
+                payload: {
+                  resourceType: "presets",
+                  name,
+                  errors: [qualityValidation.message]
+                }
+              });
+            } catch (e) {
+              // ignore
+            }
+            continue;
+          }
+          
+          await createPreset(presetToCreate);
+          results.push({ action, resourceType, name, result: "created (quality_score: " + (qualityValidation.qualityScore ?? 0) + ")" });
+          
+          // リソース作成イベント発火
+          try {
+            await emitEvent({
+              type: "resource_created",
+              timestamp: new Date().toISOString(),
+              payload: {
+                resourceType: "presets",
+                name,
+                source: "apply_resource_actions"
+              }
+            });
+          } catch (e) {
+            // ignore
+          }
           continue;
         }
         if (action === "delete") {
@@ -2690,10 +2819,35 @@ govTool(
             results.push({ action, resourceType, name, result: "max reached (" + count + ")" });
             continue;
           }
+          
+          const toolDescription = content ?? ("カスタムツール: " + name);
+          
+          // 品質チェック（Phase 3 強化）
+          const qualityValidation = await validateAndCreateToolWithQuality(name, toolDescription, state);
+          
+          if (!qualityValidation.success) {
+            results.push({ action, resourceType, name, result: "quality_check_failed: " + qualityValidation.message });
+            // イベント発火
+            try {
+              await emitEvent({
+                type: "quality_check_failed",
+                timestamp: new Date().toISOString(),
+                payload: {
+                  resourceType: "tools",
+                  name,
+                  errors: [qualityValidation.message]
+                }
+              });
+            } catch (e) {
+              // ignore
+            }
+            continue;
+          }
+          
           await ensureDir(CUSTOM_TOOLS_DIR);
           const toolDef: CustomToolDefinition = {
             name,
-            description: content ?? ("カスタムツール: " + name),
+            description: toolDescription,
             agents: ["product-manager", "architect"],
             skills: [],
             createdAt: new Date().toISOString()
@@ -2702,7 +2856,22 @@ govTool(
           const toolPath = join(CUSTOM_TOOLS_DIR, toolFileName + ".json");
           await fsPromises.writeFile(toolPath, JSON.stringify(toolDef, null, 2));
           registerCustomTool(toolDef);
-          results.push({ action, resourceType, name, result: "created: " + toPosixPath(relative(ROOT, toolPath)) });
+          results.push({ action, resourceType, name, result: "created (quality_score: " + (qualityValidation.qualityScore ?? 0) + "): " + toPosixPath(relative(ROOT, toolPath)) });
+          
+          // リソース作成イベント発火
+          try {
+            await emitEvent({
+              type: "resource_created",
+              timestamp: new Date().toISOString(),
+              payload: {
+                resourceType: "tools",
+                name,
+                source: "apply_resource_actions"
+              }
+            });
+          } catch (e) {
+            // ignore
+          }
           continue;
         }
         if (action === "delete") {
@@ -3196,10 +3365,158 @@ govTool(
   }
 );
 
+// ============================================================
+// Helper Functions for Resource Validation & Creation
+// ============================================================
+
+/**
+ * リソース作成時の検証関数
+ * 品質チェック、重複排除、ガバナンス確認を統合
+ */
+async function validateAndCreateSkillWithQuality(
+  skillName: string,
+  skillContent: string,
+  state: any // GovernanceState
+): Promise<{
+  success: boolean;
+  message: string;
+  qualityScore?: number;
+  duplicateFound?: boolean;
+}> {
+  // 名前の正規化・重複チェック
+  const existingSkills = await listSkillsCatalog();
+  if (existingSkills.some(s => s.name.toLowerCase() === skillName.toLowerCase())) {
+    return {
+      success: false,
+      message: `スキル名が重複: ${skillName}`
+    };
+  }
+
+  // 品質チェック
+  const qualityCheck = checkResourceQuality("skills", {
+    name: skillName,
+    summary: skillContent.slice(0, 100),
+    content: skillContent
+  });
+
+  if (!qualityCheck.pass) {
+    return {
+      success: false,
+      message: `品質チェック失敗: ${qualityCheck.errors.map(e => e.message).join(", ")}`,
+      qualityScore: qualityCheck.score
+    };
+  }
+
+  return {
+    success: true,
+    message: "検証成功",
+    qualityScore: qualityCheck.score
+  };
+}
+
+/**
+ * プリセット作成時の検証関数
+ */
+async function validateAndCreatePresetWithQuality(
+  presetName: string,
+  presetData: {
+    description: string;
+    agents: string[];
+    topic: string;
+  },
+  state: any // GovernanceState
+): Promise<{
+  success: boolean;
+  message: string;
+  qualityScore?: number;
+  duplicateFound?: boolean;
+}> {
+  // 重複チェック
+  const existingPresets = await listPresetsCatalog();
+  if (existingPresets.some(p => p.toLowerCase() === presetName.toLowerCase())) {
+    return {
+      success: false,
+      message: `プリセット名が重複: ${presetName}`
+    };
+  }
+
+  // 品質チェック
+  const qualityCheck = checkResourceQuality("presets", {
+    name: presetName,
+    description: presetData.description,
+    agents: presetData.agents
+  });
+
+  if (!qualityCheck.pass) {
+    return {
+      success: false,
+      message: `品質チェック失敗: ${qualityCheck.errors.map(e => e.message).join(", ")}`,
+      qualityScore: qualityCheck.score
+    };
+  }
+
+  return {
+    success: true,
+    message: "検証成功",
+    qualityScore: qualityCheck.score
+  };
+}
+
+/**
+ * ツール作成時の検証関数
+ */
+async function validateAndCreateToolWithQuality(
+  toolName: string,
+  toolDescription: string,
+  state: any // GovernanceState
+): Promise<{
+  success: boolean;
+  message: string;
+  qualityScore?: number;
+  duplicateFound?: boolean;
+}> {
+  // 重複チェック
+  const existingTools = listToolsCatalog(state);
+  if (existingTools.some(t => t.toLowerCase() === toolName.toLowerCase())) {
+    return {
+      success: false,
+      message: `ツール名が重複: ${toolName}`
+    };
+  }
+
+  // 品質チェック
+  const qualityCheck = checkResourceQuality("tools", {
+    name: toolName,
+    description: toolDescription
+  });
+
+  if (!qualityCheck.pass) {
+    return {
+      success: false,
+      message: `品質チェック失敗: ${qualityCheck.errors.map(e => e.message).join(", ")}`,
+      qualityScore: qualityCheck.score
+    };
+  }
+
+  return {
+    success: true,
+    message: "検証成功",
+    qualityScore: qualityCheck.score
+  };
+}
+
 async function main(): Promise<void> {
   // 起動時: カスタムツールを読み込み登録、disabled キャッシュを初期化
   await loadAndRegisterCustomTools();
   await refreshDisabledToolsCache();
+
+  // ============================================================
+  // Phase 5: Auto-Initialize Handlers (Event-Driven Auto-Execution)
+  // ============================================================
+  const handlersState = initializeHandlersState();
+  autoInitializeHandlers(handlersState);
+  console.log("[Server] Handlers auto-initialization complete");
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

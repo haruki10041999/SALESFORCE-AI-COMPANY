@@ -3,3 +3,5 @@ dist/
 .env
 .env.local
 *.log
+output/*
+docs/internal/README.section17.confidential.md
