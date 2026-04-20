@@ -28,16 +28,21 @@ Apex ロジックの品質を保証するテスト設計指針。
 private class InvoiceServiceTest {
   @TestSetup
   static void setup() {
-    insert new Account(Name='Acme');
+    List<Account> accs = new List<Account>();
+    for (Integer i = 0; i < 200; i++) {
+      accs.add(new Account(Name = 'Test ' + i));
+    }
+    insert accs;
   }
 
   @IsTest
   static void shouldCreateInvoiceFor200Records() {
-    List<Account> rows = [SELECT Id FROM Account LIMIT 1];
+    List<Account> rows = [SELECT Id FROM Account];
+    System.assertEquals(200, rows.size());
     Test.startTest();
     InvoiceService.createInvoices(rows);
     Test.stopTest();
-    System.assertEquals(1, [SELECT count() FROM Invoice__c]);
+    System.assertEquals(200, [SELECT count() FROM Invoice__c]);
   }
 }
 ```

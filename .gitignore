@@ -1,4 +1,5 @@
 node_modules/
+.sfdx/
 dist/
 .env
 .env.local

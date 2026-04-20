@@ -1,0 +1,30 @@
+{
+  "name": "パフォーマンス調査",
+  "description": "governor limit 超過・処理遅延・LDV 設計問題の調査と改善提案",
+  "topic": "Salesforce パフォーマンス調査",
+  "agents": [
+    "performance-engineer",
+    "debug-specialist",
+    "apex-developer"
+  ],
+  "skills": [
+    "performance/governor-limits",
+    "performance/performance-optimization",
+    "apex/apex-bulkification"
+  ],
+  "persona": "detective",
+  "triggerRules": [
+    {
+      "whenAgent": "debug-specialist",
+      "thenAgent": "performance-engineer",
+      "messageIncludes": "limit",
+      "reason": "limit 超過が確認されたらパフォーマンス最適化に引き継ぐ"
+    },
+    {
+      "whenAgent": "performance-engineer",
+      "thenAgent": "apex-developer",
+      "messageIncludes": "改善",
+      "reason": "改善方針が出たら実装観点を確認"
+    }
+  ]
+}

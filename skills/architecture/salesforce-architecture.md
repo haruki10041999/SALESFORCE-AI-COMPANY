@@ -18,6 +18,15 @@ Salesforce 実装を拡張可能・監査可能・運用可能にするための
 - LDV（500万件以上）では選択性とアーカイブ戦略が必須
 - Platform Event / CDC / Outbound Message の使い分けを明確化
 
+## レイヤー責務一覧
+| レイヤー | 責務 | 持っていいもの | 持ってはいけないもの |
+|---|---|---|---|
+| Trigger | イベント受付のみ | Handler呼び出し | ビジネスロジック・SOQL・DML |
+| Handler | コンテキスト振り分け | before/after分岐・Service呼び出し | SOQL・DML |
+| Service | ユースケース実装 | 複数Domain/Selector呼び出し・DML | SOQL（Selectorに委譲） |
+| Selector | クエリ定義のみ | SOQL | DML・ビジネスロジック |
+| Domain | 単一オブジェクトのルール | フィールド計算・バリデーション | SOQL・DML |
+
 ## よい例・悪い例
 ### 悪い例
 - Trigger 内に業務判定・SOQL・DML・Callout を混在させる

@@ -11,7 +11,6 @@
 | Account | 顧客企業 | 階層構造あり（ParentId） |
 | Contact | 担当者 | Account に従属 |
 | Opportunity | 商談 | Stage・CloseDate が必須 |
-| （カスタムオブジェクト名）__c | （用途） | （留意点） |
 
 ## アーキテクチャ制約
 - レイヤー構成: Trigger -> Handler -> Service -> Selector（fflib 準拠）
@@ -19,9 +18,7 @@
 - 外部連携: Named Credentials 必須。Callout は Queueable 内のみ
 
 ## コーディング規約
-- クラス名: PascalCase（例: AccountService）
-- テストクラス名: `{対象クラス名}Test`（例: AccountServiceTest）
-- カスタム項目名: 末尾 `__c`、スネークケース禁止（例: PrimaryContact__c）
+詳細は `context/coding-conventions.md` を参照。
 
 ## セキュリティ要件
 - 全 Apex クラスは `with sharing` を原則とする

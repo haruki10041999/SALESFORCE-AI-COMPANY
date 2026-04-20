@@ -67,7 +67,7 @@ import {
 // ============================================================
 // Memory / Prompt-Engine / Statistics
 // ============================================================
-import { addMemory, searchMemory, listMemory } from "../memory/project-memory.js";
+import { addMemory, searchMemory, listMemory, clearMemory } from "../memory/project-memory.js";
 import { addRecord, searchByKeyword } from "../memory/vector-store.js";
 import { buildPrompt, type AgentProfile } from "../prompt-engine/prompt-builder.js";
 import {
@@ -212,7 +212,10 @@ async function buildChatPrompt(
 ): Promise<string> {
   const selectedAgents = agentNames.length > 0 ? agentNames : ["product-manager", "architect", "qa-engineer"];
 
-  const totalItems = filePaths.length + selectedAgents.length + skillNames.length + (personaName ? 1 : 0);
+  const contextDir = join(ROOT, "context");
+  const contextFiles = existsSync(contextDir) ? findMdFilesRecursive(contextDir) : [];
+
+  const totalItems = filePaths.length + selectedAgents.length + skillNames.length + (personaName ? 1 : 0) + contextFiles.length;
   const perItemBudget = maxContextChars && totalItems > 0
     ? Math.floor(maxContextChars / Math.max(totalItems, 1))
     : undefined;
@@ -255,13 +258,17 @@ async function buildChatPrompt(
   ]);
 
   const sections: string[] = [];
+  const reviewModeTriggered = filePaths.length > 0 || /レビュー|確認|チェック/.test(topic);
 
-  // FEAT-A: context/ ディレクトリを自動注入
-  const contextDir = join(ROOT, "context");
-  if (existsSync(contextDir)) {
-    const contextFiles = findMdFilesRecursive(contextDir);
+  // FEAT-A: context/ ディレクトリを自動注入（maxContextChars 予算を考慮）
+  if (contextFiles.length > 0) {
     const contextContent = contextFiles
-      .map((f) => readFileSync(f, "utf-8"))
+      .map((f) => {
+        const raw = readFileSync(f, "utf-8");
+        return perItemBudget
+          ? truncateContent(raw, perItemBudget, `context:${toPosixPath(relative(ROOT, f))}`)
+          : raw;
+      })
       .join("\n\n");
     if (contextContent.trim()) {
       sections.push(`## プロジェクトコンテキスト\n\n${contextContent}`);
@@ -283,6 +290,33 @@ async function buildChatPrompt(
     : personaResult;
   if (personaContent) {
     sections.push(`## ペルソナ\n\n${personaContent}`);
+  }
+
+  const discussionFrameworkPath = join(ROOT, "prompt-engine", "discussion-framework.md");
+  if (existsSync(discussionFrameworkPath)) {
+    const raw = readFileSync(discussionFrameworkPath, "utf-8");
+    const content = perItemBudget ? truncateContent(raw, perItemBudget, "discussion-framework") : raw;
+    sections.push(`## ディスカッション規約\n\n${content}`);
+  }
+
+  if (filePaths.length > 0) {
+    const reviewFrameworkPath = join(ROOT, "prompt-engine", "review-framework.md");
+    if (existsSync(reviewFrameworkPath)) {
+      const raw = readFileSync(reviewFrameworkPath, "utf-8");
+      const content = perItemBudget ? truncateContent(raw, perItemBudget, "review-framework") : raw;
+      sections.push(`## レビュー観点\n\n${content}`);
+    }
+  }
+
+  if (reviewModeTriggered) {
+    const reviewModePath = join(ROOT, "prompt-engine", "review-mode.md");
+    if (existsSync(reviewModePath)) {
+      const reviewModeRaw = readFileSync(reviewModePath, "utf-8");
+      const reviewModeContent = perItemBudget
+        ? truncateContent(reviewModeRaw, perItemBudget, "review-mode")
+        : reviewModeRaw;
+      sections.push(`## レビューモード\n\n${reviewModeContent}`);
+    }
   }
 
   const turnInstruction = turns > 0
@@ -1474,6 +1508,54 @@ govTool(
 );
 
 govTool(
+  "list_orchestration_sessions",
+  {
+    title: "List Orchestration Sessions",
+    description: "保存済みオーケストレーションセッションの一覧を返します。",
+    inputSchema: {}
+  },
+  async () => {
+    if (!existsSync(SESSIONS_DIR)) {
+      return {
+        content: [{ type: "text", text: JSON.stringify([], null, 2) }]
+      };
+    }
+
+    const files = await fsPromises.readdir(SESSIONS_DIR);
+    const sessions: Array<{
+      id: string;
+      topic: string;
+      agents: string[];
+      queueLength: number;
+      historyCount: number;
+      firedRuleCount: number;
+    }> = [];
+
+    for (const file of files) {
+      if (!file.endsWith(".json")) continue;
+      try {
+        const raw = await fsPromises.readFile(join(SESSIONS_DIR, file), "utf-8");
+        const s = JSON.parse(raw) as OrchestrationSession;
+        sessions.push({
+          id: s.id,
+          topic: s.topic,
+          agents: s.agents,
+          queueLength: s.queue.length,
+          historyCount: s.history.length,
+          firedRuleCount: s.firedRules.length
+        });
+      } catch {
+        // ignore corrupted session files
+      }
+    }
+
+    return {
+      content: [{ type: "text", text: JSON.stringify(sessions, null, 2) }]
+    };
+  }
+);
+
+govTool(
   "record_agent_message",
   {
     title: "Record Agent Message",
@@ -1888,6 +1970,10 @@ interface GovernanceConfig {
     minUsageToKeep: number;
     bugSignalToFlag: number;
   };
+  resourceLimits: {
+    creationsPerDay: number;
+    deletionsPerDay: number;
+  };
   eventAutomation: {
     enabled: boolean;
     protectedTools: string[];
@@ -2002,6 +2088,7 @@ const BUILTIN_TOOL_CATALOG = [
   "get_orchestration_session",
   "save_orchestration_session",
   "restore_orchestration_session",
+  "list_orchestration_sessions",
   "record_agent_message",
   "get_agent_log",
   "parse_and_record_chat",
@@ -2025,9 +2112,11 @@ const BUILTIN_TOOL_CATALOG = [
   "add_memory",
   "search_memory",
   "list_memory",
+  "clear_memory",
   "add_vector_record",
   "search_vector",
-  "build_prompt"
+  "build_prompt",
+  "get_context"
 ];
 
 function buildDefaultGovernanceState(): GovernanceState {
@@ -2041,6 +2130,10 @@ function buildDefaultGovernanceState(): GovernanceState {
       thresholds: {
         minUsageToKeep: 2,
         bugSignalToFlag: 2
+      },
+      resourceLimits: {
+        creationsPerDay: 5,
+        deletionsPerDay: 3
       },
       eventAutomation: {
         enabled: true,
@@ -2100,6 +2193,10 @@ async function loadGovernanceState(): Promise<GovernanceState> {
         thresholds: {
           ...buildDefaultGovernanceState().config.thresholds,
           ...parsed.config?.thresholds
+        },
+        resourceLimits: {
+          ...buildDefaultGovernanceState().config.resourceLimits,
+          ...parsed.config?.resourceLimits
         },
         eventAutomation: {
           ...buildDefaultGovernanceState().config.eventAutomation,
@@ -2826,10 +2923,14 @@ govTool(
       updateThresholds: z.object({
         minUsageToKeep: z.number().int().min(0).max(100).optional(),
         bugSignalToFlag: z.number().int().min(0).max(100).optional()
+      }).optional(),
+      updateResourceLimits: z.object({
+        creationsPerDay: z.number().int().min(1).max(100).optional(),
+        deletionsPerDay: z.number().int().min(1).max(100).optional()
       }).optional()
     }
   },
-  async ({ updateMaxCounts, updateThresholds }) => {
+  async ({ updateMaxCounts, updateThresholds, updateResourceLimits }) => {
     const state = await loadGovernanceState();
     if (updateMaxCounts) {
       state.config.maxCounts = {
@@ -2841,6 +2942,12 @@ govTool(
       state.config.thresholds = {
         ...state.config.thresholds,
         ...updateThresholds
+      };
+    }
+    if (updateResourceLimits) {
+      state.config.resourceLimits = {
+        ...state.config.resourceLimits,
+        ...updateResourceLimits
       };
     }
     await saveGovernanceState(state);
@@ -2922,6 +3029,7 @@ govTool(
             counts,
             maxCounts: state.config.maxCounts,
             thresholds: state.config.thresholds,
+            resourceLimits: state.config.resourceLimits,
             recommendations
           }, null, 2)
         }
@@ -2949,6 +3057,11 @@ govTool(
           skills: z.array(z.string()).optional(),
           persona: z.string().optional(),
           filePaths: z.array(z.string()).optional()
+        }).optional(),
+        toolConfig: z.object({
+          agents: z.array(z.string()).optional(),
+          skills: z.array(z.string()).optional(),
+          persona: z.string().optional()
         }).optional()
       })).min(1).max(50)
     }
@@ -2963,7 +3076,7 @@ govTool(
     const recentOps = await loadRecentOperations();
 
     for (const item of actions) {
-      const { resourceType, action, name, content, preset } = item;
+      const { resourceType, action, name, content, preset, toolConfig } = item;
 
       // FEAT-L: 日次制限チェック
       const dailyCreateLimit = state.config.resourceLimits?.creationsPerDay ?? 5;
@@ -3177,8 +3290,11 @@ govTool(
           const toolDef: CustomToolDefinition = {
             name,
             description: toolDescription,
-            agents: ["product-manager", "architect"],
-            skills: [],
+            agents: (toolConfig?.agents && toolConfig.agents.length > 0)
+              ? toolConfig.agents
+              : ["product-manager", "architect"],
+            skills: toolConfig?.skills ?? [],
+            persona: toolConfig?.persona,
             createdAt: new Date().toISOString()
           };
           const toolFileName = name.toLowerCase().replace(/\s+/g, "-");
@@ -3503,6 +3619,21 @@ govTool(
 );
 
 govTool(
+  "clear_memory",
+  {
+    title: "Clear Memory",
+    description: "インメモリの全記録を削除します。",
+    inputSchema: {}
+  },
+  async () => {
+    clearMemory();
+    return {
+      content: [{ type: "text", text: "Memory cleared." }]
+    };
+  }
+);
+
+govTool(
   "add_vector_record",
   {
     title: "Add Vector Record",
@@ -3559,6 +3690,38 @@ govTool(
     const prompt = buildPrompt({ name: agentName, content: agentContent }, task);
     return {
       content: [{ type: "text", text: prompt }]
+    };
+  }
+);
+
+govTool(
+  "get_context",
+  {
+    title: "Get Context",
+    description: "context/ ディレクトリの内容を返します（buildChatPrompt に自動注入される内容）。",
+    inputSchema: {}
+  },
+  async () => {
+    const contextDir = join(ROOT, "context");
+    if (!existsSync(contextDir)) {
+      return {
+        content: [{ type: "text", text: "context/ ディレクトリが存在しません。" }]
+      };
+    }
+
+    const files = findMdFilesRecursive(contextDir);
+    const contents = files.map((f) => ({
+      path: toPosixPath(relative(ROOT, f)),
+      content: readFileSync(f, "utf-8")
+    }));
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({ files: contents.length, contents }, null, 2)
+        }
+      ]
     };
   }
 );

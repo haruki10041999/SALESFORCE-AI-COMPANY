@@ -12,3 +12,7 @@ export function searchMemory(query: string): string[] {
 export function listMemory(): string[] {
   return [...memory];
 }
+
+export function clearMemory(): void {
+  memory.length = 0;
+}

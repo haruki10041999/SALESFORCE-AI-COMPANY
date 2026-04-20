@@ -9,6 +9,10 @@
       "minUsageToKeep": 2,
       "bugSignalToFlag": 2
     },
+    "resourceLimits": {
+      "creationsPerDay": 5,
+      "deletionsPerDay": 3
+    },
     "eventAutomation": {
       "enabled": true,
       "protectedTools": [
@@ -46,5 +50,5 @@
     "tools": [],
     "presets": []
   },
-  "updatedAt": "2026-04-20T06:16:39.090Z"
+  "updatedAt": "2026-04-20T07:24:29.101Z"
 }
