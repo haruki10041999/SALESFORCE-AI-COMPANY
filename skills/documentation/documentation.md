@@ -1,5 +1,30 @@
-Documentation
+﻿# Documentation
 
-- Document decisions and trade-offs
-- Keep setup steps exact
-- Provide runnable examples
+## 概要
+開発・運用・監査で再利用できる技術文書を作るための基準。
+
+## いつ使うか
+- API追加時
+- 障害対応後
+- 重要な設計判断後
+
+## 重要な原則
+- 読者と利用タイミングを先に定義する
+- 実行可能な手順を残す
+- 決定理由を必ず記録する
+
+## Salesforce 固有の制約・数値
+- @AuraEnabled API は入力/出力/権限前提を明記
+- リリースノートは org 影響範囲を明示
+
+## よい例・悪い例
+### 悪い例
+- 手順が抽象的で再現できない
+
+### よい例
+- 前提権限、CLIコマンド、期待結果まで記載
+
+## チェックリスト
+- 対象読者が明記されているか
+- 実行手順に抜けがないか
+- 更新履歴が残っているか

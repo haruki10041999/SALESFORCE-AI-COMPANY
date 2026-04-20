@@ -1,5 +1,30 @@
-Deployment
+﻿# Deployment
 
-- Validate in lower envs first
-- Run tests and static checks
-- Always prepare rollback
+## 概要
+Salesforce のデプロイを再現可能・監査可能にする手順ガイド。
+
+## いつ使うか
+- リリース計画時
+- CI/CD パイプライン構築時
+
+## 重要な原則
+- 本番前に check-only を通す
+- テスト結果と差分を証跡化する
+- ロールバック手順を事前に準備する
+
+## Salesforce 固有の制約・数値
+- 本番は 75% カバレッジが必須
+- `RunLocalTests` 以上を基本とする
+- CLI 例: `sf project deploy start --target-org <org>`
+
+## よい例・悪い例
+### 悪い例
+- 本番で初めてフルテストを回す
+
+### よい例
+- lower環境で check-only + 指定テスト、本番で RunLocalTests
+
+## チェックリスト
+- テストレベルは適切か
+- 依存順序を確認したか
+- ロールバック条件と手順があるか

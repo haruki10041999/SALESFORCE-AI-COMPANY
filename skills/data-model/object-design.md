@@ -1,5 +1,29 @@
-Object Design
+﻿# Object Design
 
-- Model business entities clearly
-- Prefer explicit relationships
-- Keep reporting requirements in mind
+## 概要
+業務エンティティを Salesforce オブジェクトへ適切にマッピングする設計指針。
+
+## いつ使うか
+- 新規オブジェクト設計時
+- 既存リレーション見直し時
+
+## 重要な原則
+- 主体と従属を明確化して関係を決める
+- レポート要件を先に確認する
+- 削除連鎖の影響を設計時に合意する
+
+## Salesforce 固有の制約・数値
+- Master-Detail は所有者継承・削除連鎖あり
+- Lookup は柔軟だが集計や整合性は別設計が必要
+
+## よい例・悪い例
+### 悪い例
+- 影響分析なしで Master-Detail を採用
+
+### よい例
+- レポート集計要件と削除ポリシーを確認して関係種別を選定
+
+## チェックリスト
+- 関係種別の理由が明確か
+- レポート要件を満たすか
+- データライフサイクルを定義したか

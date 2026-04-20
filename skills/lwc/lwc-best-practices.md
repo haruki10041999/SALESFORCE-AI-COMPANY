@@ -1,5 +1,30 @@
-LWC Best Practices
+﻿# LWC Best Practices
 
-- Keep components small and focused
-- Prefer @wire for declarative data
-- Follow SLDS and accessibility
+## 概要
+LWC を再利用可能・テスト可能・アクセシブルに実装する基準。
+
+## いつ使うか
+- 新規コンポーネント作成時
+- UI改善時
+
+## 重要な原則
+- コンポーネントを小さく保つ
+- データ取得責務と表示責務を分離
+- アクセシビリティを最初から組み込む
+
+## Salesforce 固有の制約・数値
+- @wire は宣言的更新に有利
+- imperative call は明示制御に有利
+- SLDS トークン優先で独自CSSを最小化
+
+## よい例・悪い例
+### 悪い例
+- 1コンポーネントで取得・整形・表示・遷移を全部行う
+
+### よい例
+- container が取得、presentational が表示を担当
+
+## チェックリスト
+- 公開API(@api)が最小か
+- イベント名が意味的か
+- キーボード操作に対応しているか

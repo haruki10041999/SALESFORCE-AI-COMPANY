@@ -1,26 +1,26 @@
-# Copilot Default Behavior for This Workspace
+# このワークスペースにおける Copilot の既定動作
 
-When the MCP server `salesforce-ai-company` is available, follow this default behavior:
+MCP サーバー `salesforce-ai-company` が利用可能な場合は、以下の既定動作に従ってください。
 
-1. Start with `smart_chat` for general requests.
-2. If the user already gave explicit agents/skills/persona/file paths, use `chat`.
-3. If the user asks for agent-to-agent trigger behavior, start with `orchestrate_chat`.
-4. During orchestration, use `evaluate_triggers` after each agent message and fetch next actors via `dequeue_next_agent`.
-5. After a conversation is generated, prefer `parse_and_record_chat` to store messages.
-6. For reusable workflows, suggest `create_preset` and then use `run_preset`.
+1. 一般的な依頼では、まず `smart_chat` を使用する。
+2. ユーザーが agents/skills/persona/file paths を明示している場合は、`chat` を使用する。
+3. エージェント間のトリガー動作を求められた場合は、`orchestrate_chat` から開始する。
+4. オーケストレーション中は、各エージェント発言後に `evaluate_triggers` を実行し、`dequeue_next_agent` で次の担当を取得する。
+5. 会話生成後は、メッセージ保存のため `parse_and_record_chat` を優先して使用する。
+6. 再利用可能なワークフローには、`create_preset` を提案したうえで `run_preset` を使用する。
 
-Default preset suggestions:
+既定のプリセット提案:
 
-- For implementation/design review: `run_preset` with `Salesforce 開発レビュー`
-- For security/privacy concerns: `run_preset` with `セキュリティ・コンプライアンス確認`
-- For release/deploy readiness: `run_preset` with `リリース準備チェック`
+- 実装・設計レビュー: `run_preset` で `Salesforce 開発レビュー`
+- セキュリティ・プライバシー確認: `run_preset` で `セキュリティ・コンプライアンス確認`
+- リリース・デプロイ準備: `run_preset` で `リリース準備チェック`
 
-Output policy:
+出力ポリシー:
 
-- Do not skip MCP tools when they are available.
-- Use direct natural language response only if MCP tools are unavailable or the user explicitly asks not to use tools.
+- MCP ツールが利用可能な場合は、省略せずに使用する。
+- MCP ツールが利用不可の場合、またはユーザーが明示的にツール不使用を求めた場合のみ、自然言語のみで応答する。
 
-Fallback policy:
+フォールバックポリシー:
 
-- If `smart_chat` finds no files, continue with `chat` using default agents.
-- If parsing fails, ask the user for text in `**Agent**: message` format and retry `parse_and_record_chat`.
+- `smart_chat` でファイルが見つからない場合は、既定エージェントで `chat` に継続する。
+- パースに失敗した場合は、`**Agent**: message` 形式のテキスト入力をユーザーに依頼し、`parse_and_record_chat` を再実行する。

@@ -1,5 +1,29 @@
-Debugging
+﻿# Debugging
 
-- Reproduce consistently
-- Narrow scope quickly
-- Confirm fix with regression tests
+## 概要
+再現性ある調査で根本原因を特定し、再発防止につなげる手順。
+
+## いつ使うか
+- 本番障害調査時
+- limit超過/性能劣化調査時
+
+## 重要な原則
+- 再現してから直す
+- 事実と仮説を分離する
+- 最小再現コードを作る
+
+## Salesforce 固有の制約・数値
+- Debug Log レベルを目的別に設定する
+- `Limits.getXxx()` で消費量を数値確認する
+
+## よい例・悪い例
+### 悪い例
+- ログなしで推測修正する
+
+### よい例
+- 再現条件を固定し、ログでSOQL/DML回数を確認して修正
+
+## チェックリスト
+- 再現手順が記録されているか
+- 根本原因と暫定対処を分離したか
+- 回帰テストを追加したか

@@ -1,9 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { addMemory, listMemory, searchMemory } from "../memory/project-memory.js";
 import { addRecord, searchByKeyword } from "../memory/vector-store.js";
 import { buildPrompt } from "../prompt-engine/prompt-builder.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const ROOT = join(__dirname, "..");
 
 test("project-memory supports add, search, and list copy semantics", () => {
   const token = `memory-token-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -39,8 +45,8 @@ test("vector-store searchByKeyword matches both text and tags case-insensitively
 });
 
 test("prompt-builder includes base, agent, task, and reasoning framework", () => {
-  const base = readFileSync("./prompt-engine/base-prompt.md", "utf-8");
-  const reasoning = readFileSync("./prompt-engine/reasoning-framework.md", "utf-8");
+  const base = readFileSync(join(ROOT, "prompt-engine", "base-prompt.md"), "utf-8");
+  const reasoning = readFileSync(join(ROOT, "prompt-engine", "reasoning-framework.md"), "utf-8");
 
   const prompt = buildPrompt(
     {

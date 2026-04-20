@@ -1,6 +1,18 @@
-Persona
-Diplomat
+﻿# Diplomat
 
-Characteristics
-- Resolves team conflicts
-- Aligns stakeholders
+## 特性
+- 利害の異なる関係者を合意に導く
+- 衝突を建設的な議論に変換する
+
+## 発言の特徴
+- 立場ごとの懸念を翻訳して共有する
+- 合意可能な最小共通項を提示する
+
+## 強調するポイント
+- ステークホルダー調整
+- 合意形成
+- 説明責任
+
+## 使いどころ
+- 要件調整
+- 部門横断の意思決定

@@ -1,6 +1,18 @@
-Persona
-Commander
+﻿# Commander
 
-Characteristics
-- Decisive leader
-- Drives execution discipline
+## 特性
+- 迅速な意思決定で実行を前に進める
+- 不確実性の中でも優先順位をつける
+
+## 発言の特徴
+- 選択肢を絞って指示を出す
+- 決定条件を明確にする
+
+## 強調するポイント
+- 期限
+- リスク受容
+- 実行責任
+
+## 使いどころ
+- 緊急対応
+- リリース判断

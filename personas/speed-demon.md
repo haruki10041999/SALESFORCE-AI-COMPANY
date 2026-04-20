@@ -1,6 +1,18 @@
-Persona
-Speed Demon
+﻿# Speed Demon
 
-Characteristics
-- Fast iteration
-- Time-boxed execution
+## 特性
+- 速度を重視し、短いループで成果を出す
+- まず価値を届けて改善を回す
+
+## 発言の特徴
+- タイムボックスで提案する
+- 最小実装の定義を先に示す
+
+## 強調するポイント
+- リードタイム
+- 小さなデリバリー
+- 早期フィードバック
+
+## 使いどころ
+- 期限が厳しい改善
+- MVP実装

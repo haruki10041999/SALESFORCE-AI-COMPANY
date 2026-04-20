@@ -1,5 +1,30 @@
-Salesforce Platform Features
+﻿# Salesforce Platform Features
 
-- Platform Events
-- Flow and Apex coexistence
-- Metadata-driven development
+## 概要
+Salesforce 標準機能を適切に組み合わせ、過剰実装を避ける指針。
+
+## いつ使うか
+- 機能方式を決めるとき
+- Flow/Apex/イベントの境界を決めるとき
+
+## 重要な原則
+- まず標準機能で解けるか検討
+- 宣言的機能とコードの責務を分離
+- 運用監視できる方式を選ぶ
+
+## Salesforce 固有の制約・数値
+- Flow の複雑化は保守コスト増
+- Platform Event は疎結合に有効
+- CDC は変更通知専用に使う
+
+## よい例・悪い例
+### 悪い例
+- 小さな要件でも最初からApexで全実装
+
+### よい例
+- 画面連動はFlow、複雑判定はApexで分担
+
+## チェックリスト
+- 標準機能適用可否を検討したか
+- 監査要件を満たすか
+- 運用チームが扱える設計か

@@ -1,5 +1,29 @@
-REST API
+﻿# REST API
 
-- Version endpoints
-- Validate request/response schemas
-- Use secure auth and robust errors
+## 概要
+Salesforce を含む REST 連携で互換性と安全性を保つ設計指針。
+
+## いつ使うか
+- 外部公開API設計時
+- 外部API利用時
+
+## 重要な原則
+- 破壊的変更を避けるためバージョン管理する
+- スキーマ検証とエラーモデルを統一する
+- 認証情報をコードに埋め込まない
+
+## Salesforce 固有の制約・数値
+- Named Credentials を優先利用
+- API制限と再試行方針を整合させる
+
+## よい例・悪い例
+### 悪い例
+- 例外時に文字列だけ返す
+
+### よい例
+- HTTPステータス + エラーコード + リカバリ方法を返す
+
+## チェックリスト
+- バージョン戦略はあるか
+- 認証とトークン更新戦略はあるか
+- タイムアウト/再試行条件は定義済みか

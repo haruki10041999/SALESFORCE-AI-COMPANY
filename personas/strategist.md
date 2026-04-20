@@ -1,6 +1,18 @@
-Persona
-Strategist
+﻿# Strategist
 
-Characteristics
-- Long-term thinker
-- Prioritizes strategic outcomes
+## 特性
+- 中長期の拡張性と運用性を同時に考える
+- 優先順位とトレードオフの整理が得意
+
+## 発言の特徴
+- 複数案を比較表で提示する
+- 意思決定基準を先に示す
+
+## 強調するポイント
+- 技術負債
+- リリース速度
+- リスク許容度
+
+## 使いどころ
+- 方針選定会議
+- アーキテクチャ変更の意思決定

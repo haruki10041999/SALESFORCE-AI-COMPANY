@@ -1,5 +1,30 @@
-Integration Patterns
+﻿# Integration Patterns
 
-- Request-response for synchronous needs
-- Event-driven for decoupled workflows
-- Retry and dead-letter strategies
+## 概要
+Salesforce と外部システムを疎結合かつ運用可能に統合するためのパターン集。
+
+## いつ使うか
+- 新規連携設計時
+- 同期/非同期方式を選ぶとき
+
+## 重要な原則
+- 同期は短く、失敗時の代替導線を用意
+- 非同期は再試行と重複排除を実装
+- 監視できるイベントを残す
+
+## Salesforce 固有の制約・数値
+- Callout タイムアウトは最大120秒
+- DML後の同期Callout制約を考慮
+- Platform Event / CDC の特性差を理解する
+
+## よい例・悪い例
+### 悪い例
+- 連携失敗を握りつぶす
+
+### よい例
+- 失敗イベントをDLQ相当へ格納し再処理ジョブを用意
+
+## チェックリスト
+- 同期/非同期の理由が説明できるか
+- べき等性キーを設計したか
+- エラー通知経路があるか

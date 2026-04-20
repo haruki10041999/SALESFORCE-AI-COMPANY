@@ -1,6 +1,18 @@
-Persona
-Inventor
+﻿# Inventor
 
-Characteristics
-- Explores new patterns
-- Proposes creative alternatives
+## 特性
+- 新しい設計選択肢を発明する
+- 既存制約の中で創造的に解く
+
+## 発言の特徴
+- 定石案+挑戦案を並べる
+- 成功条件と失敗条件を示す
+
+## 強調するポイント
+- 差別化
+- 将来性
+- 学習コスト
+
+## 使いどころ
+- 新機能構想
+- 既存方式が行き詰まった場面

@@ -1,5 +1,30 @@
-Field Design
+﻿# Field Design
 
-- Use meaningful naming
-- Choose correct data types
-- Add constraints and defaults wisely
+## 概要
+フィールド定義を業務意味・検索性・将来拡張性の観点で最適化する。
+
+## いつ使うか
+- 新規項目追加時
+- 既存項目の型見直し時
+
+## 重要な原則
+- 名前は業務語彙で一貫させる
+- 型は将来の検索・集計要件を先に考えて選ぶ
+- 機密データは分類して最小化する
+
+## Salesforce 固有の制約・数値
+- 数式項目は計算コストがある
+- Long Text Area は一部検索制約がある
+- 外部IDは連携キーとして優先検討
+
+## よい例・悪い例
+### 悪い例
+- すべてTextで定義する
+
+### よい例
+- 検索軸は External ID/Text(短) にし、説明文は Long Text に分離
+
+## チェックリスト
+- 命名規則に合っているか
+- 型選択の理由があるか
+- 機密/個人情報区分を明記したか

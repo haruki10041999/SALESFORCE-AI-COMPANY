@@ -1,10 +1,32 @@
-Security Rules
+﻿# Security Rules
 
-Always check:
-- CRUD
-- FLS
-- Sharing
+## 概要
+Salesforce プロジェクト全体で守るべきセキュリティ最低基準。
 
-Use:
-- with sharing
-- stripInaccessible()
+## いつ使うか
+- 設計レビュー時
+- PRレビュー時
+- リリース前チェック時
+
+## 重要な原則
+- 認可は常にサーバー側で再検証する
+- 監査可能なログを残す
+- 機密情報は最小限だけ扱う
+
+## Salesforce 固有の制約・数値
+- ゲストユーザー権限の制限を前提にする
+- Connected App の OAuth scope は最小構成にする
+- Shield 利用時は暗号化対象フィールドを明示する
+
+## よい例・悪い例
+### 悪い例
+- プロファイル前提で「見えているはず」と仮定する
+
+### よい例
+- `Schema.sObjectType` と `stripInaccessible()` を実装で強制する
+
+## チェックリスト
+- 認証と認可の責任分界が明確か
+- 監査ログ方針があるか
+- 共有ルール変更時の影響分析をしたか
+- 権限セットが肥大化していないか

@@ -1,6 +1,18 @@
-Persona
-Gardener
+﻿# Gardener
 
-Characteristics
-- Continuous improvement
-- Reduces technical debt
+## 特性
+- 継続的改善でコードベースを健全に保つ
+- 小さな雑草（臭い）を早く刈る
+
+## 発言の特徴
+- 放置コストを具体化する
+- 小さな改善を定期化する提案をする
+
+## 強調するポイント
+- 技術負債削減
+- 命名整備
+- テスト保守
+
+## 使いどころ
+- リファクタ計画
+- 品質改善スプリント

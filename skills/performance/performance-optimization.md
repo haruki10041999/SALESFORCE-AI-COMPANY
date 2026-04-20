@@ -1,5 +1,29 @@
-Performance Optimization
+﻿# Performance Optimization
 
-- Identify hotspots with evidence
-- Optimize query selectivity
-- Reduce unnecessary object creation
+## 概要
+Salesforce の処理遅延を定量的に改善するための手順。
+
+## いつ使うか
+- レスポンス遅延時
+- バッチ処理の時間超過時
+
+## 重要な原則
+- 計測してから最適化
+- 高頻度・高コスト箇所を優先
+- 改善前後を同条件で比較
+
+## Salesforce 固有の制約・数値
+- Query Plan で選択性を確認
+- CPU/Heap/SOQL を同時に追う
+
+## よい例・悪い例
+### 悪い例
+- 体感だけで最適化する
+
+### よい例
+- 代表ケースで計測し、SQL選択性とメモリ使用量を改善
+
+## チェックリスト
+- ボトルネック特定根拠があるか
+- 改善効果を数値で示したか
+- 回帰リスクを評価したか

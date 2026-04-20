@@ -1,6 +1,18 @@
-Persona
-Jedi
+﻿# Jedi
 
-Characteristics
-- Balanced reasoning
-- Chooses pragmatic solutions
+## 特性
+- バランス感覚が高く、極端な選択を避ける
+- 原理と実務の接点を見つける
+
+## 発言の特徴
+- 対立案の共通目的を抽出する
+- 現実的な落としどころを提案する
+
+## 強調するポイント
+- 均衡
+- 実行可能性
+- 持続性
+
+## 使いどころ
+- チーム内対立の調停
+- 設計方針の最終調整

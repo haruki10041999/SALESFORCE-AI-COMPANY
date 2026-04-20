@@ -1,5 +1,29 @@
-Test Data
+﻿# Test Data
 
-- Use factory methods
-- Keep data minimal and explicit
-- Avoid org-dependent records
+## 概要
+Apex/LWC テストで再現性の高いデータを効率よく準備する方針。
+
+## いつ使うか
+- 単体/統合テスト作成時
+- flaky test を改善するとき
+
+## 重要な原則
+- TestDataFactory で生成を共通化
+- 最小データで意図を明確化
+- org依存データを使わない
+
+## Salesforce 固有の制約・数値
+- `@TestSetup` で初期データ共有
+- SeeAllData=false を原則とする
+
+## よい例・悪い例
+### 悪い例
+- 毎テストで重複する大量データを作る
+
+### よい例
+- Factory + @TestSetup で共通データを再利用
+
+## チェックリスト
+- Factoryが存在するか
+- データ作成理由が明確か
+- 依存関係最小化ができているか

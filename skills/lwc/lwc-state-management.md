@@ -1,5 +1,29 @@
-LWC State Management
+﻿# LWC State Management
 
-- Minimize mutable state
-- Use events for communication
-- Avoid unnecessary rerenders
+## 概要
+LWC の状態管理を予測可能にし、不要再描画を抑える運用指針。
+
+## いつ使うか
+- 複雑なUI状態を扱うとき
+- 再描画性能を改善したいとき
+
+## 重要な原則
+- 単一の状態ソースを持つ
+- 変更はイベント駆動で追跡可能にする
+- 派生データはgetterで計算する
+
+## Salesforce 固有の制約・数値
+- 大きな配列再代入は再描画コスト増
+- wire結果のキャッシュ特性を理解する
+
+## よい例・悪い例
+### 悪い例
+- 複数子で同一状態を独自保持し不整合を起こす
+
+### よい例
+- 親で状態集約し、子へprops配布
+
+## チェックリスト
+- 状態の所有者が明確か
+- イベント契約が定義されているか
+- 再描画の原因を説明できるか

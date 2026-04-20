@@ -69,6 +69,7 @@ import {
 // ============================================================
 import { addMemory, searchMemory, listMemory } from "../memory/project-memory.js";
 import { addRecord, searchByKeyword } from "../memory/vector-store.js";
+import { buildPrompt, type AgentProfile } from "../prompt-engine/prompt-builder.js";
 import {
   exportStatisticsAsCsv,
   exportStatisticsAsJson,
@@ -2965,12 +2966,14 @@ govTool(
       const { resourceType, action, name, content, preset } = item;
 
       // FEAT-L: 日次制限チェック
-      if (action === "create" && checkDailyLimitExceeded(recentOps, "create", state.config.thresholds?.dailyCreateLimit ?? 5)) {
-        results.push({ action, resourceType, name, result: "daily_limit_exceeded (create: 5/day)" });
+      const dailyCreateLimit = state.config.resourceLimits?.creationsPerDay ?? 5;
+      const dailyDeleteLimit = state.config.resourceLimits?.deletionsPerDay ?? 3;
+      if (action === "create" && checkDailyLimitExceeded(recentOps, "create", dailyCreateLimit)) {
+        results.push({ action, resourceType, name, result: `daily_limit_exceeded (create: ${dailyCreateLimit}/day)` });
         continue;
       }
-      if (action === "delete" && checkDailyLimitExceeded(recentOps, "delete", state.config.thresholds?.dailyDeleteLimit ?? 3)) {
-        results.push({ action, resourceType, name, result: "daily_limit_exceeded (delete: 3/day)" });
+      if (action === "delete" && checkDailyLimitExceeded(recentOps, "delete", dailyDeleteLimit)) {
+        results.push({ action, resourceType, name, result: `daily_limit_exceeded (delete: ${dailyDeleteLimit}/day)` });
         continue;
       }
 
@@ -3553,11 +3556,7 @@ govTool(
     }
   },
   async ({ agentName, agentContent, task }) => {
-    const basePath = join(ROOT, "prompt-engine", "base-prompt.md");
-    const reasoningPath = join(ROOT, "prompt-engine", "reasoning-framework.md");
-    const base = existsSync(basePath) ? readFileSync(basePath, "utf-8") : "";
-    const reasoning = existsSync(reasoningPath) ? readFileSync(reasoningPath, "utf-8") : "";
-    const prompt = `${base}\n\nAgent\n${agentName}\n\n${agentContent}\n\nTask\n${task}\n\n${reasoning}`;
+    const prompt = buildPrompt({ name: agentName, content: agentContent }, task);
     return {
       content: [{ type: "text", text: prompt }]
     };

@@ -1,5 +1,33 @@
-Governor Limits
+﻿# Governor Limits
 
-- Track SOQL, DML, CPU, heap
-- Design for batch-safe execution
-- Use async for heavy work
+## 概要
+Salesforce の実行制限を超えないための実装・検証ルール。
+
+## いつ使うか
+- Trigger/Batch最適化時
+- 障害原因が limit 超過のとき
+
+## 重要な原則
+- 実装前に上限を知る
+- 消費量をコードで計測する
+- 超過リスクは非同期で分散する
+
+## Salesforce 固有の制約・数値
+| 項目 | 上限（代表） |
+|---|---|
+| SOQL | 100 |
+| DML | 150 |
+| CPU | 10,000ms |
+| Heap | 6MB |
+
+## よい例・悪い例
+### 悪い例
+- limit値を知らずに処理を追加し続ける
+
+### よい例
+- `Limits.getQueries()` 等で常時計測し閾値監視
+
+## チェックリスト
+- limit計測ログがあるか
+- バルク実行で余裕率を確認したか
+- 非同期化候補を整理したか

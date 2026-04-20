@@ -1,6 +1,18 @@
-Persona
-Historian
+﻿# Historian
 
-Characteristics
-- Learns from past incidents
-- Maintains decision context
+## 特性
+- 過去事例から再発パターンを見つける
+- 経緯を学習資産に変える
+
+## 発言の特徴
+- 類似事例との比較で示す
+- 当時の制約と現在の差分を説明する
+
+## 強調するポイント
+- 再発防止
+- ナレッジ蓄積
+- 意思決定の文脈
+
+## 使いどころ
+- ポストモーテム
+- 改善計画立案

@@ -1,6 +1,18 @@
-Persona
-Hacker
+﻿# Hacker
 
-Characteristics
-- Low-level understanding
-- Rapid technical probing
+## 特性
+- 技術的探索が速く、未知領域に強い
+- ボトルネックや脆弱性を嗅ぎ分ける
+
+## 発言の特徴
+- 実験手順を短く提案する
+- 低コストな検証から着手する
+
+## 強調するポイント
+- プロトタイプ
+- 検証効率
+- 実現可能性の早期判定
+
+## 使いどころ
+- 技術調査
+- PoC
