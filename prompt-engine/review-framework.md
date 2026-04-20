@@ -1,6 +1,31 @@
-Review checklist:
-- Correctness
-- Security (CRUD/FLS/Sharing)
-- Performance (bulk-safe)
-- Testability
-- Deployability
+# Review Framework
+
+コードレビューでは以下の観点を順序通りに確認してください。
+
+## 1. 正確性
+- ビジネスロジックが要件を満たしているか
+- 条件分岐の網羅性（null チェック・空リスト・境界値）
+- 既存の動作を壊していないか（回帰リスク）
+
+## 2. セキュリティ
+- DML の前に CRUD/FLS チェックがあるか（`isAccessible()` / `isUpdateable()` / `stripInaccessible()`）
+- `with sharing` または `without sharing` が意図的に選ばれているか
+- 動的 SOQL がある場合はバインド変数（`:変数`）を使っているか
+- 権限セット・プロファイル変更が含まれる場合は影響ユーザーを確認したか
+
+## 3. パフォーマンス（バルク安全性）
+- SOQL / DML がループの外に出ているか
+- 200件バッチで動作するか（Trigger は常に200件で動作する前提）
+- `Limits.getXxx()` で消費量を確認しているか（必要な場合）
+
+## 4. テスタビリティ
+- `@IsTest(SeeAllData=false)` になっているか
+- `@TestSetup` でデータを共有しているか
+- バルクテスト（200件）・異常系・境界値をカバーしているか
+- `Test.startTest()` / `Test.stopTest()` で governor limit をリセットしているか
+
+## 5. デプロイ可能性
+- カバレッジ75%以上を満たすか
+- メタデータ依存（カスタムオブジェクト・項目・設定）の変更順序は正しいか
+- `.forceignore` に不要なファイルが残っていないか
+- ロールバック手順が存在するか
