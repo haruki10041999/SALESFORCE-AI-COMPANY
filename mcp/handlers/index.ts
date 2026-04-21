@@ -84,3 +84,14 @@ export {
   exportStatisticsAsJson,
   updateStatisticsTimestamp
 } from "./statistics-manager.js";
+
+// Tool Registration Modules
+export { registerLoggingTools } from "./register-logging-tools.js";
+export { registerHistoryTools } from "./register-history-tools.js";
+export { registerResourceGovernanceTools } from "./register-resource-governance-tools.js";
+export { registerResourceActionTools } from "./register-resource-action-tools.js";
+export { registerSmartChatTools } from "./register-smart-chat-tools.js";
+export { registerAnalyticsTools } from "./register-analytics-tools.js";
+export { registerExportTools } from "./register-export-tools.js";
+export { registerMemoryTools } from "./register-memory-tools.js";
+export { registerContextTools } from "./register-context-tools.js";

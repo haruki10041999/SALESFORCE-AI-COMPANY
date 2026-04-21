@@ -29,6 +29,11 @@ interface CreateSystemEventManagerDeps {
 
 export function summarizeValue(value: unknown, maxChars = 400): string {
   try {
+    if (value instanceof Error) {
+      const stackLine = value.stack?.split("\n")[1]?.trim();
+      const errorText = stackLine ? `${value.message}\n${stackLine}` : value.message;
+      return errorText.length > maxChars ? errorText.slice(0, maxChars) + "...(truncated)" : errorText;
+    }
     const raw = typeof value === "string" ? value : JSON.stringify(value);
     if (!raw) return "";
     return raw.length > maxChars ? raw.slice(0, maxChars) + "...(truncated)" : raw;

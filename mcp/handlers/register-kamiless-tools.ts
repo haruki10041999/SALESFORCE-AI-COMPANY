@@ -13,6 +13,18 @@ interface RegisterKamilessToolsDeps {
   root: string;
 }
 
+function summarizeError(err: unknown): string {
+  if (err instanceof Error) {
+    const stackLine = err.stack?.split("\n")[1]?.trim();
+    return stackLine ? `${err.message}\n${stackLine}` : err.message;
+  }
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
 export function registerKamilessTools(deps: RegisterKamilessToolsDeps): void {
   const { govTool, root } = deps;
 
@@ -68,11 +80,33 @@ export function registerKamilessTools(deps: RegisterKamilessToolsDeps): void {
       let rawDiffText = diffText;
 
       if (!rawText && requirementsPath) {
-        rawText = await fsPromises.readFile(resolve(requirementsPath), "utf-8");
+        try {
+          rawText = await fsPromises.readFile(resolve(requirementsPath), "utf-8");
+        } catch (err) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `## エラー\n\nrequirementsPath の読み込みに失敗しました。\n${summarizeError(err)}`
+              }
+            ]
+          };
+        }
       }
 
       if (!rawDiffText && diffPath) {
-        rawDiffText = await fsPromises.readFile(resolve(diffPath), "utf-8");
+        try {
+          rawDiffText = await fsPromises.readFile(resolve(diffPath), "utf-8");
+        } catch (err) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `## エラー\n\ndiffPath の読み込みに失敗しました。\n${summarizeError(err)}`
+              }
+            ]
+          };
+        }
       }
 
       if (!rawText) {
@@ -100,7 +134,7 @@ export function registerKamilessTools(deps: RegisterKamilessToolsDeps): void {
           content: [
             {
               type: "text",
-              text: `## エラー\n\n${(err as Error).message}`
+              text: `## エラー\n\n${summarizeError(err)}`
             }
           ]
         };
@@ -110,18 +144,42 @@ export function registerKamilessTools(deps: RegisterKamilessToolsDeps): void {
         ? resolve(specOutputPath)
         : join(root, "outputs", `${specResult.spec.name}.kamiless.json`);
 
-      await fsPromises.mkdir(dirname(finalSpecPath), { recursive: true });
-      await fsPromises.writeFile(finalSpecPath, specResult.json, "utf-8");
+      try {
+        await fsPromises.mkdir(dirname(finalSpecPath), { recursive: true });
+        await fsPromises.writeFile(finalSpecPath, specResult.json, "utf-8");
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `## エラー\n\nSpec ファイルの保存に失敗しました。\n${summarizeError(err)}`
+            }
+          ]
+        };
+      }
 
       let exportSummary = "";
       if (exportOutputPath) {
-        const exportResult = await generateKamilessExport(finalSpecPath);
-        await fsPromises.mkdir(dirname(resolve(exportOutputPath)), { recursive: true });
-        await fsPromises.writeFile(resolve(exportOutputPath), exportResult.json, "utf-8");
+        const resolvedExportPath = resolve(exportOutputPath);
+        let exportResult;
+        try {
+          exportResult = await generateKamilessExport(finalSpecPath);
+          await fsPromises.mkdir(dirname(resolvedExportPath), { recursive: true });
+          await fsPromises.writeFile(resolvedExportPath, exportResult.json, "utf-8");
+        } catch (err) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `## エラー\n\nExport JSON 生成または保存に失敗しました。\n${summarizeError(err)}`
+              }
+            ]
+          };
+        }
         exportSummary = [
           "",
           "### Export JSON",
-          `- 出力: ${resolve(exportOutputPath)}`,
+          `- 出力: ${resolvedExportPath}`,
           `- FormLayout: ${exportResult.stats.layoutCount}`,
           `- FormPart: ${exportResult.stats.formPartCount}`,
           `- TargetField: ${exportResult.stats.targetFieldCount}`
@@ -239,12 +297,17 @@ export function registerKamilessTools(deps: RegisterKamilessToolsDeps): void {
         try {
           result = await generateKamilessExport(sp);
         } catch (err) {
-          results.push(`## エラー (${sp})\n\n${(err as Error).message}`);
+          results.push(`## エラー (${sp})\n\n${summarizeError(err)}`);
           continue;
         }
 
         const destination = outputPath ?? join(dirname(sp), basename(sp, ".kamiless.json") + "-export.json");
-        await fsPromises.writeFile(destination, result.json, "utf-8");
+        try {
+          await fsPromises.writeFile(destination, result.json, "utf-8");
+        } catch (err) {
+          results.push(`## エラー (${sp})\n\n出力ファイル保存に失敗しました。\n${summarizeError(err)}`);
+          continue;
+        }
 
         results.push([
           "## Kamiless Export 生成結果",

@@ -1,9 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { addMemory, listMemory, searchMemory } from "../memory/project-memory.js";
+import { tmpdir } from "node:os";
+import {
+  addMemory,
+  clearMemory,
+  configureMemoryStorageForTest,
+  listMemory,
+  searchMemory
+} from "../memory/project-memory.js";
 import { addRecord, searchByKeyword } from "../memory/vector-store.js";
 import { buildPrompt } from "../prompt-engine/prompt-builder.js";
 
@@ -27,6 +35,25 @@ test("project-memory supports add, search, and list copy semantics", () => {
 
   const after = listMemory();
   assert.equal(after.includes(injected), false);
+});
+
+test("project-memory persists to disk and can be reloaded", () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "sf-ai-memory-test-"));
+  const tempStorage = join(tempRoot, "memory.jsonl");
+  const token = `persistent-token-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  try {
+    configureMemoryStorageForTest(tempStorage);
+    clearMemory();
+    addMemory(`Persist ${token}`);
+
+    configureMemoryStorageForTest(tempStorage);
+    const items = listMemory();
+    assert.ok(items.some((item) => item.includes(token)));
+  } finally {
+    configureMemoryStorageForTest(join(ROOT, "outputs", "memory.jsonl"));
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("vector-store searchByKeyword matches both text and tags case-insensitively", () => {

@@ -1,5 +1,4 @@
-﻿// @ts-nocheck
-import { z } from "zod";
+﻿import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { existsSync, promises as fsPromises } from "fs";
@@ -29,6 +28,7 @@ import { emitEvent } from "./core/event/event-dispatcher.js";
 import {
   createSystemEventManager,
   summarizeValue,
+  type SystemEventRecord,
   type SystemEventName
 } from "./core/event/system-event-manager.js";
 
@@ -45,17 +45,18 @@ import { registerCoreAnalysisTools } from "./handlers/register-core-analysis-too
 import { registerBranchReviewTools } from "./handlers/register-branch-review-tools.js";
 import { registerResourceCatalogTools } from "./handlers/register-resource-catalog-tools.js";
 import { registerChatOrchestrationTools } from "./handlers/register-chat-orchestration-tools.js";
-import { registerLoggingTools } from "./handlers/register-logging-tools.js";
-import { registerHistoryTools } from "./handlers/register-history-tools.js";
+import { registerLoggingTools, registerHistoryTools } from "./handlers/index.js";
 import { registerResourceSearchTools } from "./handlers/register-resource-search-tools.js";
 import { registerPresetTools } from "./handlers/register-preset-tools.js";
-import { registerResourceGovernanceTools } from "./handlers/register-resource-governance-tools.js";
-import { registerResourceActionTools } from "./handlers/register-resource-action-tools.js";
-import { registerSmartChatTools } from "./handlers/register-smart-chat-tools.js";
-import { registerAnalyticsTools } from "./handlers/register-analytics-tools.js";
-import { registerExportTools } from "./handlers/register-export-tools.js";
-import { registerMemoryTools } from "./handlers/register-memory-tools.js";
-import { registerContextTools } from "./handlers/register-context-tools.js";
+import {
+  registerResourceGovernanceTools,
+  registerResourceActionTools,
+  registerSmartChatTools,
+  registerAnalyticsTools,
+  registerExportTools,
+  registerMemoryTools,
+  registerContextTools
+} from "./handlers/index.js";
 import { registerVectorPromptTools } from "./handlers/register-vector-prompt-tools.js";
 import { registerBatchTools } from "./handlers/register-batch-tools.js";
 import { registerKamilessTools } from "./handlers/register-kamiless-tools.js";
@@ -68,11 +69,11 @@ import { addRecord, searchByKeyword } from "../memory/vector-store.js";
 import { buildPrompt } from "../prompt-engine/prompt-builder.js";
 import {
   exportStatisticsAsCsv,
-  exportStatisticsAsJson
+  exportStatisticsAsJson,
+  type HandlersStatistics
 } from "./handlers/statistics-manager.js";
 import {
-  checkDailyLimitExceeded,
-  type ResourceOperation
+  checkDailyLimitExceeded
 } from "./core/governance/governance-manager.js";
 import { createOperationLog } from "./core/governance/operation-log.js";
 import { createGovernedToolRegistrar } from "./core/governance/governed-tool-registrar.js";
@@ -88,14 +89,17 @@ import {
   type GovernanceState
 } from "./core/governance/governance-state.js";
 import { createPresetStore } from "./core/context/preset-store.js";
+import type { ChatPreset as StoredChatPreset } from "./core/context/preset-store.js";
 import { createCatalogHelpers } from "./core/context/catalog-helpers.js";
 import { createHistoryStore } from "./core/context/history-store.js";
 import { createOrchestrationSessionStore } from "./core/context/orchestration-session-store.js";
 import { buildChatPromptFromContext } from "./core/context/chat-prompt-builder.js";
+import type { CustomToolDefinition as RegistryCustomToolDefinition } from "./core/resource/custom-tool-registry.js";
 import {
   buildRuleKey as _buildRuleKey,
   evaluatePseudoHooks as _evaluatePseudoHooks
 } from "./core/orchestration/pseudo-hooks.js";
+import type { SystemEventType } from "./core/event/event-dispatcher.js";
 
 // Resolve project root from this file location so cross-repo clients can share one server.
 const ROOT = resolveProjectRootFromFile(import.meta.url);
@@ -137,10 +141,48 @@ async function buildChatPrompt(
       root: ROOT,
       findMdFilesRecursive,
       toPosixPath,
-      truncateContent,
+      truncateContent: truncateContentCompat,
       getMdFileAsync
     }
   );
+}
+
+async function buildChatPromptCompat(
+  topic: string,
+  agentNames: string[],
+  personaName?: string,
+  skillNames?: string[],
+  filePaths?: string[],
+  turns?: number,
+  maxContextChars?: number,
+  appendInstruction?: string
+): Promise<string> {
+  return buildChatPrompt(
+    topic,
+    agentNames,
+    personaName,
+    skillNames ?? [],
+    filePaths ?? [],
+    turns ?? 6,
+    maxContextChars,
+    appendInstruction
+  );
+}
+
+function truncateContentCompat(text: string, maxChars: number, label?: string): string {
+  return truncateContent(text, maxChars, label ?? "");
+}
+
+function isCoreBridgeableEvent(event: SystemEventName): event is Extract<SystemEventName, SystemEventType> {
+  return event === "error_aggregate_detected" || event === "governance_threshold_exceeded";
+}
+
+async function emitSystemEventCompat(event: string, payload: Record<string, unknown>): Promise<void> {
+  await emitSystemEvent(event as SystemEventName, payload);
+}
+
+async function loadSystemEventsCompat(limit?: number, event?: string): Promise<SystemEventRecord[]> {
+  return loadSystemEvents(limit, event as SystemEventName | undefined);
 }
 
 // エージェントメッセージログ
@@ -169,12 +211,14 @@ const { emitSystemEvent, loadSystemEvents, registerToolFailure } = createSystemE
   rootDir: ROOT,
   ensureDir,
   applyEventAutomation,
-  bridgeCoreEvent: async (event, timestamp, payload) => {
-    await emitEvent({
-      type: event,
-      timestamp,
-      payload
-    });
+  bridgeCoreEvent: async (event: SystemEventName, timestamp: string, payload: Record<string, unknown>) => {
+    if (isCoreBridgeableEvent(event)) {
+      await emitEvent({
+        type: event,
+        timestamp,
+        payload
+      });
+    }
   }
 });
 
@@ -225,19 +269,19 @@ let cachedDisabledTools: Set<string> = new Set();
 async function refreshDisabledToolsCache(): Promise<void> {
   try {
     const state = await loadGovernanceState();
-    cachedDisabledTools = new Set((state.disabled.tools ?? []).map((name) => normalizeResourceName(name)));
+    cachedDisabledTools = new Set((state.disabled.tools ?? []).map((name: string) => normalizeResourceName(name)));
   } catch {
     cachedDisabledTools = new Set();
   }
 }
 
 const { govTool } = createGovernedToolRegistrar({
-  registerTool: (name, config, handler) => {
+  registerTool: (name: string, config: any, handler: any) => {
     server.registerTool(name as any, config as any, handler as any);
   },
-  isToolDisabled: (toolName) => cachedDisabledTools.has(toolName),
+  isToolDisabled: (toolName: string) => cachedDisabledTools.has(toolName),
   normalizeResourceName,
-  emitSystemEvent,
+  emitSystemEvent: emitSystemEventCompat,
   summarizeValue,
   registerToolFailure
 });
@@ -396,11 +440,11 @@ const { saveChatHistory, loadChatHistories, restoreChatHistory } = createHistory
 const { saveOrchestrationSession, restoreOrchestrationSession } = createOrchestrationSessionStore<OrchestrationSession>({
   sessionsDir: SESSIONS_DIR,
   ensureDir,
-  getSession: (sessionId) => orchestrationSessions.get(sessionId),
-  setSession: (session) => {
+  getSession: (sessionId: string) => orchestrationSessions.get(sessionId),
+  setSession: (session: OrchestrationSession) => {
     orchestrationSessions.set(session.id, session);
   },
-  toRelativePosixPath: (absoluteFilePath) => toPosixPath(relative(ROOT, absoluteFilePath))
+  toRelativePosixPath: (absoluteFilePath: string) => toPosixPath(relative(ROOT, absoluteFilePath))
 });
 
 // ============================================================
@@ -414,8 +458,91 @@ const CUSTOM_TOOLS_DIR = join(ROOT, "outputs", "custom-tools");
 const { loadedCustomToolNames, registerCustomTool, unregisterCustomTool, loadCustomToolsFromDir } = createCustomToolRegistry({
   govTool,
   filterDisabledSkills,
-  buildChatPrompt
+  buildChatPrompt: buildChatPromptCompat
 });
+
+async function createPresetCompat(preset: {
+  name: string;
+  description: string;
+  topic: string;
+  agents: string[];
+  skills?: string[];
+  persona?: string;
+  filePaths?: string[];
+}): Promise<void> {
+  const normalizedPreset: StoredChatPreset = {
+    ...preset,
+    skills: preset.skills ?? []
+  };
+  await createPreset(normalizedPreset);
+}
+
+function registerCustomToolCompat(tool: {
+  name: string;
+  description: string;
+  agents: string[];
+  skills?: string[];
+  persona?: string;
+  createdAt: string;
+}): void {
+  const normalizedTool: RegistryCustomToolDefinition = {
+    ...tool,
+    skills: tool.skills ?? []
+  };
+  registerCustomTool(normalizedTool);
+}
+
+function generateHandlersDashboardCompat(state: {
+  createdTracker: unknown;
+  deletedTracker: unknown;
+  errorTracker: unknown;
+  qualityTracker: unknown;
+}): unknown {
+  return generateHandlersDashboard(state as HandlersState);
+}
+
+function exportStatisticsAsCsvCompat(stats: {
+  created: unknown;
+  deleted: unknown;
+  errors: unknown;
+  qualityFailures: unknown;
+  lastUpdated: string;
+}): string {
+  return exportStatisticsAsCsv(stats as HandlersStatistics);
+}
+
+function exportStatisticsAsJsonCompat(stats: {
+  created: unknown;
+  deleted: unknown;
+  errors: unknown;
+  qualityFailures: unknown;
+  lastUpdated: string;
+}): string {
+  return exportStatisticsAsJson(stats as HandlersStatistics);
+}
+
+async function loadRecentOperationsCompat(): Promise<Array<{
+  type: "create" | "delete";
+  resourceType: "skills" | "tools" | "presets";
+  name: string;
+  timestamp: string;
+}>> {
+  const operations = await loadRecentOperations();
+  return operations.filter(
+    (operation): operation is {
+      type: "create" | "delete";
+      resourceType: "skills" | "tools" | "presets";
+      name: string;
+      timestamp: string;
+    } => operation.type === "create" || operation.type === "delete"
+  );
+}
+
+async function emitCoreEventCompat(event: { type: string; timestamp: string; payload: Record<string, unknown> }): Promise<void> {
+  if (event.type === "resource_gap_detected" || event.type === "resource_created" || event.type === "resource_deleted" || event.type === "error_aggregate_detected" || event.type === "governance_threshold_exceeded" || event.type === "quality_check_failed") {
+    await emitEvent(event as { type: SystemEventType; timestamp: string; payload: Record<string, unknown> });
+  }
+}
 
 const BUILTIN_TOOL_CATALOG = [
   "repo_analyze",
@@ -604,21 +731,21 @@ function registerAllTools(): void {
     runChatTool,
     generateSessionId,
     filterDisabledSkills,
-    emitSystemEvent,
-    buildChatPrompt,
+    emitSystemEvent: emitSystemEventCompat,
+    buildChatPrompt: buildChatPromptCompat,
     evaluatePseudoHooks,
     orchestrationSessions,
     saveOrchestrationSession,
     restoreOrchestrationSession,
     sessionsDir: join(ROOT, "outputs", "sessions"),
-    readDir: (path) => fsPromises.readdir(path),
-    readFile: (path, encoding) => fsPromises.readFile(path, encoding)
+    readDir: (path: string) => fsPromises.readdir(path),
+    readFile: (path: string, encoding: BufferEncoding) => fsPromises.readFile(path, encoding)
   });
 
   registerLoggingTools({
     govTool,
     agentLog,
-    loadSystemEvents,
+    loadSystemEvents: loadSystemEventsCompat,
     loadGovernanceState,
     saveGovernanceState,
     buildDefaultGovernanceState,
@@ -631,7 +758,7 @@ function registerAllTools(): void {
     saveChatHistory,
     loadChatHistories,
     restoreChatHistory,
-    emitSystemEvent
+    emitSystemEvent: emitSystemEventCompat
   });
 
   registerResourceSearchTools({
@@ -640,7 +767,7 @@ function registerAllTools(): void {
     listMdFiles,
     listPresetsData,
     scoreByQuery,
-    emitSystemEvent,
+    emitSystemEvent: emitSystemEventCompat,
     lowRelevanceScoreThreshold: LOW_RELEVANCE_SCORE_THRESHOLD,
     registeredToolMetadata
   });
@@ -652,25 +779,25 @@ function registerAllTools(): void {
     getPreset,
     isPresetDisabled,
     filterDisabledSkills,
-    buildChatPrompt,
-    emitSystemEvent
+    buildChatPrompt: buildChatPromptCompat,
+    emitSystemEvent: emitSystemEventCompat
   });
 
   registerSmartChatTools({
     govTool,
     root: ROOT,
     filterDisabledSkills,
-    buildChatPrompt
+    buildChatPrompt: buildChatPromptCompat
   });
 
   registerAnalyticsTools({
     govTool,
     agentLog,
     loadChatHistories,
-    generateHandlersDashboard,
+    generateHandlersDashboard: generateHandlersDashboardCompat,
     handlersState,
-    exportStatisticsAsCsv,
-    exportStatisticsAsJson,
+    exportStatisticsAsCsv: exportStatisticsAsCsvCompat,
+    exportStatisticsAsJson: exportStatisticsAsJsonCompat,
     ensureDir
   });
 
@@ -705,7 +832,7 @@ function registerAllTools(): void {
 
   registerBatchTools({
     govTool,
-    buildChatPrompt
+    buildChatPrompt: buildChatPromptCompat
   });
 
   registerKamilessTools({
@@ -722,7 +849,7 @@ function registerAllTools(): void {
     listPresetsCatalog,
     listToolsCatalog,
     resourceScore,
-    emitSystemEvent
+    emitSystemEvent: emitSystemEventCompat
   });
 
   registerResourceActionTools({
@@ -735,7 +862,7 @@ function registerAllTools(): void {
     loadGovernanceState,
     saveGovernanceState,
     ensureDir,
-    loadRecentOperations,
+    loadRecentOperations: loadRecentOperationsCompat,
     checkDailyLimitExceeded,
     listSkillsCatalog,
     listPresetsCatalog,
@@ -743,12 +870,12 @@ function registerAllTools(): void {
     validateAndCreateSkillWithQuality,
     validateAndCreatePresetWithQuality,
     validateAndCreateToolWithQuality,
-    createPreset,
-    registerCustomTool,
+    createPreset: createPresetCompat,
+    registerCustomTool: registerCustomToolCompat,
     unregisterCustomTool,
     refreshDisabledToolsCache,
     appendOperationLog,
-    emitEvent,
+    emitEvent: emitCoreEventCompat,
     toPosixPath
   });
 }

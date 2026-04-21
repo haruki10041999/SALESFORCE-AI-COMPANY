@@ -262,6 +262,16 @@ test("generate_kamiless_export creates export JSON with defaults", async () => {
   }
 });
 
+test("generate_kamiless_export returns readable error when spec path is invalid", async () => {
+  const missingPath = join(tmpdir(), `missing-${Date.now()}.kamiless.json`);
+  const result = await callTool("generate_kamiless_export", { specPath: missingPath });
+  const text = result.content[0].text;
+
+  assert.ok(text.includes("## エラー"));
+  assert.ok(text.includes(missingPath));
+  assert.equal(text.includes("{}"), false);
+});
+
 test("deploy_org returns JSON with command and dryRun", async () => {
   const result = await callTool("deploy_org", { targetOrg: "dev-org", dryRun: true });
   const payload = JSON.parse(result.content[0].text) as { command: string; dryRun: boolean };
