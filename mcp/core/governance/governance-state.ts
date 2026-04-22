@@ -22,6 +22,14 @@ export interface GovernanceConfig {
     creationsPerDay: number;
     deletionsPerDay: number;
   };
+  toolExecution: {
+    retryEnabled: boolean;
+    maxRetries: number;
+    baseDelayMs: number;
+    maxDelayMs: number;
+    retryablePatterns: string[];
+    retryableCodes: string[];
+  };
   eventAutomation: {
     enabled: boolean;
     protectedTools: string[];
@@ -63,6 +71,22 @@ export function buildDefaultGovernanceState(defaultProtectedTools: string[]): Go
       maxCounts: { skills: 30, tools: 40, presets: 20 },
       thresholds: { minUsageToKeep: 2, bugSignalToFlag: 2 },
       resourceLimits: { creationsPerDay: 5, deletionsPerDay: 3 },
+      toolExecution: {
+        retryEnabled: true,
+        maxRetries: 2,
+        baseDelayMs: 150,
+        maxDelayMs: 2000,
+        retryablePatterns: [
+          "timeout",
+          "timed out",
+          "econnreset",
+          "econnrefused",
+          "503",
+          "429",
+          "temporarily unavailable"
+        ],
+        retryableCodes: ["ETIMEDOUT", "ECONNRESET", "ECONNREFUSED", "EAI_AGAIN", "429", "503", "504"]
+      },
       eventAutomation: {
         enabled: true,
         protectedTools: [...defaultProtectedTools],
@@ -109,6 +133,20 @@ export async function loadGovernanceState(
         maxCounts: { ...defaults.config.maxCounts, ...parsed.config?.maxCounts },
         thresholds: { ...defaults.config.thresholds, ...parsed.config?.thresholds },
         resourceLimits: { ...defaults.config.resourceLimits, ...parsed.config?.resourceLimits },
+        toolExecution: {
+          ...defaults.config.toolExecution,
+          ...parsed.config?.toolExecution,
+          retryablePatterns:
+            Array.isArray(parsed.config?.toolExecution?.retryablePatterns) &&
+            parsed.config?.toolExecution?.retryablePatterns.length > 0
+              ? [...parsed.config.toolExecution.retryablePatterns]
+              : [...defaults.config.toolExecution.retryablePatterns],
+          retryableCodes:
+            Array.isArray(parsed.config?.toolExecution?.retryableCodes) &&
+            parsed.config?.toolExecution?.retryableCodes.length > 0
+              ? [...parsed.config.toolExecution.retryableCodes]
+              : [...defaults.config.toolExecution.retryableCodes]
+        },
         eventAutomation: {
           ...defaults.config.eventAutomation,
           ...parsed.config?.eventAutomation,

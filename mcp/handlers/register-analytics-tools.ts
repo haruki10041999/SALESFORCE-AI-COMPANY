@@ -38,6 +38,8 @@ interface RegisterAnalyticsToolsDeps {
   govTool: GovTool;
   agentLog: AgentMessage[];
   loadChatHistories: () => Promise<ChatSession[]>;
+  loadSystemEvents: (limit?: number, event?: string) => Promise<any[]>;
+  loadGovernanceState: () => Promise<any>;
   generateHandlersDashboard: (state: HandlersStateShape) => unknown;
   handlersState: HandlersStateShape;
   exportStatisticsAsCsv: (stats: HandlersStatisticsShape) => string;
@@ -50,12 +52,76 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
     govTool,
     agentLog,
     loadChatHistories,
+    loadSystemEvents,
+    loadGovernanceState,
     generateHandlersDashboard,
     handlersState,
     exportStatisticsAsCsv,
     exportStatisticsAsJson,
     ensureDir
   } = deps;
+
+  function aggregateToolAfterExecuteEvents(events: any[]): {
+    totals: {
+      total: number;
+      success: number;
+      failure: number;
+      blockedByDisable: number;
+    };
+    rates: {
+      successRate: number;
+      failureRate: number;
+    };
+    perTool: Record<string, { total: number; success: number; failure: number; blocked: number }>;
+  } {
+    const perTool: Record<string, { total: number; success: number; failure: number; blocked: number }> = {};
+    let total = 0;
+    let success = 0;
+    let failure = 0;
+    let blocked = 0;
+
+    for (const event of events) {
+      const payload = (event.payload ?? {}) as {
+        toolName?: string;
+        success?: boolean;
+        blockedByDisable?: boolean;
+      };
+      const toolName = payload.toolName ?? "unknown";
+      const toolStats = perTool[toolName] ?? { total: 0, success: 0, failure: 0, blocked: 0 };
+
+      total += 1;
+      toolStats.total += 1;
+
+      if (payload.success === true) {
+        success += 1;
+        toolStats.success += 1;
+      } else {
+        failure += 1;
+        toolStats.failure += 1;
+      }
+
+      if (payload.blockedByDisable === true) {
+        blocked += 1;
+        toolStats.blocked += 1;
+      }
+
+      perTool[toolName] = toolStats;
+    }
+
+    return {
+      totals: {
+        total,
+        success,
+        failure,
+        blockedByDisable: blocked
+      },
+      rates: {
+        successRate: total === 0 ? 0 : Number(((success / total) * 100).toFixed(2)),
+        failureRate: total === 0 ? 0 : Number(((failure / total) * 100).toFixed(2))
+      },
+      perTool
+    };
+  }
 
   govTool(
     "analyze_chat_trends",
@@ -115,6 +181,110 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
                 historyId: historyId ?? "current",
                 since: since ?? null,
                 stats
+              },
+              null,
+              2
+            )
+          }
+        ]
+      };
+    }
+  );
+
+  govTool(
+    "get_tool_execution_statistics",
+    {
+      title: "Get Tool Execution Statistics",
+      description: "ツール実行の成功率・失敗率・無効化ツール数を返します。",
+      inputSchema: {
+        windowMinutes: z.number().int().min(1).max(7 * 24 * 60).optional(),
+        windowsMinutes: z.array(z.number().int().min(1).max(7 * 24 * 60)).max(10).optional(),
+        bucketMinutes: z.number().int().min(5).max(180).optional(),
+        limit: z.number().int().min(10).max(2000).optional()
+      }
+    },
+    async ({ windowMinutes, windowsMinutes, bucketMinutes, limit }: {
+      windowMinutes?: number;
+      windowsMinutes?: number[];
+      bucketMinutes?: number;
+      limit?: number;
+    }) => {
+      const now = Date.now();
+      const windowMs = (windowMinutes ?? 60) * 60 * 1000;
+      const eventLimit = limit ?? 1000;
+      const events = await loadSystemEvents(eventLimit, "tool_after_execute");
+      const relevant = events.filter((event) => {
+        const ts = Date.parse(event.timestamp ?? "");
+        return Number.isFinite(ts) && now - ts <= windowMs;
+      });
+      const aggregate = aggregateToolAfterExecuteEvents(relevant);
+
+      const windowCandidates = windowsMinutes && windowsMinutes.length > 0
+        ? windowsMinutes
+        : [60, 24 * 60, 7 * 24 * 60];
+      const normalizedWindows = [...new Set(windowCandidates)].sort((a, b) => a - b);
+      const windowSummaries = normalizedWindows.map((minutes) => {
+        const cutoff = now - minutes * 60 * 1000;
+        const scopedEvents = events.filter((event) => {
+          const ts = Date.parse(event.timestamp ?? "");
+          return Number.isFinite(ts) && ts >= cutoff;
+        });
+        const scopedAggregate = aggregateToolAfterExecuteEvents(scopedEvents);
+        return {
+          windowMinutes: minutes,
+          sampledEvents: scopedEvents.length,
+          totals: scopedAggregate.totals,
+          rates: scopedAggregate.rates
+        };
+      });
+
+      const bucketSizeMinutes = bucketMinutes ?? 60;
+      const bucketSizeMs = bucketSizeMinutes * 60 * 1000;
+      const timelineBuckets = new Map<number, any[]>();
+      for (const event of relevant) {
+        const ts = Date.parse(event.timestamp ?? "");
+        if (!Number.isFinite(ts)) {
+          continue;
+        }
+        const bucketStart = Math.floor(ts / bucketSizeMs) * bucketSizeMs;
+        const bucketEvents = timelineBuckets.get(bucketStart) ?? [];
+        bucketEvents.push(event);
+        timelineBuckets.set(bucketStart, bucketEvents);
+      }
+      const timeline = [...timelineBuckets.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([bucketStart, bucketEvents]) => {
+          const scopedAggregate = aggregateToolAfterExecuteEvents(bucketEvents);
+          return {
+            bucketStart: new Date(bucketStart).toISOString(),
+            bucketMinutes: bucketSizeMinutes,
+            totals: scopedAggregate.totals,
+            rates: scopedAggregate.rates
+          };
+        });
+
+      const governanceState = await loadGovernanceState();
+      const disabledTools = Array.isArray(governanceState?.disabled?.tools)
+        ? governanceState.disabled.tools
+        : [];
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                windowMinutes: windowMinutes ?? 60,
+                sampledEvents: relevant.length,
+                totals: aggregate.totals,
+                rates: aggregate.rates,
+                disabledTools: {
+                  count: disabledTools.length,
+                  names: disabledTools
+                },
+                perTool: aggregate.perTool,
+                windows: windowSummaries,
+                timeline
               },
               null,
               2

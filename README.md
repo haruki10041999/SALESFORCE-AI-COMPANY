@@ -1,10 +1,10 @@
-# Salesforce AI Company - 5-Phase Evolution Architecture
+# Salesforce AI Company - 5フェーズ進化アーキテクチャ
 
-## 📋 Overview
+## 📋 概要
 
 **Salesforce AI Company** は、MCP サーバーとして Salesforce 開発を支援する AI エージェント・スキル・ツールを**動的に選択・補完・拡張する**システムです。
 
-### 5-Phase Evolution
+### 5フェーズ進化
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -44,9 +44,9 @@
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ アーキテクチャ
 
-### Class Diagram: Core Modules
+### クラス図: コアモジュール
 
 ```mermaid
 classDiagram
@@ -102,7 +102,7 @@ classDiagram
   EventDispatcher --> QualityChecker: quality_check_failed発行
 ```
 
-### Sequence Diagram: Event Flow
+### シーケンス図: イベントフロー
 
 ```mermaid
 sequenceDiagram
@@ -137,7 +137,7 @@ sequenceDiagram
   end
 ```
 
-### State Diagram: Resource Lifecycle
+### 状態図: リソースライフサイクル
 
 ```mermaid
 stateDiagram-v2
@@ -164,7 +164,7 @@ stateDiagram-v2
   DeletedTracked --> [*]
 ```
 
-### Component Diagram: Modular Separation
+### コンポーネント図: モジュール分離
 
 ```mermaid
 graph TB
@@ -222,25 +222,25 @@ graph TB
 
 ---
 
-## 📦 Module Reference
+## 📦 モジュールリファレンス
 
-### Phase 1: Resource Selector
+### フェーズ 1: リソースセレクター
 
-**File**: mcp/core/resource/resource-selector.ts
+**ファイル**: mcp/core/resource/resource-selector.ts
 
-| Interface | Purpose |
+| インターフェース | 用途 |
 |-----------|---------|
 | `ResourceCandidate` | スコアリング対象のリソース |
 | `ScoringConfig` | スコアリング係数の設定 |
 | `ResourceSelectionResult` | 選定結果（selected[]、isGap） |
 
-**Scoring Formula**:
+**スコアリング計算式**:
 ```
 score = nameMatch + tagMatch + descriptionMatch + usageScore 
      - (bugPenalty) + recencyBonus
 ```
 
-**Example Usage**:
+**使用例**:
 ```typescript
 const score = scoreCandidate(skill, "apex testing");
 const result = selectResources(candidates, "skills", 3);
@@ -251,17 +251,17 @@ if (result.isGap) {
 
 ---
 
-### Phase 2: Resource Gap Detection
+### フェーズ 2: リソースギャップ検出
 
-**File**: mcp/core/resource/resource-gap-detector.ts
+**ファイル**: mcp/core/resource/resource-gap-detector.ts
 
-| Method | Input | Output |
+| メソッド | 入力 | 出力 |
 |--------|-------|--------|
 | `detectGap()` | type, topic, topScore, threshold=5 | GapDetectionResult |
 | `calculateGapSeverity()` | ratio = topScore/threshold | "none" \| "low" \| "medium" \| "high" |
 | `createGapEvent()` | GapDetectionResult | GapEvent \| null |
 
-**Severity Mapping**:
+**深刻度マッピング**:
 - **none**: topScore ≥ threshold
 - **low**: 0.75 ≤ ratio < 1.0
 - **medium**: 0.5 ≤ ratio < 0.75
@@ -269,23 +269,23 @@ if (result.isGap) {
 
 ---
 
-### Phase 3: Quality & Deduplication
+### フェーズ 3: 品質チェックと重複排除
 
-#### Quality Checker
-**File**: mcp/core/quality/quality-checker.ts
+#### 品質チェッカー
+**ファイル**: mcp/core/quality/quality-checker.ts
 
-**Quality Profiles**:
+**品質プロファイル**:
 
-| Type | Requirements | Score Impact |
+| 種別 | 要件 | スコア影響 |
 |------|-------------|--------------|
-| **Skill** | tags ≥ 2, summary ≥ 10 chars | nameMatch: 50%, tags: 30%, content: 20% |
-| **Tool** | description ≥ 10 chars | description: 100% |
-| **Preset** | agents ≥ 1, name 2-100 chars | structure: 100% |
+| **Skill** | タグ 2件以上、概要 10文字以上 | nameMatch: 50%, tags: 30%, content: 20% |
+| **Tool** | 説明 10文字以上 | description: 100% |
+| **Preset** | agents 1件以上、名前 2〜100文字 | structure: 100% |
 
-#### Deduplication
-**File**: mcp/core/quality/deduplication.ts
+#### 重複排除
+**ファイル**: mcp/core/quality/deduplication.ts
 
-| Method | Purpose |
+| メソッド | 用途 |
 |--------|---------|
 | `calculateSimilarity()` | Levenshtein距離 + コンテンツ比較 → 0-1 |
 | `checkForDuplicates()` | threshold = 0.8 で類似リソース検出 |
@@ -293,11 +293,11 @@ if (result.isGap) {
 
 ---
 
-### Phase 4: Handlers
+### フェーズ 4: ハンドラー
 
-**Directory**: mcp/handlers/
+**ディレクトリ**: mcp/handlers/
 
-| Handler | Event | Purpose |
+| ハンドラー | イベント | 用途 |
 |---------|-------|---------|
 | resource-gap.handler.ts | `resource_gap_detected` | ギャップ検出時に提案を自動生成 |
 | resource-created.handler.ts | `resource_created` | 作成リソースを追跡・カウント |
@@ -306,13 +306,13 @@ if (result.isGap) {
 | quality-check-failed.handler.ts | `quality_check_failed` | 品質失敗パターンから改善提案 |
 | threshold.handler.ts | `governance_threshold_exceeded` | キャパシティ超過時の自動クリーンアップ |
 
-**Statistics Manager**: 全ハンドラーの統計を集約 → CSV/JSON エクスポート
+**統計マネージャー**: 全ハンドラーの統計を集約 → CSV/JSON エクスポート
 
 ---
 
-### Phase 5: Handlers Auto-Initialization
+### フェーズ 5: ハンドラー自動初期化
 
-**File**: mcp/handlers/auto-init.ts
+**ファイル**: mcp/handlers/auto-init.ts
 
 ```typescript
 // server.ts の main() で自動実行
@@ -320,7 +320,7 @@ const handlersState = initializeHandlersState();
 autoInitializeHandlers(handlersState);
 ```
 
-| Function | Effect |
+| 関数 | 効果 |
 |----------|--------|
 | `initializeHandlersState()` | 4つのハンドラートラッカーを初期化 |
 | `autoInitializeHandlers()` | 6つのイベント型に全ハンドラーを登録 |
@@ -328,61 +328,61 @@ autoInitializeHandlers(handlersState);
 
 ---
 
-## 🧪 Testing
+## 🧪 テスト
 
-### Test Files
+### テストファイル
 
 ```bash
-# Core module tests
+# コアモジュールテスト
 npm test -- tests/core-modules.test.ts
 
-# Handler tests
+# ハンドラーテスト
 npm test -- tests/handlers-modules.test.ts
 
-# Quality & duplicate tests
+# 品質・重複排除テスト
 npm test -- tests/apply-resource-actions.test.ts
 
 # すべてのテスト実行
 npm test
 ```
 
-### Test Coverage
+### テストカバレッジ
 
-- ✅ Resource Selector (scoring, selection, gap detection)
-- ✅ Gap Detector (high/low gap, event creation)
-- ✅ Quality Checker (skill/tool/preset validation)
-- ✅ Deduplication (similarity, duplicate detection)
-- ✅ Governance Manager (scoring, risk assessment)
-- ✅ 6 Handlers (creation, deletion, error, quality, threshold tracking)
-- ✅ Statistics Manager (aggregation, export)
+- ✅ リソースセレクター（スコアリング、選定、ギャップ検出）
+- ✅ ギャップ検出器（high/low ギャップ、イベント生成）
+- ✅ 品質チェッカー（skill/tool/preset バリデーション）
+- ✅ 重複排除（類似度計算、重複検出）
+- ✅ ガバナンスマネージャー（スコアリング、リスク評価）
+- ✅ 6つのハンドラー（作成・削除・エラー・品質・閾値追跡）
+- ✅ 統計マネージャー（集計、エクスポート）
 
 ---
 
-## 🚀 Quick Start
+## 🚀 クイックスタート
 
-### Installation
+### インストール
 
 ```bash
 npm install
 npm run build
 ```
 
-### Run Server
+### サーバー起動
 
 ```bash
 npm start
 ```
 
-Server starts with:
-1. Custom tools loading
-2. **Phase 5**: Handlers auto-initialization
-3. Event dispatcher ready
-4. All 6 handlers listening on their event types
+起動時に実行される処理:
+1. カスタムツールの読み込み
+2. **フェーズ 5**: ハンドラー自動初期化
+3. イベントディスパッチャー準備完了
+4. 全 6 ハンドラーがイベント待ち受け開始
 
-### Example: Using auto_select_resources
+### 使用例: auto_select_resources
 
 ```typescript
-// User request: "I need Apex testing skills"
+// ユーザーリクエスト: "Apex テストのスキルが必要"
 const result = await auto_select_resources({
   topic: "Apex testing",
   limitPerType: 3
@@ -397,22 +397,22 @@ const result = await auto_select_resources({
 
 ---
 
-## 📊 Key Metrics
+## 📊 主要メトリクス
 
-**Current Implementation**:
-- **Core Modules**: 8 files
-- **Handlers**: 7 files
-- **Event Types**: 6
-- **Quality Profiles**: 3
-- **Risk Levels**: 3
-- **Gap Severities**: 4
-- **Test Coverage**: 92 tests (pass 92 / fail 0)
+**現在の実装状況**:
+- **コアモジュール**: 8 ファイル
+- **ハンドラー**: 7 ファイル
+- **イベント種別**: 6
+- **品質プロファイル**: 3
+- **リスクレベル**: 3
+- **ギャップ深刻度**: 4
+- **テストカバレッジ**: 92 テスト（pass 92 / fail 0）
 
 ---
 
-## 🔄 Event-Driven Architecture
+## 🔄 イベント駆動アーキテクチャ
 
-All handlers execute **automatically** on server startup:
+全ハンドラーはサーバー起動時に**自動実行**されます:
 
 ```
 server start
@@ -427,55 +427,59 @@ dispatcher.on(...) listeners ready
   ↓
 apply_resource_actions emits events
   ↓
-Handlers auto-execute (no human intervention needed)
+Handlers auto-execute（人的介入不要）
 ```
 
 ---
 
-## 📝 Development
+## 📝 開発ガイド
 
-### Add New Handler
+### 新しいハンドラーの追加
 
-1. **Create handler file** in `mcp/handlers/{category}/`
-2. **Define interface** matching event payload
-3. **Register in auto-init.ts**: `onEvent("type", handler)`
-4. **Add test** in `tests/handlers-modules.test.ts`
-5. **Add event emit** in relevant core module
+1. `mcp/handlers/{category}/` にハンドラーファイルを作成
+2. イベントペイロードに合うインターフェースを定義
+3. `auto-init.ts` に登録: `onEvent("type", handler)`
+4. `tests/handlers-modules.test.ts` にテストを追加
+5. 関連コアモジュールにイベント発火を追加
 
-### Add New Event Type
+### 新しいイベント種別の追加
 
-1. **Define in event-dispatcher.ts**: `SystemEventTypes`
-2. **Create factory** in event-dispatcher.ts
-3. **Emit in core module** where applicable
-4. **Register handler** in auto-init.ts
-5. **Test with** system-events.jsonl
-
----
-
-## 📚 References
-
-- [Core Modules Documentation](mcp/core/README.md)
-- [Handlers Documentation](mcp/handlers/README.md)
-- [Event Dispatcher](mcp/core/event/event-dispatcher.ts)
-- [Quality Checker](mcp/core/quality/quality-checker.ts)
-- [Test Files](tests/)
+1. `event-dispatcher.ts` に `SystemEventTypes` を定義
+2. `event-dispatcher.ts` にファクトリー関数を作成
+3. 対象コアモジュールで発火
+4. `auto-init.ts` にハンドラーを登録
+5. `system-events.jsonl` でテスト確認
 
 ---
 
-## ✨ Features
+## 📚 参考リンク
 
-✅ **Advanced Resource Selection** - Sophisticated scoring algorithm  
-✅ **Gap Detection** - Automatic insufficient resource detection  
-✅ **Quality Enforcement** - 3 quality profiles with validation  
-✅ **Duplicate Prevention** - Levenshtein-based similarity detection  
-✅ **Event-Driven** - 6 handlers on 6 event types  
-✅ **Auto-Initialization** - Handlers registered on server start  
-✅ **Statistics Tracking** - Unified handler statistics export  
-✅ **Self-Evolution** - No human intervention needed for auto-expansion  
+- [コアモジュール説明](mcp/core/README.md)
+- [ハンドラー説明](mcp/handlers/README.md)
+- [イベントディスパッチャー](mcp/core/event/event-dispatcher.ts)
+- [品質チェッカー](mcp/core/quality/quality-checker.ts)
+- [テストファイル](tests/)
 
 ---
 
-## 📄 License
+## ✨ 機能一覧
+
+✅ **高度なリソース選定** - スコアリングアルゴリズムによる精密な候補選択  
+✅ **ギャップ検出** - リソース不足の自動検知  
+✅ **品質強制** - 3種の品質プロファイルによるバリデーション  
+✅ **重複排除** - Levenshtein距離ベースの類似度検出  
+✅ **イベント駆動** - 6つのイベント型に対応する6つのハンドラー  
+✅ **自動初期化** - サーバー起動時にハンドラーを自動登録  
+✅ **統計追跡** - 統一ハンドラー統計のエクスポート  
+✅ **自己進化** - 人的介入不要の自動拡張  
+✅ **CI 依存性監査** - 毎週実行の npm audit ワークフロー（GitHub Step Summary 対応）  
+✅ **実行統計時系列** - マルチウィンドウ・バケット単位のタイムライン（成功率/失敗率）  
+✅ **多言語レビューキーワード** - EN/JP/ES/FR/DE/ZH/KO 対応の PR 準備度ゲート  
+✅ **バックオフ付きリトライ** - メッセージパターンとエラーコードに基づく指数バックオフリトライ  
+
+---
+
+## 📄 ライセンス
 
 MIT
 - outputs/resource-governance.json: リソース管理状態
@@ -886,6 +890,19 @@ export_handlers_statistics はハンドラー統計を JSON または CSV 形式
 3. deployment_impact_summary: 変更をメタデータ種別で集計し、デプロイ注意点を返す
 4. changed_tests_suggest: 変更されたソースに対応するテスト候補と実行コマンドを返す
 
+`pr_readiness_check` の追加パラメータ:
+
+- `reviewText` (任意): レビューコメントテキストを渡すと多言語キーワード判定を実施する
+
+多言語キーワード判定は以下の 7 言語に対応しています: EN / JP / ES / FR / DE / ZH / KO。
+
+キーワードカテゴリとゲートの優先順位:
+1. `blocked`: 差し戻し・マージ不可系（最高優先）
+2. `needsReview`: 要確認・再レビュー系
+3. `ready`: LGTM・承認系
+
+返却フィールドに `reviewSignal: { decision, matchedKeywords }` が追加されます。最終ゲートはスコアベースの `baseGate` とキーワードベースの `reviewSignal` のうち厳しい方が採用されます。
+
 ### 7.11 静的解析ツール（apex_analyze / lwc_analyze）
 
 apex_analyze の検出項目は以下です。
@@ -943,6 +960,27 @@ apply_resource_actions は create / delete アクションの実行前に `outpu
 - create: `GovernanceConfig.resourceLimits.creationsPerDay`（デフォルト: 5回/日）を超えると `daily_limit_exceeded` を返す
 - delete: `GovernanceConfig.resourceLimits.deletionsPerDay`（デフォルト: 3回/日）を超えると `daily_limit_exceeded` を返す
 
+### 7.8 実行統計の可視化
+
+`get_tool_execution_statistics` はツール実行イベント（`tool_after_execute`）を集計し、成功率・失敗率・無効化ツール数を返します。
+
+主要パラメータ:
+
+- `windowMinutes`: 単一集計窓（分、デフォルト: 60）
+- `windowsMinutes`: 比較用ウィンドウ配列（例: `[60, 1440, 10080]` で 1h/24h/7d）
+- `bucketMinutes`: タイムライン粒度（分、デフォルト: 60、最小: 5）
+- `limit`: 取得イベント上限（デフォルト: 1000）
+
+返却フィールド:
+
+- `totals` / `rates`: 集計窓内の合計・成功率・失敗率
+- `disabledTools`: 現在無効化中のツール一覧
+- `perTool`: ツール別の内訳
+- `windows[]`: 各ウィンドウごとの比較サマリー
+- `timeline[]`: バケット単位の時系列データ（`bucketStart`, `totals`, `rates`）
+
+---
+
 ### 7.9 バッチ処理
 
 batch_chat は複数トピックをプロンプト化し、結合したレポート文字列を返します。
@@ -953,6 +991,58 @@ batch_chat は複数トピックをプロンプト化し、結合したレポー
 - parallel: true を指定すると Promise.all による並列実行（デフォルト: 逐次）
 
 入力トピック数は最大 10 件です。
+
+### 7.15 依存ライブラリ脆弱性チェック CI
+
+`.github/workflows/dependency-audit.yml` により、以下のタイミングで npm 脆弱性チェックが自動実行されます。
+
+- PR 作成・更新時
+- `main` ブランチへの push 時
+- 毎週月曜日 02:00 UTC（定期実行）
+- `workflow_dispatch`（手動トリガー）
+
+処理ステップ:
+1. `npm ci` でクリーンインストール
+2. `npm audit --audit-level=moderate --json` を実行
+3. 集計結果を GitHub Step Summary に出力
+4. 結果 JSON をアーティファクト `audit-results` としてアップロード
+5. moderate 以上の脆弱性が存在する場合はジョブを `exit 1` で失敗させる
+
+---
+
+### 7.16 ツール実行リトライ戦略
+
+`govTool` ラッパーはツール実行失敗時に指数バックオフ付きリトライを自動適用します。
+
+リトライ設定は `outputs/resource-governance.json` の `config.toolExecution` に保持されます。既定値:
+
+```json
+{
+  "retryEnabled": true,
+  "maxRetries": 2,
+  "baseDelayMs": 150,
+  "maxDelayMs": 2000,
+  "retryablePatterns": ["timeout", "timed out", "econnreset", "econnrefused", "eai_again", "429", "503", "service unavailable"],
+  "retryableCodes": ["ETIMEDOUT", "ECONNRESET", "ECONNREFUSED", "EAI_AGAIN", "429", "503", "504"]
+}
+```
+
+リトライ判定方法:
+- **メッセージパターン**: エラーメッセージに `retryablePatterns` のいずれかを含む場合
+- **エラーコード**: `error.code` / `error.status` / `error.statusCode` / `error.cause.code` が `retryableCodes` のいずれかと一致する場合
+
+バックオフ計算式:
+```
+delay = min(maxDelayMs, baseDelayMs × 2^attempt)
+```
+
+設定変更は `update_event_automation_config` の `retryStrategy` パラメータで行います。`retryableCodes` の追加・変更も同ツールで可能です。
+
+システムイベント:
+- 中間リトライ時: `tool_after_execute` に `retryScheduled: true` が記録される
+- 最終結果: `attempts: N, retried: true/false` が記録される
+
+---
 
 ## 8. ツール一覧
 
@@ -1021,6 +1111,7 @@ batch_chat は複数トピックをプロンプト化し、結合したレポー
 - get_system_events
 - get_event_automation_config
 - update_event_automation_config
+- get_tool_execution_statistics
 
 ### 8.8 リソースガバナンス
 

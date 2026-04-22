@@ -13,6 +13,30 @@
       "creationsPerDay": 5,
       "deletionsPerDay": 3
     },
+    "toolExecution": {
+      "retryEnabled": true,
+      "maxRetries": 2,
+      "baseDelayMs": 150,
+      "maxDelayMs": 2000,
+      "retryablePatterns": [
+        "timeout",
+        "timed out",
+        "econnreset",
+        "econnrefused",
+        "503",
+        "429",
+        "temporarily unavailable"
+      ],
+      "retryableCodes": [
+        "ETIMEDOUT",
+        "ECONNRESET",
+        "ECONNREFUSED",
+        "EAI_AGAIN",
+        "429",
+        "503",
+        "504"
+      ]
+    },
     "eventAutomation": {
       "enabled": true,
       "protectedTools": [
@@ -50,5 +74,5 @@
     "tools": [],
     "presets": []
   },
-  "updatedAt": "2026-04-21T06:44:17.762Z"
+  "updatedAt": "2026-04-22T05:07:34.245Z"
 }

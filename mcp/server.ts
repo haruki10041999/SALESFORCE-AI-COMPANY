@@ -283,7 +283,11 @@ const { govTool } = createGovernedToolRegistrar({
   normalizeResourceName,
   emitSystemEvent: emitSystemEventCompat,
   summarizeValue,
-  registerToolFailure
+  registerToolFailure,
+  getRetryConfig: async () => {
+    const state = await loadGovernanceState();
+    return state.config.toolExecution;
+  }
 });
 
 async function suggestSkillsFromTopic(topic: string, limit = 3): Promise<string[]> {
@@ -586,6 +590,7 @@ const BUILTIN_TOOL_CATALOG = [
   "auto_select_resources",
   "smart_chat",
   "analyze_chat_trends",
+  "get_tool_execution_statistics",
   "get_handlers_dashboard",
   "export_handlers_statistics",
   "export_to_markdown",
@@ -794,6 +799,8 @@ function registerAllTools(): void {
     govTool,
     agentLog,
     loadChatHistories,
+    loadSystemEvents: loadSystemEventsCompat,
+    loadGovernanceState,
     generateHandlersDashboard: generateHandlersDashboardCompat,
     handlersState,
     exportStatisticsAsCsv: exportStatisticsAsCsvCompat,

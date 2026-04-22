@@ -195,7 +195,14 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
         content: [
           {
             type: "text",
-            text: JSON.stringify(state.config.eventAutomation, null, 2)
+            text: JSON.stringify(
+              {
+                ...state.config.eventAutomation,
+                retryStrategy: state.config.toolExecution
+              },
+              null,
+              2
+            )
           }
         ]
       };
@@ -216,16 +223,33 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
         governanceThresholdExceeded: z.object({
           autoDisableRecommendedTools: z.boolean().optional(),
           maxToolsPerRun: z.number().int().min(0).max(20).optional()
+        }).optional(),
+        retryStrategy: z.object({
+          retryEnabled: z.boolean().optional(),
+          maxRetries: z.number().int().min(0).max(5).optional(),
+          baseDelayMs: z.number().int().min(10).max(10000).optional(),
+          maxDelayMs: z.number().int().min(10).max(30000).optional(),
+          retryablePatterns: z.array(z.string()).max(30).optional(),
+          retryableCodes: z.array(z.string()).max(30).optional()
         }).optional()
       }
     },
-    async ({ enabled, protectedTools, errorAggregateDetected, governanceThresholdExceeded }: {
+    async ({ enabled, protectedTools, errorAggregateDetected, governanceThresholdExceeded, retryStrategy }: {
       enabled?: boolean;
       protectedTools?: string[];
       errorAggregateDetected?: { autoDisableTool?: boolean };
       governanceThresholdExceeded?: { autoDisableRecommendedTools?: boolean; maxToolsPerRun?: number };
+      retryStrategy?: {
+        retryEnabled?: boolean;
+        maxRetries?: number;
+        baseDelayMs?: number;
+        maxDelayMs?: number;
+        retryablePatterns?: string[];
+        retryableCodes?: string[];
+      };
     }) => {
       const defaults = buildDefaultGovernanceState().config.eventAutomation;
+      const retryDefaults = buildDefaultGovernanceState().config.toolExecution;
       const state = await loadGovernanceState();
       state.config.eventAutomation = {
         ...defaults,
@@ -247,6 +271,19 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
           }
         }
       };
+      state.config.toolExecution = {
+        ...retryDefaults,
+        ...state.config.toolExecution,
+        ...retryStrategy,
+        retryablePatterns:
+          retryStrategy?.retryablePatterns ??
+          state.config.toolExecution?.retryablePatterns ??
+          retryDefaults.retryablePatterns,
+        retryableCodes:
+          retryStrategy?.retryableCodes ??
+          state.config.toolExecution?.retryableCodes ??
+          retryDefaults.retryableCodes
+      };
       await saveGovernanceState(state);
       return {
         content: [
@@ -254,7 +291,8 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
             type: "text",
             text: JSON.stringify({
               updated: true,
-              eventAutomation: state.config.eventAutomation
+              eventAutomation: state.config.eventAutomation,
+              retryStrategy: state.config.toolExecution
             }, null, 2)
           }
         ]

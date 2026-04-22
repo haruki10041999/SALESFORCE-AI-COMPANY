@@ -39,6 +39,7 @@ test("server exposes expected core tool registrations", () => {
     "get_agent_log",
     "get_handlers_dashboard",
     "export_handlers_statistics",
+    "get_tool_execution_statistics",
     "add_memory",
     "search_memory",
     "list_memory",
@@ -312,6 +313,74 @@ test("chat returns prompt skeleton containing topic section", async () => {
   assert.ok(prompt.includes("発言形式は必ず「**agent-name**: 発言内容」を使う"));
 });
 
+test("orchestration tools execute end-to-end session flow", async () => {
+  const orchestrated = parseFirstJson<{
+    sessionId: string;
+    mode: string;
+    nextQueue: string[];
+    triggerRuleCount: number;
+  }>(await callTool("orchestrate_chat", {
+    topic: "オーケストレーションE2Eテスト",
+    agents: ["architect", "qa-engineer"],
+    turns: 4,
+    triggerRules: [
+      {
+        whenAgent: "architect",
+        thenAgent: "qa-engineer",
+        messageIncludes: "テスト"
+      }
+    ]
+  }));
+
+  assert.ok(orchestrated.sessionId.startsWith("orch-"));
+  assert.equal(orchestrated.mode, "pseudo-hook");
+  assert.equal(orchestrated.triggerRuleCount, 1);
+  assert.deepEqual(orchestrated.nextQueue, ["architect", "qa-engineer"]);
+
+  const dequeued = parseFirstJson<{
+    sessionId: string;
+    dequeued: string[];
+    remainingQueue: string[];
+  }>(await callTool("dequeue_next_agent", {
+    sessionId: orchestrated.sessionId,
+    limit: 1
+  }));
+
+  assert.equal(dequeued.sessionId, orchestrated.sessionId);
+  assert.deepEqual(dequeued.dequeued, ["architect"]);
+  assert.deepEqual(dequeued.remainingQueue, ["qa-engineer"]);
+
+  const evaluated = parseFirstJson<{
+    sessionId: string;
+    nextAgents: string[];
+    usedRoundRobinFallback: boolean;
+    queueLength: number;
+  }>(await callTool("evaluate_triggers", {
+    sessionId: orchestrated.sessionId,
+    lastAgent: "architect",
+    lastMessage: "テスト観点を追加します"
+  }));
+
+  assert.equal(evaluated.sessionId, orchestrated.sessionId);
+  assert.ok(evaluated.nextAgents.includes("qa-engineer"));
+  assert.equal(evaluated.usedRoundRobinFallback, false);
+  assert.ok(evaluated.queueLength >= 2);
+
+  const session = parseFirstJson<{
+    id: string;
+    queue: string[];
+    historyCount: number;
+    firedRuleCount: number;
+  }>(await callTool("get_orchestration_session", {
+    sessionId: orchestrated.sessionId
+  }));
+
+  assert.equal(session.id, orchestrated.sessionId);
+  assert.ok(session.queue.length >= 2);
+  assert.equal(session.historyCount, 1);
+  assert.equal(session.firedRuleCount, 1);
+});
+
 test("parse_and_record_chat and get_agent_log return expected JSON structure", async () => {
   const before = await callTool("get_agent_log", {});
   const beforePayload = JSON.parse(before.content[0].text) as { total: number };
@@ -347,6 +416,63 @@ test("parse_and_record_chat and get_agent_log return expected JSON structure", a
   assert.ok(Array.isArray(logPayload.entries));
   assert.ok(logPayload.entries.every((e) => e.agent === "architect"));
 });
+
+  test("get_tool_execution_statistics returns rates, windows, timeline and disabled tool counts", async () => {
+    await callTool("chat", {
+      topic: "統計確認",
+      agents: ["architect"],
+      turns: 1
+    });
+
+    const stats = parseFirstJson<{
+      totals: {
+        total: number;
+        success: number;
+        failure: number;
+        blockedByDisable: number;
+      };
+      rates: {
+        successRate: number;
+        failureRate: number;
+      };
+      disabledTools: {
+        count: number;
+        names: string[];
+      };
+      windows: Array<{
+        windowMinutes: number;
+        sampledEvents: number;
+        rates: {
+          successRate: number;
+          failureRate: number;
+        };
+      }>;
+      timeline: Array<{
+        bucketStart: string;
+        bucketMinutes: number;
+        rates: {
+          successRate: number;
+          failureRate: number;
+        };
+      }>;
+    }>(await callTool("get_tool_execution_statistics", {
+      windowMinutes: 120,
+      windowsMinutes: [60, 120],
+      bucketMinutes: 60,
+      limit: 1000
+    }));
+
+    assert.ok(stats.totals.total >= 1);
+    assert.ok(stats.totals.success >= 1);
+    assert.ok(stats.rates.successRate >= 0 && stats.rates.successRate <= 100);
+    assert.ok(stats.rates.failureRate >= 0 && stats.rates.failureRate <= 100);
+    assert.ok(stats.disabledTools.count >= 0);
+    assert.ok(Array.isArray(stats.disabledTools.names));
+    assert.ok(stats.windows.length >= 2);
+    assert.ok(stats.windows.some((w) => w.windowMinutes === 60));
+    assert.ok(stats.timeline.length >= 1);
+    assert.equal(stats.timeline[0].bucketMinutes, 60);
+  });
 
 test("event automation config can be retrieved and updated", async () => {
   const before = parseFirstJson<{

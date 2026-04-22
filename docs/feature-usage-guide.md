@@ -137,7 +137,7 @@ branch_diff_to_prompt:
 用途:
 - PR の準備度をスコア化し、ready 判定を返す
 
-入力例:
+入力例（基本）:
 
 ```text
 pr_readiness_check:
@@ -146,9 +146,24 @@ pr_readiness_check:
   workingBranch: "feature/refactor"
 ```
 
+入力例（多言語レビューコメント付き）:
+
+```text
+pr_readiness_check:
+  repoPath: "D:/Projects/mult-agent-ai/salesforce-ai-company"
+  baseBranch: "main"
+  workingBranch: "feature/refactor"
+  reviewText: "LGTM. 問題なしで承認します"
+```
+
+`reviewText` には EN / JP / ES / FR / DE / ZH / KO のレビューキーワードが認識されます。
+優先順位: blocked > needsReview > ready。
+
 主な出力:
 - score
 - gate: ready / needs-review / blocked
+- baseGate: スコアのみに基づくゲート
+- reviewSignal: `{ decision, matchedKeywords }` または null
 - checklist
 - recommendedAgents
 
@@ -584,6 +599,8 @@ get_event_automation_config: {}
 
 ### 10.3 update_event_automation_config
 
+基本設定の変更例:
+
 ```text
 update_event_automation_config:
   enabled: true
@@ -596,11 +613,88 @@ update_event_automation_config:
       maxToolsPerRun: 3
 ```
 
+リトライ戦略の変更例:
+
+```text
+update_event_automation_config:
+  retryStrategy:
+    retryEnabled: true
+    maxRetries: 3
+    baseDelayMs: 200
+    maxDelayMs: 4000
+    retryablePatterns: ["timeout", "timed out", "econnreset"]
+    retryableCodes: ["ETIMEDOUT", "ECONNRESET", "429", "503", "504"]
+```
+
+`retryableCodes` には HTTP ステータスコード（文字列として）または Node.js ライブラリエラーコードを指定できます。
+
 ---
 
-## 11. テストデータ生成
+### 10.4 get_tool_execution_statistics
 
-### 11.1 generate_kamiless_from_requirements
+用途:
+- ツール実行イベントから成功率・失敗率・無効化ツール数を集計
+- 時系列タイムラインが表示される（1h/24h/7d など複数ウィンドウ対応）
+
+入力例（シンプル）:
+
+```text
+get_tool_execution_statistics: {}
+```
+
+入力例（時系列分析）:
+
+```text
+get_tool_execution_statistics:
+  windowsMinutes: [60, 1440, 10080]
+  bucketMinutes: 30
+  limit: 2000
+```
+
+主な出力:
+- `totals`: `{ total, success, failure, blockedByDisable }`
+- `rates`: `{ successRate, failureRate }` (%)
+- `disabledTools`: `{ count, names[] }`
+- `perTool`: ツール別内訳
+- `windows[]`: 各ウィンドウ（`windowMinutes`, `sampledEvents`, `totals`, `rates`）
+- `timeline[]`: 時系列バケット（`bucketStart` ISO8601, `bucketMinutes`, `totals`, `rates`）
+
+入力制約:
+- `windowMinutes`: 1～10080（デフォルト: 60）
+- `windowsMinutes`: 配列最大10件
+- `bucketMinutes`: 5～180（デフォルト: 60）
+- `limit`: 10～2000（デフォルト: 1000）
+
+---
+
+## 11. 依存ライブラリ脆弱性チェック CI
+
+`.github/workflows/dependency-audit.yml` により、以下のタイミングで脆弱性チェックが自動実行されます。
+
+トリガー:
+- PR 作成・更新時
+- `main` ブランチへの push 時
+- 毎週月曜日 02:00 UTC（定期実行）
+- `workflow_dispatch`（手動トリガー）
+
+処理ステップ:
+1. `npm ci` でクリーンインストール
+2. `npm audit --audit-level=moderate --json` を実行
+3. 集計結果を GitHub Step Summary に出力
+4. 結果 JSON をアーティファクト `audit-results` としてアップロード
+5. moderate 以上の脆弱性が存在する場合はジョブを失敗させる
+
+手動でチェックする場合:
+
+```bash
+npm audit --audit-level=moderate
+```
+
+---
+
+## 12. テストデータ生成
+
+### 12.1 generate_kamiless_from_requirements
 
 用途:
 - 要件文から kamiless spec を生成し、必要に応じて export JSON も生成
@@ -620,7 +714,7 @@ generate_kamiless_from_requirements:
   exportOutputPath: "outputs/generated-export.json"
 ```
 
-### 11.2 generate_kamiless_export
+### 12.2 generate_kamiless_export
 
 用途:
 - kamiless spec から export JSON 生成
@@ -635,7 +729,7 @@ generate_kamiless_export:
 
 ---
 
-## 12. よくある運用パターン
+## 13. よくある運用パターン
 
 ### パターン A: 実装レビューを最短で回す
 
@@ -659,10 +753,25 @@ generate_kamiless_export:
 3. save_orchestration_session
 4. restore_orchestration_session
 
+### パターン D: ツール実行統計の確認とリトライ調整
+
+1. get_tool_execution_statistics（現在の成功率・失敘率を確認）
+2. update_event_automation_config（retryStrategy を必要に応じて調整）
+3. get_system_events（リトライスケジュールイベントを確認）
+4. get_tool_execution_statistics（windowsMinutes で時系列分析）
+
+### パターン E: PR マージ決定フロー（多言語対応）
+
+1. pr_readiness_check（reviewText にレビュモコメントを渡す）
+2. security_delta_scan
+3. deployment_impact_summary
+
 ---
 
-## 13. 補足
+## 14. 補足
 
 - chat 系は最終回答そのものではなく、会話用プロンプトを返します。
 - 低スコア時は low_relevance_detected が発火します。
 - error_aggregate_detected と governance_threshold_exceeded は system event 記録に加えて core event にもブリッジされます。
+- `get_tool_execution_statistics` の `windows` 配列で時間帯ごとの成功率を比較できます。
+- リトライは `retryEnabled: false` で無効化できます（update_event_automation_config で設定）。

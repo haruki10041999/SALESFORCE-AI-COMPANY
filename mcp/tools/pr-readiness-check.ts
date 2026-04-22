@@ -4,6 +4,7 @@ export type PrReadinessInput = {
   repoPath: string;
   integrationBranch: string;
   workingBranch: string;
+  reviewText?: string;
 };
 
 export type ReadinessItem = {
@@ -17,18 +18,124 @@ export type PrReadinessResult = {
   comparison: string;
   score: number;
   gate: "ready" | "needs-review" | "blocked";
+  baseGate: "ready" | "needs-review" | "blocked";
   changedFiles: number;
   recommendedAgents: string[];
   checklist: ReadinessItem[];
+  reviewSignal: {
+    decision: "ready" | "needs-review" | "blocked";
+    matchedKeywords: string[];
+  } | null;
   summary: string;
 };
+
+const REVIEW_KEYWORDS = {
+  ready: [
+    "lgtm",
+    "approved",
+    "approve",
+    "ship it",
+    "looks good",
+    "問題なし",
+    "承認",
+    "ok to merge",
+    "aprobado",
+    "approuve",
+    "genehmigt",
+    "批准",
+    "승인"
+  ],
+  needsReview: [
+    "needs review",
+    "review needed",
+    "nit",
+    "suggestion",
+    "please check",
+    "要確認",
+    "確認お願いします",
+    "再レビュー",
+    "要再確認",
+    "請確認",
+    "revisar",
+    "a verifier",
+    "bitte prüfen",
+    "검토 필요"
+  ],
+  blocked: [
+    "request changes",
+    "changes requested",
+    "must fix",
+    "blocking",
+    "do not merge",
+    "fail",
+    "要修正",
+    "差し戻し",
+    "マージ不可",
+    "修正必須",
+    "必须修复",
+    "不能合并",
+    "debe corregirse",
+    "bloquant",
+    "blockiert",
+    "수정 필요"
+  ]
+} as const;
+
+function mergeGate(
+  baseGate: "ready" | "needs-review" | "blocked",
+  reviewGate: "ready" | "needs-review" | "blocked" | null
+): "ready" | "needs-review" | "blocked" {
+  if (!reviewGate) return baseGate;
+  const rank = {
+    ready: 0,
+    "needs-review": 1,
+    blocked: 2
+  } as const;
+  return rank[reviewGate] > rank[baseGate] ? reviewGate : baseGate;
+}
+
+function evaluateReviewSignal(reviewText: string | undefined): {
+  decision: "ready" | "needs-review" | "blocked";
+  matchedKeywords: string[];
+} | null {
+  if (!reviewText || reviewText.trim().length === 0) {
+    return null;
+  }
+
+  const normalized = reviewText.toLowerCase();
+  const blockedKeywords = REVIEW_KEYWORDS.blocked.filter((kw) => normalized.includes(kw));
+  if (blockedKeywords.length > 0) {
+    return {
+      decision: "blocked",
+      matchedKeywords: blockedKeywords
+    };
+  }
+
+  const needsReviewKeywords = REVIEW_KEYWORDS.needsReview.filter((kw) => normalized.includes(kw));
+  if (needsReviewKeywords.length > 0) {
+    return {
+      decision: "needs-review",
+      matchedKeywords: needsReviewKeywords
+    };
+  }
+
+  const readyKeywords = REVIEW_KEYWORDS.ready.filter((kw) => normalized.includes(kw));
+  if (readyKeywords.length > 0) {
+    return {
+      decision: "ready",
+      matchedKeywords: readyKeywords
+    };
+  }
+
+  return null;
+}
 
 function hasPath(files: { path: string }[], pattern: RegExp): boolean {
   return files.some((f) => pattern.test(f.path));
 }
 
 export function checkPrReadiness(input: PrReadinessInput): PrReadinessResult {
-  const { repoPath, integrationBranch, workingBranch } = input;
+  const { repoPath, integrationBranch, workingBranch, reviewText } = input;
   validateRef(integrationBranch, "integrationBranch");
   validateRef(workingBranch, "workingBranch");
   ensureGitRepoAndRefs(repoPath, [integrationBranch, workingBranch]);
@@ -84,7 +191,9 @@ export function checkPrReadiness(input: PrReadinessInput): PrReadinessResult {
   }
   score = Math.max(0, score);
 
-  const gate = score >= 80 ? "ready" : score >= 60 ? "needs-review" : "blocked";
+  const baseGate = score >= 80 ? "ready" : score >= 60 ? "needs-review" : "blocked";
+  const reviewSignal = evaluateReviewSignal(reviewText);
+  const gate = mergeGate(baseGate, reviewSignal?.decision ?? null);
 
   const recommendedAgents: string[] = ["product-manager", "qa-engineer"];
   if (hasApex) recommendedAgents.push("apex-developer");
@@ -94,7 +203,11 @@ export function checkPrReadiness(input: PrReadinessInput): PrReadinessResult {
 
   const summary = [
     `比較: ${comparison}`,
-    `PR準備スコア: ${score} (${gate})`,
+    `PR準備スコア: ${score} (${baseGate})`,
+    reviewSignal
+      ? `レビュー判定: ${reviewSignal.decision} (keywords: ${reviewSignal.matchedKeywords.join(", ")})`
+      : "レビュー判定: なし",
+    `最終ゲート: ${gate}`,
     `変更ファイル数: ${changedFiles}`,
     `主要拡張子: ${Object.entries(extCount).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k}:${v}`).join(", ") || "なし"}`
   ].join("\n");
@@ -103,9 +216,11 @@ export function checkPrReadiness(input: PrReadinessInput): PrReadinessResult {
     comparison,
     score,
     gate,
+    baseGate,
     changedFiles,
     recommendedAgents: [...new Set(recommendedAgents)],
     checklist,
+    reviewSignal,
     summary
   };
 }

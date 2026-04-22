@@ -119,18 +119,21 @@ export function registerBranchReviewTools(govTool: GovTool): void {
       inputSchema: {
         repoPath: z.string(),
         baseBranch: z.string(),
-        workingBranch: z.string()
+        workingBranch: z.string(),
+        reviewText: z.string().optional()
       }
     },
-    async ({ repoPath, baseBranch, workingBranch }: {
+    async ({ repoPath, baseBranch, workingBranch, reviewText }: {
       repoPath: string;
       baseBranch: string;
       workingBranch: string;
+      reviewText?: string;
     }) => {
       const result = checkPrReadiness({
         repoPath,
         integrationBranch: baseBranch,
-        workingBranch
+        workingBranch,
+        reviewText
       });
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }]

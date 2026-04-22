@@ -205,6 +205,41 @@ test("checkPrReadiness computes score and recommends relevant agents", () => {
   }
 });
 
+test("checkPrReadiness applies multilingual needs-review keywords", () => {
+  const fixture = setupRepoForAdvancedTools();
+  try {
+    const result = checkPrReadiness({
+      repoPath: fixture.repoPath,
+      integrationBranch: fixture.baseBranch,
+      workingBranch: fixture.workingBranch,
+      reviewText: "要修正: edge case handling is missing"
+    });
+
+    assert.equal(result.reviewSignal?.decision, "blocked");
+    assert.equal(result.gate, "blocked");
+    assert.ok(result.summary.includes("レビュー判定"));
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("checkPrReadiness recognizes multilingual approval keywords", () => {
+  const fixture = setupRepoForAdvancedTools();
+  try {
+    const result = checkPrReadiness({
+      repoPath: fixture.repoPath,
+      integrationBranch: fixture.baseBranch,
+      workingBranch: fixture.workingBranch,
+      reviewText: "LGTM 承認 approved"
+    });
+
+    assert.equal(result.reviewSignal?.decision, "ready");
+    assert.ok(result.summary.includes("最終ゲート"));
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("scanSecurityDelta detects high and medium findings from added lines", () => {
   const fixture = setupRepoForAdvancedTools();
   try {
