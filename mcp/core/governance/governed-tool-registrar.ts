@@ -1,4 +1,5 @@
 ﻿import type { GovTool, GovToolConfig, GovToolHandler, RegisterToolFn } from "@mcp/tool-types.js";
+import { isRetryableByCode, isRetryableError } from "../errors/tool-error.js";
 
 type ToolResponse = { content: Array<{ type: string; text: string }> };
 
@@ -32,50 +33,6 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
 
   function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  function toErrorMessage(error: unknown): string {
-    if (error instanceof Error) {
-      return `${error.name}: ${error.message}`.toLowerCase();
-    }
-    return String(error).toLowerCase();
-  }
-
-  function isRetryableError(error: unknown, patterns: string[]): boolean {
-    const message = toErrorMessage(error);
-    return patterns.some((pattern) => message.includes(pattern.toLowerCase()));
-  }
-
-  function readErrorCode(error: unknown): string {
-    if (!error || typeof error !== "object") {
-      return "";
-    }
-    const candidate = error as {
-      code?: unknown;
-      status?: unknown;
-      statusCode?: unknown;
-      cause?: { code?: unknown; status?: unknown; statusCode?: unknown };
-    };
-    const raw =
-      candidate.code ??
-      candidate.statusCode ??
-      candidate.status ??
-      candidate.cause?.code ??
-      candidate.cause?.statusCode ??
-      candidate.cause?.status;
-    if (raw === undefined || raw === null) {
-      return "";
-    }
-    return String(raw).toUpperCase();
-  }
-
-  function isRetryableByCode(error: unknown, codes: string[]): boolean {
-    const code = readErrorCode(error);
-    if (!code) {
-      return false;
-    }
-    const normalizedCodes = codes.map((item) => item.toUpperCase());
-    return normalizedCodes.includes(code);
   }
 
   function govTool<TInput = unknown>(name: string, config: GovToolConfig, handler: GovToolHandler<TInput>): void {

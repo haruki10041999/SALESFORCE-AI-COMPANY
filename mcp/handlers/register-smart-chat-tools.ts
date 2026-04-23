@@ -2,6 +2,7 @@
 import { resolve } from "path";
 import { z } from "zod";
 import { analyzeRepo } from "../tools/repo-analyzer.js";
+import { formatErrorMessage } from "../core/errors/tool-error.js";
 import type { GovTool } from "@mcp/tool-types.js";
 
 interface RegisterSmartChatToolsDeps {
@@ -78,7 +79,7 @@ export function registerSmartChatTools(deps: RegisterSmartChatToolsDeps): void {
         autoFilePaths = Array.from(new Set([...autoFilePaths, ...analyzedPaths]));
       } catch (err) {
         // repo_analyze 失敗時は空配列で継続（デフォルト動作）
-        const error = err instanceof Error ? err.message : String(err);
+        const error = formatErrorMessage(err);
         console.warn(`[smart_chat] repo_analyze failed: ${error}`);
       }
 

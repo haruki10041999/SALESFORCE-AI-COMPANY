@@ -1,5 +1,6 @@
 import { existsSync, promises as fsPromises } from "fs";
 import { basename, dirname, join } from "path";
+import { z } from "zod";
 
 // ============================================================
 // Governance State Types
@@ -52,6 +53,60 @@ export interface GovernanceState {
   disabled: Record<GovernedResourceType, string[]>;
   updatedAt: string;
 }
+
+const resourceUsageSchema = z.record(z.string(), z.number());
+const governedResourceMapSchema = z.object({
+  skills: resourceUsageSchema.optional(),
+  tools: resourceUsageSchema.optional(),
+  presets: resourceUsageSchema.optional()
+});
+const governedDisabledSchema = z.object({
+  skills: z.array(z.string()).optional(),
+  tools: z.array(z.string()).optional(),
+  presets: z.array(z.string()).optional()
+});
+const governanceStateFileSchema = z.object({
+  config: z.object({
+    maxCounts: z.object({
+      skills: z.number().int().positive().optional(),
+      tools: z.number().int().positive().optional(),
+      presets: z.number().int().positive().optional()
+    }).optional(),
+    thresholds: z.object({
+      minUsageToKeep: z.number().nonnegative().optional(),
+      bugSignalToFlag: z.number().nonnegative().optional()
+    }).optional(),
+    resourceLimits: z.object({
+      creationsPerDay: z.number().int().nonnegative().optional(),
+      deletionsPerDay: z.number().int().nonnegative().optional()
+    }).optional(),
+    toolExecution: z.object({
+      retryEnabled: z.boolean().optional(),
+      maxRetries: z.number().int().nonnegative().optional(),
+      baseDelayMs: z.number().int().nonnegative().optional(),
+      maxDelayMs: z.number().int().nonnegative().optional(),
+      retryablePatterns: z.array(z.string()).optional(),
+      retryableCodes: z.array(z.string()).optional()
+    }).optional(),
+    eventAutomation: z.object({
+      enabled: z.boolean().optional(),
+      protectedTools: z.array(z.string()).optional(),
+      rules: z.object({
+        errorAggregateDetected: z.object({
+          autoDisableTool: z.boolean().optional()
+        }).optional(),
+        governanceThresholdExceeded: z.object({
+          autoDisableRecommendedTools: z.boolean().optional(),
+          maxToolsPerRun: z.number().int().positive().optional()
+        }).optional()
+      }).optional()
+    }).optional()
+  }).optional(),
+  usage: governedResourceMapSchema.optional(),
+  bugSignals: governedResourceMapSchema.optional(),
+  disabled: governedDisabledSchema.optional(),
+  updatedAt: z.string().optional()
+});
 
 const governanceStateLocks = new Map<string, Promise<void>>();
 
@@ -193,7 +248,15 @@ export async function loadGovernanceState(
 
     try {
       const raw = await fsPromises.readFile(governanceFile, "utf-8");
-      const parsed = JSON.parse(raw) as GovernanceState;
+      const parsedJson = JSON.parse(raw) as unknown;
+      const validated = governanceStateFileSchema.safeParse(parsedJson);
+      if (!validated.success) {
+        const initial = buildDefaultGovernanceState(defaultProtectedTools);
+        await writeGovernanceStateAtomic(governanceFile, initial);
+        return initial;
+      }
+
+      const parsed = validated.data;
       const defaults = buildDefaultGovernanceState(defaultProtectedTools);
       return {
         ...defaults,

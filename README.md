@@ -753,6 +753,8 @@ node dist/mcp/server.js によりビルド成果物から起動します。
 | `SF_AI_MEMORY_FILE` | project-memory の JSONL 保存先 | `outputs/memory.jsonl` |
 | `SF_AI_VECTOR_STORE_FILE` | vector-store の JSONL 保存先 | `outputs/vector-store.jsonl` |
 | `LOG_LEVEL` | サーバーログの粒度 | `info` |
+| `PROMPT_CACHE_MAX_ENTRIES` | プロンプトキャッシュの最大エントリ数 | `100` |
+| `PROMPT_CACHE_TTL_SECONDS` | プロンプトキャッシュの有効期限（秒） | `60` |
 
 開発・テストでは `SF_AI_OUTPUTS_DIR` を一時ディレクトリへ向けると、既存の outputs データを汚さずに検証できます。
 
@@ -760,6 +762,8 @@ node dist/mcp/server.js によりビルド成果物から起動します。
 SF_AI_OUTPUTS_DIR=/data/sf-ai/outputs \
 SF_AI_MEMORY_FILE=/data/sf-ai/outputs/memory.jsonl \
 SF_AI_VECTOR_STORE_FILE=/data/sf-ai/outputs/vector-store.jsonl \
+PROMPT_CACHE_MAX_ENTRIES=200 \
+PROMPT_CACHE_TTL_SECONDS=120 \
 npm run mcp:dev
 ```
 

@@ -21,6 +21,54 @@ interface BuildChatPromptInput {
   includeProjectContext?: boolean;
 }
 
+/**
+ * Parse configuration from environment variables with defaults
+ * - PROMPT_CACHE_MAX_ENTRIES: max cache size (default: 100)
+ * - PROMPT_CACHE_TTL_SECONDS: cache TTL in seconds (default: 60)
+ */
+function getPromptCacheConfig(): { maxEntries: number; ttlMs: number } {
+  const maxEntries = Math.max(1, parseInt(process.env.PROMPT_CACHE_MAX_ENTRIES || "100", 10));
+  const ttlSeconds = Math.max(1, parseInt(process.env.PROMPT_CACHE_TTL_SECONDS || "60", 10));
+  return {
+    maxEntries,
+    ttlMs: ttlSeconds * 1000
+  };
+}
+
+const promptCache = new Map<string, { prompt: string; createdAt: number }>();
+
+function createPromptCacheKey(input: BuildChatPromptInput, root: string): string {
+  return JSON.stringify({ root, ...input });
+}
+
+function getCachedPrompt(cacheKey: string): string | null {
+  const cached = promptCache.get(cacheKey);
+  if (!cached) {
+    return null;
+  }
+  const { ttlMs } = getPromptCacheConfig();
+  if (Date.now() - cached.createdAt > ttlMs) {
+    promptCache.delete(cacheKey);
+    return null;
+  }
+  return cached.prompt;
+}
+
+function setCachedPrompt(cacheKey: string, prompt: string): void {
+  const { maxEntries } = getPromptCacheConfig();
+  if (promptCache.size >= maxEntries) {
+    const oldestKey = promptCache.keys().next().value;
+    if (oldestKey) {
+      promptCache.delete(oldestKey);
+    }
+  }
+  promptCache.set(cacheKey, { prompt, createdAt: Date.now() });
+}
+
+export function clearBuildChatPromptCache(): void {
+  promptCache.clear();
+}
+
 export async function buildChatPromptFromContext(
   input: BuildChatPromptInput,
   deps: BuildChatPromptDeps
@@ -43,6 +91,12 @@ export async function buildChatPromptFromContext(
     truncateContent,
     getMdFileAsync
   } = deps;
+
+  const cacheKey = createPromptCacheKey(input, root);
+  const cachedPrompt = getCachedPrompt(cacheKey);
+  if (cachedPrompt) {
+    return cachedPrompt;
+  }
 
   const selectedAgents = agentNames.length > 0 ? agentNames : ["product-manager", "architect", "qa-engineer"];
 
@@ -162,5 +216,7 @@ export async function buildChatPromptFromContext(
 
   sections.push(`## タスク\n\nトピック: 「${topic}」\n\n${turnInstruction}\n\nルール:\n- 関連コードがある場合は根拠として参照する\n- 各エージェントの専門性と適用スキルに基づいて回答する\n- 不明点は推測を避け、必要な前提を明示する\n- 重要な設計判断や懸念点を簡潔に示す\n- ペルソナがある場合はその文体で回答する\n- 発言形式は必ず「**agent-name**: 発言内容」を使う（誰の発言か判別できる形にする）${extraInstruction}`);
 
-  return sections.join("\n\n---\n\n");
+  const prompt = sections.join("\n\n---\n\n");
+  setCachedPrompt(cacheKey, prompt);
+  return prompt;
 }

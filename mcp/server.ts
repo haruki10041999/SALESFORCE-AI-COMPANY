@@ -42,6 +42,7 @@ import {
   type HandlersState
 } from "./handlers/auto-init.js";
 import { registerAllTools as registerAllToolsModule } from "./core/registration/register-all-tools.js";
+import { buildRegisterAllToolsDeps } from "./core/registration/register-all-tools-deps.js";
 
 // ============================================================
 // Memory / Prompt-Engine / Statistics
@@ -530,89 +531,6 @@ const { loadedCustomToolNames, registerCustomTool, unregisterCustomTool, loadCus
   buildChatPrompt: buildChatPromptCompat
 });
 
-async function createPresetCompat(preset: {
-  name: string;
-  description: string;
-  topic: string;
-  agents: string[];
-  skills?: string[];
-  persona?: string;
-  filePaths?: string[];
-}): Promise<void> {
-  const normalizedPreset: StoredChatPreset = {
-    ...preset,
-    skills: preset.skills ?? []
-  };
-  await createPreset(normalizedPreset);
-}
-
-function registerCustomToolCompat(tool: {
-  name: string;
-  description: string;
-  agents: string[];
-  skills?: string[];
-  persona?: string;
-  createdAt: string;
-}): void {
-  const normalizedTool: RegistryCustomToolDefinition = {
-    ...tool,
-    skills: tool.skills ?? []
-  };
-  registerCustomTool(normalizedTool);
-}
-
-function generateHandlersDashboardCompat(state: {
-  createdTracker: any;
-  deletedTracker: any;
-  errorTracker: any;
-  qualityTracker: any;
-}): any {
-  return generateHandlersDashboard(state as HandlersState);
-}
-
-function exportStatisticsAsCsvCompat(stats: {
-  created: any;
-  deleted: any;
-  errors: any;
-  qualityFailures: any;
-  lastUpdated: string;
-}): string {
-  return exportStatisticsAsCsv(stats as HandlersStatistics);
-}
-
-function exportStatisticsAsJsonCompat(stats: {
-  created: any;
-  deleted: any;
-  errors: any;
-  qualityFailures: any;
-  lastUpdated: string;
-}): string {
-  return exportStatisticsAsJson(stats as HandlersStatistics);
-}
-
-async function loadRecentOperationsCompat(): Promise<Array<{
-  type: "create" | "delete";
-  resourceType: "skills" | "tools" | "presets";
-  name: string;
-  timestamp: string;
-}>> {
-  const operations = await loadRecentOperations();
-  return operations.filter(
-    (operation): operation is {
-      type: "create" | "delete";
-      resourceType: "skills" | "tools" | "presets";
-      name: string;
-      timestamp: string;
-    } => operation.type === "create" || operation.type === "delete"
-  );
-}
-
-async function emitCoreEventCompat(event: { type: string; timestamp: string; payload: Record<string, unknown> }): Promise<void> {
-  if (event.type === "resource_gap_detected" || event.type === "resource_created" || event.type === "resource_deleted" || event.type === "error_aggregate_detected" || event.type === "governance_threshold_exceeded" || event.type === "quality_check_failed") {
-    await emitEvent(event as { type: SystemEventType; timestamp: string; payload: Record<string, unknown> });
-  }
-}
-
 const BUILTIN_TOOL_CATALOG = [
   "repo_analyze",
   "apex_analyze",
@@ -791,74 +709,76 @@ async function validateAndCreateToolWithQuality(
   return validateToolCreation(toolName, toolDescription, existingTools);
 }
 
-registerAllToolsModule({
-  govTool,
-  chatInputSchema,
-  triggerRuleSchema,
-  runChatTool,
-  generateSessionId,
-  filterDisabledSkills,
-  emitSystemEvent: emitSystemEventCompat,
-  buildChatPrompt: buildChatPromptCompat,
-  evaluatePseudoHooks,
-  orchestrationSessions,
-  saveOrchestrationSession,
-  saveSessionHistory,
-  restoreOrchestrationSession,
-  root: ROOT,
-  agentLog,
-  loadSystemEvents: loadSystemEventsCompat,
-  loadGovernanceState,
-  saveGovernanceState,
-  buildDefaultGovernanceState,
-  normalizeProtectedTools,
-  saveChatHistory,
-  loadChatHistories,
-  restoreChatHistory,
-  listMdFiles,
-  getMdFile,
-  listPresetsData,
-  scoreByQuery,
-  lowRelevanceScoreThreshold: LOW_RELEVANCE_SCORE_THRESHOLD,
-  registeredToolMetadata,
-  createPreset: createPresetCompat,
-  getPreset,
-  isPresetDisabled,
-  getSystemEventLogStatus,
-  generateHandlersDashboard: generateHandlersDashboardCompat,
-  handlersState,
-  exportStatisticsAsCsv: exportStatisticsAsCsvCompat,
-  exportStatisticsAsJson: exportStatisticsAsJsonCompat,
-  ensureDir,
-  addMemory,
-  searchMemory,
-  listMemory,
-  clearMemory,
-  findMdFilesRecursive,
-  toPosixPath,
-  addRecord,
-  searchByKeyword,
-  buildPrompt,
-  evaluatePromptMetrics,
-  presetsDir: PRESETS_DIR,
-  toolProposalsDir: TOOL_PROPOSALS_DIR,
-  customToolsDir: CUSTOM_TOOLS_DIR,
-  governanceFile: GOVERNANCE_FILE,
-  loadRecentOperations: loadRecentOperationsCompat,
-  checkDailyLimitExceeded,
-  listSkillsCatalog,
-  listPresetsCatalog,
-  listToolsCatalog,
-  validateAndCreateSkillWithQuality,
-  validateAndCreatePresetWithQuality,
-  validateAndCreateToolWithQuality,
-  registerCustomTool: registerCustomToolCompat,
-  unregisterCustomTool,
-  refreshDisabledToolsCache,
-  appendOperationLog,
-  emitEvent: emitCoreEventCompat,
-  resourceScore
-});
+registerAllToolsModule(
+  buildRegisterAllToolsDeps({
+    govTool,
+    chatInputSchema,
+    triggerRuleSchema,
+    runChatTool,
+    generateSessionId,
+    filterDisabledSkills,
+    emitSystemEvent: emitSystemEventCompat,
+    buildChatPrompt: buildChatPromptCompat,
+    evaluatePseudoHooks,
+    orchestrationSessions,
+    saveOrchestrationSession,
+    saveSessionHistory,
+    restoreOrchestrationSession,
+    root: ROOT,
+    agentLog,
+    loadSystemEvents: loadSystemEventsCompat,
+    loadGovernanceState,
+    saveGovernanceState,
+    buildDefaultGovernanceState,
+    normalizeProtectedTools,
+    saveChatHistory,
+    loadChatHistories,
+    restoreChatHistory,
+    listMdFiles,
+    getMdFile,
+    listPresetsData,
+    scoreByQuery,
+    lowRelevanceScoreThreshold: LOW_RELEVANCE_SCORE_THRESHOLD,
+    registeredToolMetadata,
+    createPreset,
+    getPreset,
+    isPresetDisabled,
+    getSystemEventLogStatus,
+    generateHandlersDashboard,
+    handlersState,
+    exportStatisticsAsCsv,
+    exportStatisticsAsJson,
+    ensureDir,
+    addMemory,
+    searchMemory,
+    listMemory,
+    clearMemory,
+    findMdFilesRecursive,
+    toPosixPath,
+    addRecord,
+    searchByKeyword,
+    buildPrompt,
+    evaluatePromptMetrics,
+    presetsDir: PRESETS_DIR,
+    toolProposalsDir: TOOL_PROPOSALS_DIR,
+    customToolsDir: CUSTOM_TOOLS_DIR,
+    governanceFile: GOVERNANCE_FILE,
+    loadRecentOperations,
+    checkDailyLimitExceeded,
+    listSkillsCatalog,
+    listPresetsCatalog,
+    listToolsCatalog,
+    validateAndCreateSkillWithQuality,
+    validateAndCreatePresetWithQuality,
+    validateAndCreateToolWithQuality,
+    registerCustomTool,
+    unregisterCustomTool,
+    refreshDisabledToolsCache,
+    appendOperationLog,
+    emitEvent,
+    resourceScore
+  })
+);
 
 async function initializeServerRuntime(): Promise<void> {
   logger.info("Runtime initialization started");
