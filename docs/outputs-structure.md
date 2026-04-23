@@ -94,6 +94,9 @@
   - npm run doctor
 - メトリクス要約:
   - npm run metrics:report
+- メトリクスサンプル生成（CI/ローカル検証用）:
+  - npm run metrics:seed
+  - npm run metrics:seed -- --days 30 --records-per-day 20 --reset
 - メトリクス可視化HTML生成:
   - npm run metrics:dashboard
   - 出力先: outputs/reports/metrics-dashboard.html
@@ -125,6 +128,10 @@
   - 手動実行 (`workflow_dispatch`)
 
 ローカル確認だけでなく、GitHub 上の同一 URL で継続監視できます。
+
+注意:
+- GitHub Actions はローカル PC の metrics ファイルを参照できません。
+- そのため公開ワークフローでは `metrics:seed` で入力データを生成してからダッシュボードを作成します。
 
 ## 保持期間の推奨値
 

@@ -12,6 +12,7 @@
     "test": "node --test --import tsx --import ./tests/_setup.ts tests/**/*.test.ts",
     "audit:deps": "npm audit --audit-level=moderate",
     "metrics:report": "node scripts/metrics-report.js",
+    "metrics:seed": "node scripts/seed-metrics.js",
     "metrics:dashboard": "node scripts/metrics-dashboard.js",
     "outputs:cleanup": "node scripts/cleanup-outputs.js",
     "init": "node scripts/init-config.js",
