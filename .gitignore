@@ -4,5 +4,7 @@ dist/
 .env
 .env.local
 *.log
-output/*
+outputs/
 docs/internal/README.section17.confidential.md
+.mcp.json
+package-lock.json
