@@ -1,6 +1,6 @@
-import { z } from "zod";
+﻿import { z } from "zod";
+import type { GovTool } from "@mcp/tool-types.js";
 
-type GovTool = (name: string, config: any, handler: any) => void;
 type ListMdFiles = (dir: string) => { name: string; summary: string }[];
 type GetMdFile = (dir: string, name: string) => string;
 
@@ -78,3 +78,4 @@ export function registerResourceCatalogTools(deps: RegisterResourceCatalogToolsD
     }
   );
 }
+

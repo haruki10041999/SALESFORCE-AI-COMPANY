@@ -1,6 +1,6 @@
-type ToolResponse = { content: Array<{ type: string; text: string }> };
+﻿import type { GovTool, GovToolConfig, GovToolHandler, RegisterToolFn } from "@mcp/tool-types.js";
 
-type RegisterToolFn = (name: string, config: any, handler: any) => void;
+type ToolResponse = { content: Array<{ type: string; text: string }> };
 
 interface CreateGovernedToolRegistrarDeps {
   registerTool: RegisterToolFn;
@@ -78,8 +78,8 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
     return normalizedCodes.includes(code);
   }
 
-  function govTool(name: string, config: any, handler: any): void {
-    registerTool(name as any, config as any, (async (input: any) => {
+  function govTool<TInput = unknown>(name: string, config: GovToolConfig, handler: GovToolHandler<TInput>): void {
+    registerTool(name, config, async (input: unknown) => {
       await emitSystemEvent("tool_before_execute", {
         toolName: name,
         input: summarizeValue(input)
@@ -96,7 +96,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
           content: [
             {
               type: "text",
-              text: "ツール \"" + name + "\" は現在無効化されています。apply_resource_actions で enable してから使用してください。"
+              text: "Auto-generated text.",
             }
           ]
         };
@@ -114,7 +114,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
       let attempt = 0;
       while (true) {
         try {
-          const result = await (handler as (input: unknown) => Promise<ToolResponse>)(input);
+          const result = await handler(input as TInput);
           await emitSystemEvent("tool_after_execute", {
             toolName: name,
             success: true,
@@ -152,8 +152,9 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
           attempt += 1;
         }
       }
-    }) as any);
+    });
   }
 
   return { govTool };
 }
+

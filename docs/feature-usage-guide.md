@@ -708,38 +708,7 @@ npm audit --audit-level=moderate
 
 ## 12. テストデータ生成
 
-### 12.1 generate_kamiless_from_requirements
-
-用途:
-- 要件文から kamiless spec を生成し、必要に応じて export JSON も生成
-
-入力例:
-
-```text
-generate_kamiless_from_requirements:
-  requirementsText: |
-    フォーム名: inquiry-form
-    タイトル: お問い合わせ
-    オブジェクト名: Inquiry__c
-    セクション: 基本情報
-    - 氏名 | Text | Inquiry__c.Name__c | 必須
-    - メール | Email | Inquiry__c.Email__c | 必須
-  specOutputPath: "outputs/generated.kamiless.json"
-  exportOutputPath: "outputs/generated-export.json"
-```
-
-### 12.2 generate_kamiless_export
-
-用途:
-- kamiless spec から export JSON 生成
-
-入力例:
-
-```text
-generate_kamiless_export:
-  specPath: "outputs/generated.kamiless.json"
-  outputPath: "outputs/generated-export.json"
-```
+現在、テストデータ自動生成の組み込みツールは提供していません。
 
 ---
 

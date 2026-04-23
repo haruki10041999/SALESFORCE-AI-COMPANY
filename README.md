@@ -48,6 +48,13 @@
 │  → 統合ロガー (LOG_LEVEL) + SF_AI_OUTPUTS_DIR 設定           │
 │  → 無効ツールキャッシュの fs.watch + 定期同期                 │
 └─────────────────────────────────────────────────────────────────┘
+                ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  Phase 7: 運用堅牢化と可観測性                                 │
+│  → system-events サイズローテーション + retention             │
+│  → health_check / evaluate_prompt_metrics による運用診断       │
+│  → preset 世代管理 (v1, v2, ...)                               │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -712,7 +719,15 @@ npm run typecheck
 
 `tsc --noEmit` を実行します。ビルド成果物を生成せず型エラーのみ検出します。CI での活用を推奨します。
 
-### 5.3 開発起動
+### 5.3 CI 向け検証
+
+```bash
+npm run ci
+```
+
+型チェック、テスト、依存関係監査を順番に実行します。ローカル確認と CI の両方で同じ入口として利用できます。
+
+### 5.4 開発起動
 
 ```bash
 npm run mcp:dev
@@ -720,7 +735,7 @@ npm run mcp:dev
 
 tsx mcp/server.ts によりソースから直接起動します。
 
-### 5.4 本番相当起動
+### 5.5 本番相当起動
 
 ```bash
 npm run mcp:start
@@ -728,7 +743,27 @@ npm run mcp:start
 
 node dist/mcp/server.js によりビルド成果物から起動します。
 
-### 5.5 ログレベル制御
+### 5.6 設定用環境変数
+
+詳細な設定リファレンスは [docs/configuration.md](docs/configuration.md) を参照してください。
+
+| 変数 | 用途 | デフォルト |
+|---|---|---|
+| `SF_AI_OUTPUTS_DIR` | system events、history、sessions、governance などの出力先 | `outputs/` |
+| `SF_AI_MEMORY_FILE` | project-memory の JSONL 保存先 | `outputs/memory.jsonl` |
+| `SF_AI_VECTOR_STORE_FILE` | vector-store の JSONL 保存先 | `outputs/vector-store.jsonl` |
+| `LOG_LEVEL` | サーバーログの粒度 | `info` |
+
+開発・テストでは `SF_AI_OUTPUTS_DIR` を一時ディレクトリへ向けると、既存の outputs データを汚さずに検証できます。
+
+```bash
+SF_AI_OUTPUTS_DIR=/data/sf-ai/outputs \
+SF_AI_MEMORY_FILE=/data/sf-ai/outputs/memory.jsonl \
+SF_AI_VECTOR_STORE_FILE=/data/sf-ai/outputs/vector-store.jsonl \
+npm run mcp:dev
+```
+
+### 5.7 ログレベル制御
 
 環境変数 `LOG_LEVEL` でサーバーログの粒度を変更できます（デフォルト: `info`）。
 
@@ -743,7 +778,7 @@ node dist/mcp/server.js によりビルド成果物から起動します。
 LOG_LEVEL=debug npm run mcp:dev
 ```
 
-### 5.6 プロジェクトルート解決
+### 5.8 プロジェクトルート解決
 
 サーバーは mcp/server.ts の位置から親ディレクトリをたどり、package.json と agents ディレクトリの両方が存在する位置をプロジェクトルートとみなします。
 
@@ -1048,12 +1083,13 @@ run_tests の主要オプションは以下です。
 
 インメモリとベクターストアに情報を記録・検索できます。
 
-- add_memory / search_memory / list_memory: プロセス内メモリへの記録・検索・一覧
+- add_memory / search_memory / list_memory: JSONL 永続化メモリへの記録・検索・一覧
 - clear_memory: プロセス内メモリを全消去
-- add_vector_record / search_vector: id / text / tags 付きレコードの登録とキーワード検索
+- add_vector_record / search_vector: id / text / tags 付きレコードの登録と TF-IDF ベース検索
 - get_context: context/ 配下の注入対象Markdownをまとめて取得
+- evaluate_prompt_metrics: プロンプト長、推定トークン、スキル網羅率、トリガー一致率を評価
 
-add_memory / search_memory はプロセス内メモリ（再起動でリセット）です。永続化が必要な場合は save_chat_history などを使用してください。
+保存先は `SF_AI_MEMORY_FILE` / `SF_AI_VECTOR_STORE_FILE` で切り替え可能です。
 
 ### 7.14 日次制限ガバナンス
 
@@ -1224,8 +1260,7 @@ delay = min(maxDelayMs, baseDelayMs × 2^attempt)
 
 ### 8.9 テストデータ生成
 
-- generate_kamiless_from_requirements
-- generate_kamiless_export
+（現在、このカテゴリの組み込みツールはありません）
 
 ### 8.10 メモリ・プロンプトエンジン
 
@@ -1237,6 +1272,7 @@ delay = min(maxDelayMs, baseDelayMs × 2^attempt)
 - search_vector
 - get_context
 - build_prompt
+- evaluate_prompt_metrics
 
 ## 9. 入力制約仕様
 
@@ -1405,6 +1441,8 @@ score = usage - bugSignals * 3
 3. tools は disable 候補、skills と presets は delete 候補として返す
 
 ### 13.6 apply_resource_actions の反映
+
+`dryRun: true` を指定すると、実ファイル更新・状態保存・イベント発火を行わずに適用結果のみを返します。
 
 #### skills
 
@@ -1676,9 +1714,6 @@ review_resource_governance:
 
 ---
 
-## 17. generate_kamiless_export ツール仕様
+## 17. 付録
 
-この章は社外秘情報を含むため、公開 README からは分離しました。
-
-- 社内向け保管先: docs/internal/README.section17.confidential.md
-- 本ファイルは `.gitignore` 登録済み（Git 管理対象外）
+現在、テストデータ自動生成の組み込みツールは提供していません。

@@ -1,8 +1,15 @@
-import { existsSync } from "node:fs";
+﻿import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import type { GovTool } from "@mcp/tool-types.js";
 
-type GovTool = (name: string, config: any, handler: any) => void;
+interface TriggerRule {
+  whenAgent: string;
+  thenAgent: string;
+  messageIncludes?: string;
+  reason?: string;
+  once?: boolean;
+}
 
 interface AgentMessage {
   agent: string;
@@ -20,7 +27,7 @@ interface OrchestrationSession {
   skills: string[];
   filePaths: string[];
   turns: number;
-  triggerRules: any[];
+  triggerRules: TriggerRule[];
   queue: string[];
   history: AgentMessage[];
   firedRules: string[];
@@ -28,8 +35,8 @@ interface OrchestrationSession {
 
 interface RegisterChatOrchestrationToolsDeps {
   govTool: GovTool;
-  chatInputSchema: any;
-  triggerRuleSchema: any;
+  chatInputSchema: Record<string, unknown>;
+  triggerRuleSchema: z.ZodTypeAny;
   runChatTool: (input: {
     topic: string;
     filePaths?: string[];
@@ -56,7 +63,7 @@ interface RegisterChatOrchestrationToolsDeps {
   evaluatePseudoHooks: (
     lastAgent: string,
     lastMessage: string,
-    triggerRules: any[],
+    triggerRules: TriggerRule[],
     firedRules: string[]
   ) => { nextAgents: string[]; fired: string[]; reasons: string[] };
   orchestrationSessions: Map<string, OrchestrationSession>;
@@ -88,11 +95,21 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     readFile
   } = deps;
 
+  async function getSessionOrRestore(sessionId: string): Promise<OrchestrationSession | undefined> {
+    const inMemory = orchestrationSessions.get(sessionId);
+    if (inMemory) {
+      return inMemory;
+    }
+
+    const restored = await restoreOrchestrationSession(sessionId);
+    return restored ?? undefined;
+  }
+
   govTool(
     "chat",
     {
       title: "Chat (Default)",
-      description: "デフォルトのマルチエージェントチャットを実行します。",
+      description: "Auto-generated description.",
       inputSchema: chatInputSchema
     },
     runChatTool
@@ -102,7 +119,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     "simulate_chat",
     {
       title: "Simulate Multi-Agent Chat (Compatibility Alias)",
-      description: "chat の互換エイリアスです。",
+      description: "Auto-generated description.",
       inputSchema: chatInputSchema
     },
     runChatTool
@@ -112,7 +129,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     "orchestrate_chat",
     {
       title: "Orchestrate Chat (Pseudo Hook)",
-      description: "疑似 hook によるオーケストレーション付きチャットを実行します。",
+      description: "Auto-generated description.",
       inputSchema: {
         topic: z.string(),
         filePaths: z.array(z.string()).optional(),
@@ -132,7 +149,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
       persona?: string;
       skills?: string[];
       turns?: number;
-      triggerRules?: any[];
+      triggerRules?: TriggerRule[];
       maxContextChars?: number;
       appendInstruction?: string;
     }) => {
@@ -203,7 +220,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     "evaluate_triggers",
     {
       title: "Evaluate Triggers (Pseudo Hook)",
-      description: "トリガールールを評価して次のエージェント候補を返します。",
+      description: "Auto-generated description.",
       inputSchema: {
         sessionId: z.string().optional(),
         lastAgent: z.string(),
@@ -216,7 +233,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
       sessionId?: string;
       lastAgent: string;
       lastMessage: string;
-      triggerRules?: any[];
+      triggerRules?: TriggerRule[];
       fallbackRoundRobin?: boolean;
     }) => {
       let rules = triggerRules ?? [];
@@ -225,7 +242,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
       let roundRobinNext: string | null = null;
 
       if (sessionId) {
-        session = orchestrationSessions.get(sessionId);
+        session = await getSessionOrRestore(sessionId);
         if (!session) {
           return {
             content: [{ type: "text", text: "Session not found: " + sessionId }]
@@ -294,14 +311,14 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     "dequeue_next_agent",
     {
       title: "Dequeue Next Agent",
-      description: "オーケストレーションセッションの次エージェントを取り出します。",
+      description: "Auto-generated description.",
       inputSchema: {
         sessionId: z.string(),
         limit: z.number().int().min(1).max(10).optional()
       }
     },
     async ({ sessionId, limit }: { sessionId: string; limit?: number }) => {
-      const session = orchestrationSessions.get(sessionId);
+      const session = await getSessionOrRestore(sessionId);
       if (!session) {
         return {
           content: [{ type: "text", text: "Session not found: " + sessionId }]
@@ -358,13 +375,13 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     "get_orchestration_session",
     {
       title: "Get Orchestration Session",
-      description: "オーケストレーションセッションの状態を返します。",
+      description: "Auto-generated description.",
       inputSchema: {
         sessionId: z.string()
       }
     },
     async ({ sessionId }: { sessionId: string }) => {
-      const session = orchestrationSessions.get(sessionId);
+      const session = await getSessionOrRestore(sessionId);
       if (!session) {
         return {
           content: [{ type: "text", text: "Session not found: " + sessionId }]
@@ -397,12 +414,13 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     "save_orchestration_session",
     {
       title: "Save Orchestration Session",
-      description: "オーケストレーションセッションをファイルへ保存します。",
+      description: "Auto-generated description.",
       inputSchema: {
         sessionId: z.string()
       }
     },
     async ({ sessionId }: { sessionId: string }) => {
+      await getSessionOrRestore(sessionId);
       const saved = await saveOrchestrationSession(sessionId);
       if (!saved) {
         return {
@@ -434,7 +452,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     "restore_orchestration_session",
     {
       title: "Restore Orchestration Session",
-      description: "保存済みオーケストレーションセッションをメモリへ復元します。",
+      description: "Auto-generated description.",
       inputSchema: {
         sessionId: z.string()
       }
@@ -473,7 +491,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     "list_orchestration_sessions",
     {
       title: "List Orchestration Sessions",
-      description: "保存済みオーケストレーションセッションの一覧を返します。",
+      description: "Auto-generated description.",
       inputSchema: {}
     },
     async () => {
@@ -517,3 +535,6 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     }
   );
 }
+
+
+

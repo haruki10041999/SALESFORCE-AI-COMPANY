@@ -1,6 +1,5 @@
-import { z } from "zod";
-
-type GovTool = (name: string, config: any, handler: any) => void;
+﻿import { z } from "zod";
+import type { GovTool } from "@mcp/tool-types.js";
 
 interface ChatPreset {
   name: string;
@@ -55,7 +54,7 @@ export function registerPresetTools(deps: RegisterPresetToolsDeps): void {
     "create_preset",
     {
       title: "Create Chat Preset",
-      description: "チャットプリセットを作成します。triggerRules を含めることで orchestrate_chat 相当のフローをプリセット化できます。",
+      description: "Auto-generated description.",
       inputSchema: {
         name: z.string(),
         description: z.string(),
@@ -107,7 +106,7 @@ export function registerPresetTools(deps: RegisterPresetToolsDeps): void {
     "list_presets",
     {
       title: "List Chat Presets",
-      description: "チャットプリセット一覧を返します。",
+      description: "Auto-generated description.",
       inputSchema: {}
     },
     async () => {
@@ -135,7 +134,7 @@ export function registerPresetTools(deps: RegisterPresetToolsDeps): void {
     "run_preset",
     {
       title: "Run Chat Preset",
-      description: "プリセット設定を使って chat を実行します。overrideAgents でエージェントを完全置換、additionalSkills でスキルを追加できます。",
+      description: "Auto-generated description.",
       inputSchema: {
         name: z.string(),
         overrideTopic: z.string().optional(),

@@ -1,6 +1,7 @@
-import { z } from "zod";
+﻿import { z } from "zod";
 import { existsSync, promises as fsPromises } from "fs";
 import { join } from "path";
+import type { GovTool } from "@mcp/tool-types.js";
 
 export interface CustomToolDefinition {
   name: string;
@@ -11,8 +12,6 @@ export interface CustomToolDefinition {
   persona?: string;
   createdAt: string;
 }
-
-type GovTool = (name: string, config: any, handler: any) => void;
 
 interface CreateCustomToolRegistryDeps {
   govTool: GovTool;
@@ -82,7 +81,7 @@ export function createCustomToolRegistry(deps: CreateCustomToolRegistryDeps) {
         const def = JSON.parse(raw) as CustomToolDefinition;
         registerCustomTool(def);
       } catch {
-        // 壊れたファイルはスキップ
+        // 螢翫ｌ縺溘ヵ繧｡繧､繝ｫ縺ｯ繧ｹ繧ｭ繝・・
       }
     }
   }
@@ -94,3 +93,4 @@ export function createCustomToolRegistry(deps: CreateCustomToolRegistryDeps) {
     loadCustomToolsFromDir
   };
 }
+

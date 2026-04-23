@@ -49,7 +49,7 @@ node --test --import tsx tests/server-tools.integration.test.ts
 
 | ファイル | 検証範囲 | 主要確認項目 |
 |---|---|---|
-| `server-tools.integration.test.ts` | ツール登録・E2E | 全ツール名の登録確認・Kamiless 生成・イベント自動無効化・`once` ルール・fallback 無効化 |
+| `server-tools.integration.test.ts` | ツール登録・E2E | 全ツール名の登録確認・イベント自動無効化・`once` ルール・fallback 無効化 |
 | `core-tools.test.ts` | 静的解析ツール | `analyzeRepo` / `analyzeApex` / `analyzeLwc` / `buildDeployCommand` / `buildTestCommand` |
 | `advanced-tools.test.ts` | 高度なツール動作 | `branch_diff` 系・`pr_readiness` 等 |
 | `branch-diff-tools.test.ts` | 差分解析ツール | `summarizeBranchDiff` / `buildBranchDiffPrompt` |
@@ -70,8 +70,6 @@ node --test tests/*.test.ts
 # NG になりやすい箇所:
 # - server-tools.integration.test.ts の "server exposes expected core tool registrations"
 #   → ツール追加時にリストが未更新だと fail
-# - Kamiless 系のテスト
-#   → kamiless-export-generator.ts の実装依存
 ```
 
 ### 1-3. テストカバレッジ状況

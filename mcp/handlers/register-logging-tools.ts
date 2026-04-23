@@ -1,6 +1,7 @@
-import { z } from "zod";
-
-type GovTool = (name: string, config: any, handler: any) => void;
+﻿import { z } from "zod";
+import type { GovTool } from "@mcp/tool-types.js";
+import type { GovernanceState } from "../core/governance/governance-state.js";
+import type { SystemEventRecord, SystemEventName } from "../core/event/system-event-manager.js";
 
 interface AgentMessage {
   agent: string;
@@ -12,10 +13,10 @@ interface AgentMessage {
 interface RegisterLoggingToolsDeps {
   govTool: GovTool;
   agentLog: AgentMessage[];
-  loadSystemEvents: (limit?: number, event?: string) => Promise<any[]>;
-  loadGovernanceState: () => Promise<any>;
-  saveGovernanceState: (state: any) => Promise<void>;
-  buildDefaultGovernanceState: () => any;
+  loadSystemEvents: (limit?: number, event?: SystemEventName) => Promise<SystemEventRecord[]>;
+  loadGovernanceState: () => Promise<GovernanceState>;
+  saveGovernanceState: (state: GovernanceState) => Promise<void>;
+  buildDefaultGovernanceState: () => GovernanceState;
   normalizeProtectedTools: (names: string[]) => string[];
   saveChatHistory?: (topic: string) => Promise<string>;
   emitSystemEvent?: (event: string, payload: Record<string, unknown>) => Promise<void>;
@@ -38,7 +39,7 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
     "record_agent_message",
     {
       title: "Record Agent Message",
-      description: "エージェントメッセージを内部ログに記録します。",
+      description: "Auto-generated description.",
       inputSchema: {
         agent: z.string(),
         message: z.string(),
@@ -63,7 +64,7 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
     "get_agent_log",
     {
       title: "Get Agent Log",
-      description: "記録済みのエージェントログを返します。",
+      description: "Auto-generated description.",
       inputSchema: {
         agent: z.string().optional(),
         limit: z.number().int().min(1).max(200).optional()
@@ -93,7 +94,7 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
     "parse_and_record_chat",
     {
       title: "Parse And Record Chat",
-      description: "チャットテキストを解析してエージェントログへ記録します。",
+      description: "Auto-generated description.",
       inputSchema: {
         chatText: z.string(),
         topic: z.string().optional()
@@ -167,7 +168,7 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
     "get_system_events",
     {
       title: "Get System Events",
-      description: "内部イベントログを取得します。",
+      description: "Auto-generated description.",
       inputSchema: {
         limit: z.number().int().min(1).max(200).optional(),
         event: z.enum([
@@ -184,17 +185,21 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
         ]).optional()
       }
     },
-    async ({ limit, event }: { limit?: number; event?: string }) => {
+    async ({ limit, event }: { limit?: number; event?: SystemEventName }) => {
       const events = await loadSystemEvents(limit ?? 50, event);
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify({
-              count: events.length,
-              event: event ?? null,
-              events
-            }, null, 2)
+            text: JSON.stringify(
+              {
+                count: events.length,
+                event: event ?? null,
+                events
+              },
+              null,
+              2
+            )
           }
         ]
       };
@@ -205,7 +210,7 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
     "get_event_automation_config",
     {
       title: "Get Event Automation Config",
-      description: "イベント自動アクション設定を返します。",
+      description: "Auto-generated description.",
       inputSchema: {}
     },
     async () => {
@@ -232,7 +237,7 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
     "update_event_automation_config",
     {
       title: "Update Event Automation Config",
-      description: "イベント自動アクション設定を更新します。",
+      description: "Auto-generated description.",
       inputSchema: {
         enabled: z.boolean().optional(),
         protectedTools: z.array(z.string()).optional(),
@@ -274,7 +279,9 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
         ...defaults,
         ...state.config.eventAutomation,
         enabled: enabled ?? state.config.eventAutomation?.enabled ?? defaults.enabled,
-        protectedTools: normalizeProtectedTools(protectedTools ?? state.config.eventAutomation?.protectedTools ?? defaults.protectedTools),
+        protectedTools: normalizeProtectedTools(
+          protectedTools ?? state.config.eventAutomation?.protectedTools ?? defaults.protectedTools
+        ),
         rules: {
           ...defaults.rules,
           ...state.config.eventAutomation?.rules,
@@ -308,14 +315,19 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
         content: [
           {
             type: "text",
-            text: JSON.stringify({
-              updated: true,
-              eventAutomation: state.config.eventAutomation,
-              retryStrategy: state.config.toolExecution
-            }, null, 2)
+            text: JSON.stringify(
+              {
+                updated: true,
+                eventAutomation: state.config.eventAutomation,
+                retryStrategy: state.config.toolExecution
+              },
+              null,
+              2
+            )
           }
         ]
       };
     }
   );
 }
+

@@ -1,19 +1,18 @@
-import { z } from "zod";
+﻿import { z } from "zod";
 import { summarizeBranchDiff } from "../tools/branch-diff-summary.js";
 import { buildBranchDiffPrompt } from "../tools/branch-diff-to-prompt.js";
 import { checkPrReadiness } from "../tools/pr-readiness-check.js";
 import { scanSecurityDelta } from "../tools/security-delta-scan.js";
 import { summarizeDeploymentImpact } from "../tools/deployment-impact-summary.js";
 import { suggestChangedTests } from "../tools/changed-tests-suggest.js";
-
-type GovTool = (name: string, config: any, handler: any) => void;
+import type { GovTool } from "@mcp/tool-types.js";
 
 export function registerBranchReviewTools(govTool: GovTool): void {
   govTool(
     "branch_diff_summary",
     {
       title: "Branch Diff Summary",
-      description: "ベースブランチと作業ブランチの差分を要約します。",
+      description: "Auto-generated description.",
       inputSchema: {
         repoPath: z.string(),
         baseBranch: z.string(),
@@ -64,7 +63,7 @@ export function registerBranchReviewTools(govTool: GovTool): void {
     "branch_diff_to_prompt",
     {
       title: "Branch Diff To Prompt",
-      description: "ブランチ差分からレビュー用プロンプトを生成します。",
+      description: "Auto-generated description.",
       inputSchema: {
         repoPath: z.string(),
         baseBranch: z.string(),
@@ -115,7 +114,7 @@ export function registerBranchReviewTools(govTool: GovTool): void {
     "pr_readiness_check",
     {
       title: "PR Readiness Check",
-      description: "PR準備スコアと ready/needs-review/blocked ゲートを返します。",
+      description: "Auto-generated description.",
       inputSchema: {
         repoPath: z.string(),
         baseBranch: z.string(),
@@ -145,7 +144,7 @@ export function registerBranchReviewTools(govTool: GovTool): void {
     "security_delta_scan",
     {
       title: "Security Delta Scan",
-      description: "差分からセキュリティ懸念（sharing, dynamic SOQL, CRUD/FLSなど）を検出します。",
+      description: "Auto-generated description.",
       inputSchema: {
         repoPath: z.string(),
         baseBranch: z.string(),
@@ -175,7 +174,7 @@ export function registerBranchReviewTools(govTool: GovTool): void {
     "deployment_impact_summary",
     {
       title: "Deployment Impact Summary",
-      description: "差分をメタデータ種別に集計し、デプロイ時の注意点を返します。",
+      description: "Auto-generated description.",
       inputSchema: {
         repoPath: z.string(),
         baseBranch: z.string(),
@@ -202,7 +201,7 @@ export function registerBranchReviewTools(govTool: GovTool): void {
     "changed_tests_suggest",
     {
       title: "Changed Tests Suggest",
-      description: "変更差分から推奨テストクラスと実行コマンドを返します。",
+      description: "Auto-generated description.",
       inputSchema: {
         repoPath: z.string(),
         baseBranch: z.string(),
@@ -228,3 +227,4 @@ export function registerBranchReviewTools(govTool: GovTool): void {
     }
   );
 }
+

@@ -81,12 +81,14 @@ export function createOrchestrationSessionStore<TSession extends OrchestrationSe
     remaining.sort((a, b) => b.timestamp - a.timestamp);
     const overflow = Math.max(0, remaining.length - maxSessionFiles);
     let deletedByCount = 0;
-    for (const item of remaining.slice(-overflow)) {
-      try {
-        await fsPromises.unlink(join(sessionsDir, item.file));
-        deletedByCount += 1;
-      } catch {
-        // ignore delete failures
+    if (overflow > 0) {
+      for (const item of remaining.slice(-overflow)) {
+        try {
+          await fsPromises.unlink(join(sessionsDir, item.file));
+          deletedByCount += 1;
+        } catch {
+          // ignore delete failures
+        }
       }
     }
 

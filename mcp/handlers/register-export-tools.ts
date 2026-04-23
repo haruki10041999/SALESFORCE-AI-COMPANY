@@ -1,8 +1,7 @@
-import { promises as fsPromises } from "fs";
+﻿import { promises as fsPromises } from "fs";
 import { dirname, resolve } from "path";
 import { z } from "zod";
-
-type GovTool = (name: string, config: any, handler: any) => void;
+import type { GovTool } from "@mcp/tool-types.js";
 
 interface AgentMessage {
   agent: string;
@@ -33,7 +32,7 @@ export function registerExportTools(deps: RegisterExportToolsDeps): void {
     "export_to_markdown",
     {
       title: "Export Chat to Markdown",
-      description: "チャット履歴を Markdown 形式でエクスポートします。outputPath を指定するとファイルにも書き出します。",
+      description: "Auto-generated description.",
       inputSchema: {
         historyId: z.string().optional(),
         title: z.string().optional(),
@@ -64,11 +63,11 @@ export function registerExportTools(deps: RegisterExportToolsDeps): void {
 
       const markdown =
         "# " + (title ?? targetSession.topic) + "\n\n" +
-        "**生成日時**: " + targetSession.timestamp + "  \n" +
-        "**参加エージェント**: " + targetSession.agents.join(", ") + "  \n" +
-        "**メッセージ数**: " + targetSession.entries.length + "\n\n" +
+        "**��?E����E*: " + targetSession.timestamp + "  \n" +
+        "**�Q���G�[�W�F���`E*: " + targetSession.agents.join(", ") + "  \n" +
+        "**���`E??�[�W��**: " + targetSession.entries.length + "\n\n" +
         "---\n\n" +
-        "## 会話内容\n\n" +
+        "## ��b?E??\n\n" +
         targetSession.entries.map((entry) => "### " + entry.agent + "\n\n" + entry.message + "\n").join("\n---\n\n") +
         "\n\n---\n\n" +
         "Salesforce AI Company MCP exported markdown.";
@@ -90,3 +89,5 @@ export function registerExportTools(deps: RegisterExportToolsDeps): void {
     }
   );
 }
+
+

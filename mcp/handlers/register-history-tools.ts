@@ -1,6 +1,5 @@
-import { z } from "zod";
-
-type GovTool = (name: string, config: any, handler: any) => void;
+﻿import { z } from "zod";
+import type { GovTool } from "@mcp/tool-types.js";
 
 interface AgentMessage {
   agent: string;
@@ -40,7 +39,7 @@ export function registerHistoryTools(deps: RegisterHistoryToolsDeps): void {
     "save_chat_history",
     {
       title: "Save Chat History",
-      description: "現在のエージェントログを JSON 履歴として保存します。",
+      description: "Auto-generated description.",
       inputSchema: {
         topic: z.string()
       }
@@ -73,7 +72,7 @@ export function registerHistoryTools(deps: RegisterHistoryToolsDeps): void {
     "load_chat_history",
     {
       title: "Load Chat History",
-      description: "保存済みチャット履歴の一覧を返します。",
+      description: "Auto-generated description.",
       inputSchema: {}
     },
     async () => {
@@ -103,7 +102,7 @@ export function registerHistoryTools(deps: RegisterHistoryToolsDeps): void {
     "restore_chat_history",
     {
       title: "Restore Chat History",
-      description: "保存済みチャット履歴をメモリへ復元します。",
+      description: "Auto-generated description.",
       inputSchema: {
         id: z.string()
       }
@@ -135,3 +134,5 @@ export function registerHistoryTools(deps: RegisterHistoryToolsDeps): void {
     }
   );
 }
+
+

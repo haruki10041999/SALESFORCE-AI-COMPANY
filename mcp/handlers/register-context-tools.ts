@@ -1,7 +1,6 @@
-import { existsSync, readFileSync } from "fs";
+﻿import { existsSync, readFileSync } from "fs";
 import { join, relative } from "path";
-
-type GovTool = (name: string, config: any, handler: any) => void;
+import type { GovTool } from "@mcp/tool-types.js";
 
 interface RegisterContextToolsDeps {
   govTool: GovTool;
@@ -17,14 +16,14 @@ export function registerContextTools(deps: RegisterContextToolsDeps): void {
     "get_context",
     {
       title: "Get Context",
-      description: "context/ ディレクトリの内容を返します（buildChatPrompt に自動注入される内容）。",
+      description: "Auto-generated description.",
       inputSchema: {}
     },
     async () => {
       const contextDir = join(root, "context");
       if (!existsSync(contextDir)) {
         return {
-          content: [{ type: "text", text: "context/ ディレクトリが存在しません。" }]
+          content: [{ type: "text", text: "context/ directory does not exist." }]
         };
       }
 
@@ -45,3 +44,5 @@ export function registerContextTools(deps: RegisterContextToolsDeps): void {
     }
   );
 }
+
+

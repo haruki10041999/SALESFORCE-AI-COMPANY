@@ -1,9 +1,8 @@
-import { existsSync } from "fs";
+﻿import { existsSync } from "fs";
 import { resolve } from "path";
 import { z } from "zod";
 import { analyzeRepo } from "../tools/repo-analyzer.js";
-
-type GovTool = (name: string, config: any, handler: any) => void;
+import type { GovTool } from "@mcp/tool-types.js";
 
 interface RegisterSmartChatToolsDeps {
   govTool: GovTool;
@@ -35,7 +34,7 @@ export function registerSmartChatTools(deps: RegisterSmartChatToolsDeps): void {
     "smart_chat",
     {
       title: "Smart Chat",
-      description: "関連ファイルを自動検出して chat を実行します。",
+      description: "Auto-generated description.",
       inputSchema: {
         topic: z.string(),
         agents: z.array(z.string()).optional(),
@@ -75,7 +74,7 @@ export function registerSmartChatTools(deps: RegisterSmartChatToolsDeps): void {
         const analyzedPaths = candidates.filter((pathValue) => pathValue && existsSync(pathValue));
         autoFilePaths = Array.from(new Set([...autoFilePaths, ...analyzedPaths]));
       } catch {
-        // repo_analyze 失敗時は空配列で続行
+        // repo_analyze 螟ｱ謨玲凾縺ｯ遨ｺ驟榊・縺ｧ邯夊｡・
       }
 
       const prompt = await buildChatPrompt(
@@ -95,10 +94,10 @@ export function registerSmartChatTools(deps: RegisterSmartChatToolsDeps): void {
           {
             type: "text",
             text:
-              "【対象リポジトリ】\n" +
+              "縲仙ｯｾ雎｡繝ｪ繝昴ず繝医Μ縲曾n" +
               targetPath +
-              "\n\n【自動検出ファイル】\n" +
-              (autoFilePaths.length > 0 ? autoFilePaths.join("\n") : "(なし)") +
+              "\n\n縲占・蜍墓､懷・繝輔ぃ繧､繝ｫ縲曾n" +
+              (autoFilePaths.length > 0 ? autoFilePaths.join("\n") : "(縺ｪ縺・") +
               "\n\n" +
               prompt
           }

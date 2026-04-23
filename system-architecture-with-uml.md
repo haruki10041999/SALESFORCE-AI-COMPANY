@@ -369,8 +369,7 @@ salesforce-ai-company/
 │   │   ├── pr-readiness-check.ts    ← PR 準備スコア
 │   │   ├── security-delta-scan.ts   ← セキュリティ差分検出
 │   │   ├── deployment-impact-summary.ts
-│   │   ├── changed-tests-suggest.ts
-│   │   └── kamiless-export-generator.ts
+│   │   └── changed-tests-suggest.ts
 │   ├── core/
 │   │   ├── resource/
 │   │   │   ├── resource-selector.ts     ← scoreCandidate() スコアリング
@@ -421,7 +420,7 @@ salesforce-ai-company/
 
 ---
 
-## 10. ツール分類一覧（57ツール）
+## 10. ツール分類一覧（55ツール）
 
 ### 静的解析・コマンド生成（11）
 
@@ -530,14 +529,7 @@ salesforce-ai-company/
 | `add_vector_record` | id/text/tags でレコード追加 |
 | `search_vector` | キーワード検索 |
 
-### Kamiless（2）
 
-| ツール名 | 概要 |
-|---|---|
-| `generate_kamiless_from_requirements` | 要件テキスト → `.kamiless.json` 生成 |
-| `generate_kamiless_export` | `.kamiless.json` → Docutize Form export JSON 生成 |
-
----
 
 ## 11. スコアリングロジック
 

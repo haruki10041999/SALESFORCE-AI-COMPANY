@@ -1,9 +1,21 @@
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { invokeRegisteredToolForTest, listRegisteredToolNamesForTest } from "../mcp/server.js";
+
+const serverTestOutputsDir = mkdtempSync(join(tmpdir(), "sf-ai-server-outputs-"));
+process.env.SF_AI_OUTPUTS_DIR = serverTestOutputsDir;
+
+const {
+  clearOrchestrationSessionsForTest,
+  invokeRegisteredToolForTest,
+  listRegisteredToolNamesForTest
+} = await import("../mcp/server.js");
+
+after(() => {
+  rmSync(serverTestOutputsDir, { recursive: true, force: true });
+});
 
 type ToolResult = {
   content: Array<{ type: string; text: string }>;
@@ -39,6 +51,7 @@ test("server exposes expected core tool registrations", () => {
     "get_agent_log",
     "get_handlers_dashboard",
     "export_handlers_statistics",
+    "health_check",
     "get_tool_execution_statistics",
     "add_memory",
     "search_memory",
@@ -50,227 +63,10 @@ test("server exposes expected core tool registrations", () => {
     "get_context",
     "get_system_events",
     "get_event_automation_config",
-    "update_event_automation_config",
-    "generate_kamiless_from_requirements",
-    "generate_kamiless_export"
+    "update_event_automation_config"
   ]) {
     assert.ok(names.includes(required), `missing tool: ${required}`);
   }
-});
-
-test("generate_kamiless_from_requirements creates kamiless spec and export from requirement text", async () => {
-  const root = mkdtempSync(join(tmpdir(), "sf-ai-company-kamiless-req-test-"));
-  const specOutputPath = join(root, "auto-generated.kamiless.json");
-  const exportOutputPath = join(root, "auto-generated-export.json");
-
-  const requirementsText = [
-    "フォーム名: requirements-form",
-    "タイトル: 要件自動生成フォーム",
-    "オブジェクト名: Applicant__c",
-    "セクション: 申込者情報",
-    "- 氏名 | Text | Applicant__c.Name__c | 必須",
-    "- メールアドレス | Email | Applicant__c.Email__c | 必須",
-    "- お問い合わせ内容 | LongTextArea | Applicant__c.Inquiry__c",
-    "セクション: 同意",
-    "- 利用規約に同意 | Checkbox | Applicant__c.AgreeTerms__c | 必須"
-  ].join("\n");
-
-  try {
-    const result = await callTool("generate_kamiless_from_requirements", {
-      requirementsText,
-      specOutputPath,
-      exportOutputPath,
-      formName: "requirements-form"
-    });
-
-    const text = result.content[0].text;
-    assert.ok(text.includes("Kamiless Spec 自動生成結果"));
-    assert.ok(text.includes(specOutputPath));
-    assert.ok(text.includes(exportOutputPath));
-
-    assert.equal(existsSync(specOutputPath), true);
-    assert.equal(existsSync(exportOutputPath), true);
-
-    const spec = JSON.parse(readFileSync(specOutputPath, "utf-8")) as {
-      name: string;
-      title: string;
-      sections: Array<{ section_label: string; fields: Array<{ field_label: string; field_type: string }> }>;
-      layouts: Array<{ parts: Array<{ label: string; field_type: string; target_field?: string }> }>;
-    };
-
-    assert.equal(spec.name, "requirements-form");
-    assert.equal(spec.title, "要件自動生成フォーム");
-    assert.equal(spec.sections.length, 2);
-    assert.equal(spec.sections[0].section_label, "申込者情報");
-    assert.equal(spec.sections[1].section_label, "同意");
-    assert.equal(spec.sections[0].fields[0].field_label, "氏名");
-    assert.equal(spec.sections[0].fields[1].field_type, "Email");
-    assert.equal(spec.layouts[0].parts[2].field_type, "textarea");
-    assert.equal(spec.layouts[0].parts[3].field_type, "checkbox");
-
-    const exported = JSON.parse(readFileSync(exportOutputPath, "utf-8")) as {
-      form_layouts: Array<{ form_parts: Array<{ position: { x: number; y: number } }> }>;
-      target_field_sections: Array<unknown>;
-    };
-
-    assert.equal(exported.target_field_sections.length, 2);
-    assert.equal(exported.form_layouts[0].form_parts.length, 4);
-    assert.equal(exported.form_layouts[0].form_parts[0].position.y, 0);
-    assert.equal(exported.form_layouts[0].form_parts[3].position.y, 5);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("generate_kamiless_from_requirements broadens fields from diff text", async () => {
-  const root = mkdtempSync(join(tmpdir(), "sf-ai-company-kamiless-diff-test-"));
-  const specOutputPath = join(root, "diff-generated.kamiless.json");
-
-  const requirementsText = [
-    "フォーム名: diff-form",
-    "タイトル: diff 取り込みフォーム",
-    "セクション: 申込情報"
-  ].join("\n");
-
-  const diffText = [
-    "diff --git a/sample.ts b/sample.ts",
-    "+ {",
-    "+   label: \"会社名\",",
-    "+   field_type: \"Text\",",
-    "+   object_name: \"Applicant__c\",",
-    "+   field_name: \"CompanyName__c\",",
-    "+   required: true",
-    "+ },",
-    "+ {",
-    "+   label: \"生年月日\",",
-    "+   field_type: \"Date\",",
-    "+   object_name: \"Applicant__c\",",
-    "+   field_name: \"Birthdate__c\"",
-    "+ }"
-  ].join("\n");
-
-  try {
-    const result = await callTool("generate_kamiless_from_requirements", {
-      requirementsText,
-      diffText,
-      specOutputPath
-    });
-
-    const text = result.content[0].text;
-    assert.ok(text.includes("diff 候補行: 2"));
-    assert.equal(existsSync(specOutputPath), true);
-
-    const spec = JSON.parse(readFileSync(specOutputPath, "utf-8")) as {
-      sections: Array<{ fields: Array<{ field_label: string; field_type: string; field_name: string; required?: boolean }> }>;
-      layouts: Array<{ parts: Array<{ label: string; field_type: string }> }>;
-    };
-
-    assert.equal(spec.sections.length, 1);
-    assert.equal(spec.sections[0].fields.length, 2);
-    assert.equal(spec.sections[0].fields[0].field_label, "会社名");
-    assert.equal(spec.sections[0].fields[0].field_name, "CompanyName__c");
-    assert.equal(spec.sections[0].fields[0].required, true);
-    assert.equal(spec.sections[0].fields[1].field_type, "Date");
-    assert.equal(spec.layouts[0].parts[1].field_type, "date");
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("generate_kamiless_export creates export JSON with defaults", async () => {
-  const root = mkdtempSync(join(tmpdir(), "sf-ai-company-kamiless-test-"));
-  const specPath = join(root, "sample.kamiless.json");
-  const outputPath = join(root, "sample-export.json");
-
-  const spec = {
-    kamiless_spec_version: 1,
-    name: "test-form",
-    title: "Test Form",
-    sections: [
-      {
-        key: "section-1",
-        section_number: 1,
-        section_label: "基本情報",
-        form_layout_number: 1,
-        fields: [
-          {
-            key: "name-field",
-            field_number: 1,
-            field_label: "氏名",
-            field_name: "Name",
-            field_type: "Text",
-            object_name: "Contact"
-          }
-        ]
-      }
-    ],
-    layouts: [
-      {
-        key: "layout-1",
-        layout_number: 1,
-        name: "Page 1",
-        parts: [
-          {
-            key: "part-1",
-            name: "part-001",
-            label: "氏名",
-            field_type: "text",
-            target_field: "name-field",
-            size: { width: 6, height: 1 }
-          },
-          {
-            key: "part-2",
-            name: "part-002",
-            label: "備考",
-            field_type: "text",
-            size: { width: 6, height: 1 }
-          }
-        ]
-      }
-    ]
-  };
-
-  writeFileSync(specPath, JSON.stringify(spec, null, 2), "utf-8");
-
-  try {
-    const result = await callTool("generate_kamiless_export", {
-      specPath,
-      outputPath
-    });
-
-    const text = result.content[0].text;
-    assert.ok(text.includes("Kamiless Export 生成結果"));
-    assert.ok(text.includes(outputPath));
-
-    assert.equal(existsSync(outputPath), true);
-    const exported = JSON.parse(readFileSync(outputPath, "utf-8")) as {
-      form_layouts: Array<{
-        image: { path_on_client: string; width: number; height: number };
-        form_parts: Array<{ position: { x: number; y: number } }>;
-      }>;
-    };
-
-    assert.equal(exported.form_layouts.length, 1);
-    assert.equal(exported.form_layouts[0].image.path_on_client, "default_background.png");
-    assert.equal(exported.form_layouts[0].image.width, 794);
-    assert.equal(exported.form_layouts[0].image.height, 1123);
-    assert.equal(exported.form_layouts[0].form_parts[0].position.x, 0);
-    assert.equal(exported.form_layouts[0].form_parts[0].position.y, 0);
-    assert.equal(exported.form_layouts[0].form_parts[1].position.x, 0);
-    assert.equal(exported.form_layouts[0].form_parts[1].position.y, 1);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("generate_kamiless_export returns readable error when spec path is invalid", async () => {
-  const missingPath = join(tmpdir(), `missing-${Date.now()}.kamiless.json`);
-  const result = await callTool("generate_kamiless_export", { specPath: missingPath });
-  const text = result.content[0].text;
-
-  assert.ok(text.includes("## エラー"));
-  assert.ok(text.includes(missingPath));
-  assert.equal(text.includes("{}"), false);
 });
 
 test("deploy_org returns JSON with command and dryRun", async () => {
@@ -297,6 +93,49 @@ test("list_agents returns JSON array with name and summary", async () => {
   assert.ok(payload.length > 0);
   assert.equal(typeof payload[0]?.name, "string");
   assert.equal(typeof payload[0]?.summary, "string");
+});
+
+test("health_check returns operational summary", async () => {
+  const result = await callTool("health_check", {});
+  const payload = JSON.parse(result.content[0].text) as {
+    status: string;
+    checkedAt: string;
+    toolExecutions: {
+      sampled: number;
+      totals: {
+        total: number;
+        success: number;
+        failure: number;
+        blockedByDisable: number;
+      };
+      rates: {
+        successRate: number;
+        failureRate: number;
+      };
+    };
+    disabledResources: {
+      skills: number;
+      tools: number;
+      presets: number;
+    };
+    eventLogs: {
+      eventDir: string;
+      activeLogPath: string;
+      activeLogExists: boolean;
+      activeLogSizeBytes: number;
+      archiveCount: number;
+      archiveTotalSizeBytes: number;
+      archives: Array<{ file: string; sizeBytes: number; modifiedAt: string }>;
+    };
+  };
+
+  assert.equal(payload.status, "ok");
+  assert.equal(typeof payload.checkedAt, "string");
+  assert.equal(typeof payload.toolExecutions.sampled, "number");
+  assert.equal(typeof payload.disabledResources.tools, "number");
+  assert.equal(typeof payload.eventLogs.activeLogExists, "boolean");
+  assert.equal(typeof payload.eventLogs.archiveCount, "number");
+  assert.ok(Array.isArray(payload.eventLogs.archives));
 });
 
 test("chat returns prompt skeleton containing topic section", async () => {
@@ -449,6 +288,49 @@ test("orchestration evaluate_triggers can disable round-robin fallback", async (
 
   assert.deepEqual(evaluated.nextAgents, []);
   assert.equal(evaluated.usedRoundRobinFallback, false);
+});
+
+test("orchestration tools restore saved session automatically when memory is cleared", async () => {
+  const orchestrated = parseFirstJson<{
+    sessionId: string;
+  }>(await callTool("orchestrate_chat", {
+    topic: "restore fallback test",
+    agents: ["architect", "qa-engineer"],
+    turns: 2
+  }));
+
+  const saved = parseFirstJson<{
+    saved: boolean;
+    sessionId: string;
+  }>(await callTool("save_orchestration_session", {
+    sessionId: orchestrated.sessionId
+  }));
+
+  assert.equal(saved.saved, true);
+  clearOrchestrationSessionsForTest();
+
+  const evaluated = parseFirstJson<{
+    sessionId: string;
+    nextAgents: string[];
+    queueLength: number;
+  }>(await callTool("evaluate_triggers", {
+    sessionId: orchestrated.sessionId,
+    lastAgent: "architect",
+    lastMessage: "次の担当へ引き継ぎます"
+  }));
+
+  assert.equal(evaluated.sessionId, orchestrated.sessionId);
+  assert.ok(evaluated.queueLength >= 2);
+
+  const session = parseFirstJson<{
+    id: string;
+    historyCount: number;
+  }>(await callTool("get_orchestration_session", {
+    sessionId: orchestrated.sessionId
+  }));
+
+  assert.equal(session.id, orchestrated.sessionId);
+  assert.equal(session.historyCount, 1);
 });
 
 test("parse_and_record_chat and get_agent_log return expected JSON structure", async () => {

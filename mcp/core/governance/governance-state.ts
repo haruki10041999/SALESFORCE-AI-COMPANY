@@ -98,6 +98,30 @@ async function writeGovernanceStateAtomic(governanceFile: string, state: Governa
   }
 }
 
+async function cleanupStaleGovernanceTempFiles(governanceFile: string): Promise<void> {
+  const stateDir = dirname(governanceFile);
+  const tempPrefix = `.${basename(governanceFile)}.`;
+
+  try {
+    const entries = await fsPromises.readdir(stateDir, { withFileTypes: true });
+    const staleTempFiles = entries
+      .filter((entry) => entry.isFile() && entry.name.startsWith(tempPrefix) && entry.name.endsWith(".tmp"))
+      .map((entry) => join(stateDir, entry.name));
+
+    await Promise.all(
+      staleTempFiles.map(async (tempFile) => {
+        try {
+          await fsPromises.unlink(tempFile);
+        } catch {
+          // 競合した削除や一時的なロックは次回ロードで再試行する。
+        }
+      })
+    );
+  } catch {
+    // ディレクトリ読み取り失敗はロード処理を継続する。
+  }
+}
+
 // ============================================================
 // Pure helpers
 // ============================================================
@@ -159,6 +183,7 @@ export async function loadGovernanceState(
 ): Promise<GovernanceState> {
   return withGovernanceStateLock(governanceFile, async () => {
     await ensureDir(dirname(governanceFile));
+    await cleanupStaleGovernanceTempFiles(governanceFile);
 
     if (!existsSync(governanceFile)) {
       const initial = buildDefaultGovernanceState(defaultProtectedTools);

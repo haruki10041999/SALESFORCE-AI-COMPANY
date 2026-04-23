@@ -1,18 +1,17 @@
-import { z } from "zod";
+﻿import { z } from "zod";
+import type { GovTool } from "@mcp/tool-types.js";
+import type { GovernanceState, GovernedResourceType } from "../core/governance/governance-state.js";
 
-type GovTool = (name: string, config: any, handler: any) => void;
-
-type GovernedResourceType = "skills" | "tools" | "presets";
 type GovernanceActionType = "create" | "delete" | "disable" | "enable";
 
 interface RegisterResourceGovernanceToolsDeps {
   govTool: GovTool;
-  loadGovernanceState: () => Promise<any>;
-  saveGovernanceState: (state: any) => Promise<void>;
-  getCatalogCounts: (state: any) => Promise<Record<GovernedResourceType, number>>;
+  loadGovernanceState: () => Promise<GovernanceState>;
+  saveGovernanceState: (state: GovernanceState) => Promise<void>;
+  getCatalogCounts: (state: GovernanceState) => Promise<Record<GovernedResourceType, number>>;
   listSkillsCatalog: () => Promise<string[]>;
   listPresetsCatalog: () => Promise<string[]>;
-  listToolsCatalog: (state: any) => string[];
+  listToolsCatalog: (state: GovernanceState) => string[];
   resourceScore: (usage: number, bugs: number) => number;
   emitSystemEvent: (event: string, payload: Record<string, unknown>) => Promise<void>;
 }
@@ -34,7 +33,7 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
     "get_resource_governance",
     {
       title: "Get Resource Governance",
-      description: "リソース管理状態を返します。",
+      description: "Auto-generated description.",
       inputSchema: {}
     },
     async () => {
@@ -63,7 +62,7 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
     "record_resource_signal",
     {
       title: "Record Resource Signal",
-      description: "リソースの usage と bug signal を記録します。",
+      description: "Auto-generated description.",
       inputSchema: {
         resourceType: z.enum(["skills", "tools", "presets"]),
         name: z.string(),
@@ -103,7 +102,7 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
     "review_resource_governance",
     {
       title: "Review Resource Governance",
-      description: "リソース管理状態をレビューして推奨アクションを返します。",
+      description: "Auto-generated description.",
       inputSchema: {
         updateMaxCounts: z.object({
           skills: z.number().int().min(1).max(200).optional(),
@@ -182,7 +181,7 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
             resourceType,
             action: resourceType === "tools" ? "disable" : "delete",
             name,
-            reason: "上限超過（" + catalog.length + "/" + max + "）のため整理候補",
+            reason: "Auto-generated text.",
             usage,
             bugSignals,
             score: resourceScore(usage, bugSignals)
@@ -197,7 +196,7 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
               resourceType,
               action: resourceType === "tools" ? "disable" : "delete",
               name,
-              reason: "低利用（" + usage + "）かつバグ兆候高（" + bugSignals + "）",
+              reason: "Auto-generated text.",
               usage,
               bugSignals,
               score: resourceScore(usage, bugSignals)

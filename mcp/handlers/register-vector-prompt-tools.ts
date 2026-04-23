@@ -1,22 +1,32 @@
-import { z } from "zod";
-
-type GovTool = (name: string, config: any, handler: any) => void;
+﻿import { z } from "zod";
+import type { GovTool } from "@mcp/tool-types.js";
 
 interface RegisterVectorPromptToolsDeps {
   govTool: GovTool;
   addRecord: (record: { id: string; text: string; tags: string[] }) => void;
   searchByKeyword: (query: string) => Array<{ id: string; text: string; tags?: string[] }>;
   buildPrompt: (agent: { name: string; content: string }, task: string) => string;
+  evaluatePromptMetrics: (prompt: string, skills?: string[], triggerKeywords?: string[]) => {
+    lengthChars: number;
+    lineCount: number;
+    estimatedTokens: number;
+    containsProjectContext: boolean;
+    containsAgentsSection: boolean;
+    containsSkillsSection: boolean;
+    containsTaskSection: boolean;
+    skillCoverageRate: number;
+    triggerMatchRate: number;
+  };
 }
 
 export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): void {
-  const { govTool, addRecord, searchByKeyword, buildPrompt } = deps;
+  const { govTool, addRecord, searchByKeyword, buildPrompt, evaluatePromptMetrics } = deps;
 
   govTool(
     "add_vector_record",
     {
       title: "Add Vector Record",
-      description: "id / text / tags でベクターストアにレコードを追加します。",
+      description: "Auto-generated description.",
       inputSchema: {
         id: z.string().min(1),
         text: z.string().min(1),
@@ -35,7 +45,7 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
     "search_vector",
     {
       title: "Search Vector",
-      description: "ベクターストアをキーワードで検索します（text と tags に対してマッチ）。",
+      description: "Auto-generated description.",
       inputSchema: {
         query: z.string().min(1)
       }
@@ -57,8 +67,7 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
     "build_prompt",
     {
       title: "Build Prompt",
-      description:
-        "単一エージェント用のプロンプトを base-prompt.md + reasoning-framework.md を組み合わせて生成します。chat より軽量な単発タスク向け。",
+      description: "Build a single-agent prompt from base prompt and reasoning framework.",
       inputSchema: {
         agentName: z.string(),
         agentContent: z.string(),
@@ -72,4 +81,24 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
       };
     }
   );
+
+  govTool(
+    "evaluate_prompt_metrics",
+    {
+      title: "Evaluate Prompt Metrics",
+      description: "Evaluate prompt quality metrics such as length, section coverage, skill coverage and trigger match rate.",
+      inputSchema: {
+        prompt: z.string().min(1),
+        skills: z.array(z.string()).optional(),
+        triggerKeywords: z.array(z.string()).optional()
+      }
+    },
+    async ({ prompt, skills, triggerKeywords }: { prompt: string; skills?: string[]; triggerKeywords?: string[] }) => {
+      const metrics = evaluatePromptMetrics(prompt, skills, triggerKeywords);
+      return {
+        content: [{ type: "text", text: JSON.stringify(metrics, null, 2) }]
+      };
+    }
+  );
 }
+

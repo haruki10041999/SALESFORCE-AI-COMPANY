@@ -41,6 +41,27 @@ test("Governance state save/load remains valid under concurrent writes", async (
   }
 });
 
+test("Governance state load removes stale temp files from prior interrupted writes", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "gov-state-stale-"));
+  const governanceFile = join(dir, "governance-state.json");
+  const staleTempFile = join(dir, ".governance-state.json.1234.5678.tmp");
+
+  try {
+    await readFile(staleTempFile, "utf-8").catch(async () => {
+      await import("node:fs/promises").then(({ writeFile }) => writeFile(staleTempFile, "stale", "utf-8"));
+    });
+
+    const state = await loadGovernanceState(governanceFile, async () => undefined, ["protected-tool"]);
+    assert.ok(state.config, "State should still load successfully");
+
+    const files = await readdir(dir);
+    assert.ok(files.includes("governance-state.json"), "Governance file should be created");
+    assert.ok(!files.includes(".governance-state.json.1234.5678.tmp"), "Stale temp file should be removed");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("EventDispatcher disables listener after repeated failures", async () => {
   const dispatcher = new EventDispatcher();
   let failingListenerCalls = 0;

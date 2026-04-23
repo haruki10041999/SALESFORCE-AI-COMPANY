@@ -47,6 +47,23 @@ export function toPosixPath(pathValue: string): string {
   return pathValue.replace(/\\/g, "/");
 }
 
+function assertSafeLookupName(name: string): void {
+  const normalized = toPosixPath(name).trim();
+  if (!normalized) {
+    throw new Error("Invalid name: empty");
+  }
+  if (normalized.startsWith("/") || /^[a-zA-Z]:\//.test(normalized)) {
+    throw new Error(`Invalid name: absolute path is not allowed (${name})`);
+  }
+  if (normalized.includes("\0")) {
+    throw new Error("Invalid name: null byte");
+  }
+  const segments = normalized.split("/");
+  if (segments.some((segment) => segment === ".." || segment.length === 0)) {
+    throw new Error(`Invalid name: path traversal is not allowed (${name})`);
+  }
+}
+
 export function truncateContent(text: string, maxChars: number, label: string): string {
   if (text.length <= maxChars) return text;
   return (
@@ -71,6 +88,7 @@ export function listMdFiles(root: string, dir: string): { name: string; summary:
 export function getMdFile(root: string, dir: string, name: string): string {
   const fullDir = join(root, dir);
   if (!existsSync(fullDir)) throw new Error(`Directory not found: ${dir}`);
+  assertSafeLookupName(name);
 
   const normalizedName = toPosixPath(name).replace(/\.md$/, "");
   const directPath = join(fullDir, `${normalizedName}.md`);
@@ -96,6 +114,7 @@ export function getMdFile(root: string, dir: string, name: string): string {
 export async function getMdFileAsync(root: string, dir: string, name: string): Promise<string> {
   const fullDir = join(root, dir);
   if (!existsSync(fullDir)) throw new Error(`Directory not found: ${dir}`);
+  assertSafeLookupName(name);
 
   const normalizedName = toPosixPath(name).replace(/\.md$/, "");
   const directPath = join(fullDir, `${normalizedName}.md`);

@@ -1,6 +1,5 @@
-import { z } from "zod";
-
-type GovTool = (name: string, config: any, handler: any) => void;
+﻿import { z } from "zod";
+import type { GovTool } from "@mcp/tool-types.js";
 
 interface RegisterMemoryToolsDeps {
   govTool: GovTool;
@@ -17,7 +16,7 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
     "add_memory",
     {
       title: "Add Memory",
-      description: "テキストをインメモリに記録します。",
+      description: "Auto-generated description.",
       inputSchema: {
         text: z.string().min(1)
       }
@@ -25,7 +24,7 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
     async ({ text }: { text: string }) => {
       addMemory(text);
       return {
-        content: [{ type: "text", text: `記録しました: ${text.slice(0, 80)}${text.length > 80 ? "..." : ""}` }]
+        content: [{ type: "text", text: `險倬鹸縺励∪縺励◆: ${text.slice(0, 80)}${text.length > 80 ? "..." : ""}` }]
       };
     }
   );
@@ -34,7 +33,7 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
     "search_memory",
     {
       title: "Search Memory",
-      description: "インメモリから部分一致でテキストを検索します。",
+      description: "Auto-generated description.",
       inputSchema: {
         query: z.string().min(1)
       }
@@ -56,7 +55,7 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
     "list_memory",
     {
       title: "List Memory",
-      description: "インメモリの全記録を返します。",
+      description: "Auto-generated description.",
       inputSchema: {}
     },
     async () => {
@@ -76,7 +75,7 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
     "clear_memory",
     {
       title: "Clear Memory",
-      description: "インメモリの全記録を削除します。",
+      description: "Auto-generated description.",
       inputSchema: {}
     },
     async () => {

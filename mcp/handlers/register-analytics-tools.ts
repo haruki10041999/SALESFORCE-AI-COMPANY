@@ -1,8 +1,9 @@
-import { promises as fsPromises } from "fs";
+﻿import { promises as fsPromises } from "fs";
 import { dirname, resolve } from "path";
 import { z } from "zod";
-
-type GovTool = (name: string, config: any, handler: any) => void;
+import type { GovTool } from "@mcp/tool-types.js";
+import type { GovernanceState } from "../core/governance/governance-state.js";
+import type { SystemEventRecord, SystemEventLogStatus } from "../core/event/system-event-manager.js";
 
 interface AgentMessage {
   agent: string;
@@ -38,8 +39,9 @@ interface RegisterAnalyticsToolsDeps {
   govTool: GovTool;
   agentLog: AgentMessage[];
   loadChatHistories: () => Promise<ChatSession[]>;
-  loadSystemEvents: (limit?: number, event?: string) => Promise<any[]>;
-  loadGovernanceState: () => Promise<any>;
+  loadSystemEvents: (limit?: number, event?: string) => Promise<SystemEventRecord[]>;
+  getSystemEventLogStatus: () => Promise<SystemEventLogStatus>;
+  loadGovernanceState: () => Promise<GovernanceState>;
   generateHandlersDashboard: (state: HandlersStateShape) => unknown;
   handlersState: HandlersStateShape;
   exportStatisticsAsCsv: (stats: HandlersStatisticsShape) => string;
@@ -53,6 +55,7 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
     agentLog,
     loadChatHistories,
     loadSystemEvents,
+    getSystemEventLogStatus,
     loadGovernanceState,
     generateHandlersDashboard,
     handlersState,
@@ -61,7 +64,7 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
     ensureDir
   } = deps;
 
-  function aggregateToolAfterExecuteEvents(events: any[]): {
+  function aggregateToolAfterExecuteEvents(events: SystemEventRecord[]): {
     totals: {
       total: number;
       success: number;
@@ -124,10 +127,57 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
   }
 
   govTool(
+    "health_check",
+    {
+      title: "Health Check",
+      description: "Auto-generated description.",
+      inputSchema: {
+        systemEventLimit: z.number().int().min(1).max(500).optional()
+      }
+    },
+    async ({ systemEventLimit }: { systemEventLimit?: number }) => {
+      const eventLimit = systemEventLimit ?? 100;
+      const toolAfterEvents = await loadSystemEvents(eventLimit, "tool_after_execute");
+      const aggregate = aggregateToolAfterExecuteEvents(toolAfterEvents);
+      const governanceState = await loadGovernanceState();
+      const dashboard = generateHandlersDashboard(handlersState);
+      const eventLogs = await getSystemEventLogStatus();
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                status: "ok",
+                checkedAt: new Date().toISOString(),
+                toolExecutions: {
+                  sampled: toolAfterEvents.length,
+                  totals: aggregate.totals,
+                  rates: aggregate.rates
+                },
+                disabledResources: {
+                  skills: governanceState.disabled.skills.length,
+                  tools: governanceState.disabled.tools.length,
+                  presets: governanceState.disabled.presets.length
+                },
+                eventLogs,
+                handlers: dashboard
+              },
+              null,
+              2
+            )
+          }
+        ]
+      };
+    }
+  );
+
+  govTool(
     "analyze_chat_trends",
     {
       title: "Analyze Chat Trends",
-      description: "エージェントログの傾向を分析します。historyId で特定セッション、since で期間絞り込み、groupBy でグループ化方法を指定できます。",
+      description: "Auto-generated description.",
       inputSchema: {
         historyId: z.string().optional(),
         since: z.string().optional(),
@@ -195,7 +245,7 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
     "get_tool_execution_statistics",
     {
       title: "Get Tool Execution Statistics",
-      description: "ツール実行の成功率・失敗率・無効化ツール数を返します。",
+      description: "Auto-generated description.",
       inputSchema: {
         windowMinutes: z.number().int().min(1).max(7 * 24 * 60).optional(),
         windowsMinutes: z.array(z.number().int().min(1).max(7 * 24 * 60)).max(10).optional(),
@@ -240,7 +290,7 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
 
       const bucketSizeMinutes = bucketMinutes ?? 60;
       const bucketSizeMs = bucketSizeMinutes * 60 * 1000;
-      const timelineBuckets = new Map<number, any[]>();
+      const timelineBuckets = new Map<number, SystemEventRecord[]>();
       for (const event of relevant) {
         const ts = Date.parse(event.timestamp ?? "");
         if (!Number.isFinite(ts)) {
@@ -299,7 +349,7 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
     "get_handlers_dashboard",
     {
       title: "Get Handlers Dashboard",
-      description: "イベントハンドラーの稼働統計を返します。",
+      description: "Auto-generated description.",
       inputSchema: {}
     },
     async () => {
@@ -314,7 +364,7 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
     "export_handlers_statistics",
     {
       title: "Export Handlers Statistics",
-      description: "ハンドラー統計を CSV または JSON 形式でエクスポートします。outputPath を指定するとファイルにも書き出します。",
+      description: "Auto-generated description.",
       inputSchema: {
         format: z.enum(["json", "csv"]).optional(),
         outputPath: z.string().optional()

@@ -1,6 +1,5 @@
-import { z } from "zod";
-
-type GovTool = (name: string, config: any, handler: any) => void;
+﻿import { z } from "zod";
+import type { GovTool } from "@mcp/tool-types.js";
 
 interface RegisterBatchToolsDeps {
   govTool: GovTool;
@@ -23,7 +22,7 @@ export function registerBatchTools(deps: RegisterBatchToolsDeps): void {
     "batch_chat",
     {
       title: "Batch Chat",
-      description: "複数トピックを処理して統合レポートを返します。topicConfigs でトピックごとにエージェント・指示を変えることができ、parallel: true で並列実行します。",
+      description: "Auto-generated description.",
       inputSchema: {
         topics: z.array(z.string()).min(1).max(10).optional(),
         topicConfigs: z.array(z.object({
@@ -52,7 +51,7 @@ export function registerBatchTools(deps: RegisterBatchToolsDeps): void {
       const defaultAgents = ["product-manager", "architect", "qa-engineer"];
       const configs = topicConfigs ?? (topics ?? []).map((topic) => ({ topic }));
       if (configs.length === 0) {
-        return { content: [{ type: "text", text: "topics または topicConfigs を指定してください。" }] };
+        return { content: [{ type: "text", text: "Please provide topics or topicConfigs." }] };
       }
 
       const buildOne = async (cfg: { topic: string; agents?: string[]; appendInstruction?: string }) =>
@@ -85,10 +84,11 @@ export function registerBatchTools(deps: RegisterBatchToolsDeps): void {
         content: [
           {
             type: "text",
-            text: "# バッチ処理レポート\n\n**処理トピック数**: " + configs.length + (parallel ? "（並列実行）" : "（逐次実行）") + "\n\n" + batchReport
+            text: "# Batch Report\n\n**Topic Count**: " + configs.length + (parallel ? " (parallel)" : " (sequential)") + "\n\n" + batchReport
           }
         ]
       };
     }
   );
 }
+

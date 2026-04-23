@@ -1,10 +1,9 @@
-import { existsSync, promises as fsPromises } from "fs";
+﻿import { existsSync, promises as fsPromises } from "fs";
 import { dirname, join, relative } from "path";
 import { z } from "zod";
+import type { GovTool } from "@mcp/tool-types.js";
+import type { GovernanceState, GovernedResourceType } from "../core/governance/governance-state.js";
 
-type GovTool = (name: string, config: any, handler: any) => void;
-
-type GovernedResourceType = "skills" | "tools" | "presets";
 type GovernanceActionType = "create" | "delete" | "disable" | "enable";
 
 interface ChatPreset {
@@ -40,17 +39,17 @@ interface RegisterResourceActionToolsDeps {
   toolProposalsDir: string;
   customToolsDir: string;
   governanceFile: string;
-  loadGovernanceState: () => Promise<any>;
-  saveGovernanceState: (state: any) => Promise<void>;
+  loadGovernanceState: () => Promise<GovernanceState>;
+  saveGovernanceState: (state: GovernanceState) => Promise<void>;
   ensureDir: (path: string) => Promise<void>;
   loadRecentOperations: () => Promise<ResourceOperation[]>;
   checkDailyLimitExceeded: (ops: ResourceOperation[], action: "create" | "delete", limit: number) => boolean;
   listSkillsCatalog: () => Promise<string[]>;
   listPresetsCatalog: () => Promise<string[]>;
-  listToolsCatalog: (state: any) => string[];
-  validateAndCreateSkillWithQuality: (name: string, content: string, state: any) => Promise<{ success: boolean; message: string; qualityScore?: number }>;
-  validateAndCreatePresetWithQuality: (name: string, preset: { description: string; agents: string[]; topic: string }, state: any) => Promise<{ success: boolean; message: string; qualityScore?: number }>;
-  validateAndCreateToolWithQuality: (name: string, description: string, state: any) => Promise<{ success: boolean; message: string; qualityScore?: number }>;
+  listToolsCatalog: (state: GovernanceState) => string[];
+  validateAndCreateSkillWithQuality: (name: string, content: string, state: GovernanceState) => Promise<{ success: boolean; message: string; qualityScore?: number }>;
+  validateAndCreatePresetWithQuality: (name: string, preset: { description: string; agents: string[]; topic: string }, state: GovernanceState) => Promise<{ success: boolean; message: string; qualityScore?: number }>;
+  validateAndCreateToolWithQuality: (name: string, description: string, state: GovernanceState) => Promise<{ success: boolean; message: string; qualityScore?: number }>;
   createPreset: (preset: ChatPreset) => Promise<void>;
   registerCustomTool: (tool: CustomToolDefinition) => void;
   unregisterCustomTool: (name: string) => void;
@@ -92,8 +91,9 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
     "apply_resource_actions",
     {
       title: "Apply Resource Actions",
-      description: "リソース管理アクションを実行します。",
+      description: "Auto-generated description.",
       inputSchema: {
+        dryRun: z.boolean().optional(),
         actions: z.array(z.object({
           resourceType: z.enum(["skills", "tools", "presets"]),
           action: z.enum(["create", "delete", "disable", "enable"]),
@@ -116,7 +116,7 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
         })).min(1).max(50)
       }
     },
-    async ({ actions }: {
+    async ({ actions, dryRun }: {
       actions: Array<{
         resourceType: GovernedResourceType;
         action: GovernanceActionType;
@@ -125,7 +125,9 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
         preset?: ChatPreset;
         toolConfig?: { agents?: string[]; skills?: string[]; persona?: string };
       }>;
+      dryRun?: boolean;
     }) => {
+      const effectiveDryRun = dryRun ?? false;
       const state = await loadGovernanceState();
       await ensureDir(presetsDir);
       await ensureDir(join(root, "skills"));
@@ -152,13 +154,13 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
           if (!state.disabled[resourceType].includes(name)) {
             state.disabled[resourceType].push(name);
           }
-          results.push({ action, resourceType, name, result: "disabled" });
+          results.push({ action, resourceType, name, result: effectiveDryRun ? "disabled (dry-run)" : "disabled" });
           continue;
         }
 
         if (action === "enable") {
           state.disabled[resourceType] = state.disabled[resourceType].filter((entry: string) => entry !== name);
-          results.push({ action, resourceType, name, result: "enabled" });
+          results.push({ action, resourceType, name, result: effectiveDryRun ? "enabled (dry-run)" : "enabled" });
           continue;
         }
 
@@ -171,7 +173,7 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
               continue;
             }
 
-            const contentToWrite = content ?? ("# " + name + "\n\n(ここにスキル内容を記述)");
+            const contentToWrite = content ?? ("# " + name + "\n\n(縺薙％縺ｫ繧ｹ繧ｭ繝ｫ蜀・ｮｹ繧定ｨ倩ｿｰ)");
             const qualityValidation = await validateAndCreateSkillWithQuality(name, contentToWrite, state);
 
             if (!qualityValidation.success) {
@@ -192,29 +194,35 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
               continue;
             }
 
-            await ensureDir(dirname(skillPath));
-            await fsPromises.writeFile(skillPath, contentToWrite);
-            results.push({ action, resourceType, name, result: "created (quality_score: " + (qualityValidation.qualityScore ?? 0) + ")" });
+            if (!effectiveDryRun) {
+              await ensureDir(dirname(skillPath));
+              await fsPromises.writeFile(skillPath, contentToWrite);
+            }
+            results.push({ action, resourceType, name, result: "created (quality_score: " + (qualityValidation.qualityScore ?? 0) + ")" + (effectiveDryRun ? " (dry-run)" : "") });
 
-            try {
-              await emitEvent({
-                type: "resource_created",
-                timestamp: new Date().toISOString(),
-                payload: {
-                  resourceType: "skills",
-                  name,
-                  source: "apply_resource_actions"
-                }
-              });
-            } catch {
-              // ignore
+            if (!effectiveDryRun) {
+              try {
+                await emitEvent({
+                  type: "resource_created",
+                  timestamp: new Date().toISOString(),
+                  payload: {
+                    resourceType: "skills",
+                    name,
+                    source: "apply_resource_actions"
+                  }
+                });
+              } catch {
+                // ignore
+              }
             }
             continue;
           }
           if (action === "delete") {
             if (existsSync(skillPath)) {
-              await fsPromises.unlink(skillPath);
-              results.push({ action, resourceType, name, result: "deleted" });
+              if (!effectiveDryRun) {
+                await fsPromises.unlink(skillPath);
+              }
+              results.push({ action, resourceType, name, result: "deleted" + (effectiveDryRun ? " (dry-run)" : "") });
             } else {
               results.push({ action, resourceType, name, result: "not-found" });
             }
@@ -241,7 +249,7 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
             } else {
               presetToCreate = {
                 name,
-                description: "自動作成プリセット",
+                description: "閾ｪ蜍穂ｽ懈・繝励Μ繧ｻ繝・ヨ",
                 topic: name,
                 agents: ["product-manager", "architect", "qa-engineer"],
                 skills: []
@@ -276,28 +284,34 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
               continue;
             }
 
-            await createPreset(presetToCreate);
-            results.push({ action, resourceType, name, result: "created (quality_score: " + (qualityValidation.qualityScore ?? 0) + ")" });
+            if (!effectiveDryRun) {
+              await createPreset(presetToCreate);
+            }
+            results.push({ action, resourceType, name, result: "created (quality_score: " + (qualityValidation.qualityScore ?? 0) + ")" + (effectiveDryRun ? " (dry-run)" : "") });
 
-            try {
-              await emitEvent({
-                type: "resource_created",
-                timestamp: new Date().toISOString(),
-                payload: {
-                  resourceType: "presets",
-                  name,
-                  source: "apply_resource_actions"
-                }
-              });
-            } catch {
-              // ignore
+            if (!effectiveDryRun) {
+              try {
+                await emitEvent({
+                  type: "resource_created",
+                  timestamp: new Date().toISOString(),
+                  payload: {
+                    resourceType: "presets",
+                    name,
+                    source: "apply_resource_actions"
+                  }
+                });
+              } catch {
+                // ignore
+              }
             }
             continue;
           }
           if (action === "delete") {
             if (existsSync(presetPath)) {
-              await fsPromises.unlink(presetPath);
-              results.push({ action, resourceType, name, result: "deleted" });
+              if (!effectiveDryRun) {
+                await fsPromises.unlink(presetPath);
+              }
+              results.push({ action, resourceType, name, result: "deleted" + (effectiveDryRun ? " (dry-run)" : "") });
             } else {
               results.push({ action, resourceType, name, result: "not-found" });
             }
@@ -313,7 +327,7 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
               continue;
             }
 
-            const toolDescription = content ?? ("カスタムツール: " + name);
+            const toolDescription = content ?? ("繧ｫ繧ｹ繧ｿ繝繝・・繝ｫ: " + name);
             const qualityValidation = await validateAndCreateToolWithQuality(name, toolDescription, state);
 
             if (!qualityValidation.success) {
@@ -334,7 +348,9 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
               continue;
             }
 
-            await ensureDir(customToolsDir);
+            if (!effectiveDryRun) {
+              await ensureDir(customToolsDir);
+            }
             const toolDef: CustomToolDefinition = {
               name,
               description: toolDescription,
@@ -347,27 +363,31 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
             };
             const toolFileName = name.toLowerCase().replace(/\s+/g, "-");
             const toolPath = join(customToolsDir, toolFileName + ".json");
-            await fsPromises.writeFile(toolPath, JSON.stringify(toolDef, null, 2));
-            registerCustomTool(toolDef);
+            if (!effectiveDryRun) {
+              await fsPromises.writeFile(toolPath, JSON.stringify(toolDef, null, 2));
+              registerCustomTool(toolDef);
+            }
             results.push({
               action,
               resourceType,
               name,
-              result: "created (quality_score: " + (qualityValidation.qualityScore ?? 0) + "): " + toPosixPath(relative(root, toolPath))
+              result: "created (quality_score: " + (qualityValidation.qualityScore ?? 0) + "): " + toPosixPath(relative(root, toolPath)) + (effectiveDryRun ? " (dry-run)" : "")
             });
 
-            try {
-              await emitEvent({
-                type: "resource_created",
-                timestamp: new Date().toISOString(),
-                payload: {
-                  resourceType: "tools",
-                  name,
-                  source: "apply_resource_actions"
-                }
-              });
-            } catch {
-              // ignore
+            if (!effectiveDryRun) {
+              try {
+                await emitEvent({
+                  type: "resource_created",
+                  timestamp: new Date().toISOString(),
+                  payload: {
+                    resourceType: "tools",
+                    name,
+                    source: "apply_resource_actions"
+                  }
+                });
+              } catch {
+                // ignore
+              }
             }
             continue;
           }
@@ -375,14 +395,16 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
             const toolFileName = name.toLowerCase().replace(/\s+/g, "-");
             const customToolPath = join(customToolsDir, toolFileName + ".json");
             if (existsSync(customToolPath)) {
-              await fsPromises.unlink(customToolPath);
-              unregisterCustomTool(name);
-              results.push({ action, resourceType, name, result: "deleted (カスタムツールファイルを削除)" });
+              if (!effectiveDryRun) {
+                await fsPromises.unlink(customToolPath);
+                unregisterCustomTool(name);
+              }
+              results.push({ action, resourceType, name, result: "deleted (custom tool file)" + (effectiveDryRun ? " (dry-run)" : "") });
             } else {
               if (!state.disabled.tools.includes(name)) {
                 state.disabled.tools.push(name);
               }
-              results.push({ action, resourceType, name, result: "disabled (ビルトインツールはファイル削除不可)" });
+              results.push({ action, resourceType, name, result: "disabled (built-in tool cannot be deleted)" + (effectiveDryRun ? " (dry-run)" : "") });
             }
             continue;
           }
@@ -391,11 +413,13 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
         results.push({ action, resourceType, name, result: "unsupported" });
       }
 
-      await saveGovernanceState(state);
-      await refreshDisabledToolsCache();
+      if (!effectiveDryRun) {
+        await saveGovernanceState(state);
+        await refreshDisabledToolsCache();
+      }
 
       for (const result of results) {
-        if ((result.action === "create" || result.action === "delete") &&
+        if (!effectiveDryRun && (result.action === "create" || result.action === "delete") &&
             !result.result.startsWith("daily_limit_exceeded") &&
             !result.result.startsWith("max reached") &&
             !result.result.startsWith("not-found") &&
@@ -414,6 +438,7 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
           {
             type: "text",
             text: JSON.stringify({
+              dryRun: effectiveDryRun,
               applied: results.length,
               results,
               governanceFile: toPosixPath(relative(root, governanceFile))

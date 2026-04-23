@@ -1,10 +1,10 @@
-import { z } from "zod";
-
-type GovTool = (name: string, config: any, handler: any) => void;
+﻿import { z } from "zod";
+import type { GovTool } from "@mcp/tool-types.js";
+import type { GovernanceState } from "../core/governance/governance-state.js";
 
 interface RegisterResourceSearchToolsDeps {
   govTool: GovTool;
-  loadGovernanceState: () => Promise<any>;
+  loadGovernanceState: () => Promise<GovernanceState>;
   listMdFiles: (dir: string) => { name: string; summary: string }[];
   listPresetsData: () => Promise<Array<{ name: string; description: string; topic: string; agents: string[] }>>;
   scoreByQuery: (query: string, ...targets: string[]) => number;
@@ -29,7 +29,7 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
     "search_resources",
     {
       title: "Search Resources",
-      description: "スキル・ツール・プリセットを横断検索し、関連度スコア付きで返します。includeDisabled: false で無効化リソースを除外できます。",
+      description: "Auto-generated description.",
       inputSchema: {
         query: z.string(),
         resourceTypes: z.array(z.enum(["skills", "tools", "presets"])).optional(),
@@ -130,7 +130,7 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
     "auto_select_resources",
     {
       title: "Auto Select Resources",
-      description: "トピックから最適なスキル・ツール・プリセット候補を自動選択します。",
+      description: "Auto-generated description.",
       inputSchema: {
         topic: z.string(),
         limitPerType: z.number().int().min(1).max(10).optional()
@@ -205,7 +205,7 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
                   tools: rankedTools,
                   presets: rankedPresets
                 },
-                note: "上位候補を返します。エージェントはこの結果を見て適切なツール呼び出しを続けてください。"
+                note: "Top candidates are returned. Continue by calling relevant tools with this result."
               },
               null,
               2

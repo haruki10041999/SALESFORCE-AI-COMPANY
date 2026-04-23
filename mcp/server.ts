@@ -41,25 +41,7 @@ import {
   generateHandlersDashboard,
   type HandlersState
 } from "./handlers/auto-init.js";
-import { registerCoreAnalysisTools } from "./handlers/register-core-analysis-tools.js";
-import { registerBranchReviewTools } from "./handlers/register-branch-review-tools.js";
-import { registerResourceCatalogTools } from "./handlers/register-resource-catalog-tools.js";
-import { registerChatOrchestrationTools } from "./handlers/register-chat-orchestration-tools.js";
-import { registerLoggingTools, registerHistoryTools } from "./handlers/index.js";
-import { registerResourceSearchTools } from "./handlers/register-resource-search-tools.js";
-import { registerPresetTools } from "./handlers/register-preset-tools.js";
-import {
-  registerResourceGovernanceTools,
-  registerResourceActionTools,
-  registerSmartChatTools,
-  registerAnalyticsTools,
-  registerExportTools,
-  registerMemoryTools,
-  registerContextTools
-} from "./handlers/index.js";
-import { registerVectorPromptTools } from "./handlers/register-vector-prompt-tools.js";
-import { registerBatchTools } from "./handlers/register-batch-tools.js";
-import { registerKamilessTools } from "./handlers/register-kamiless-tools.js";
+import { registerAllTools as registerAllToolsModule } from "./core/registration/register-all-tools.js";
 
 // ============================================================
 // Memory / Prompt-Engine / Statistics
@@ -67,6 +49,7 @@ import { registerKamilessTools } from "./handlers/register-kamiless-tools.js";
 import { addMemory, searchMemory, listMemory, clearMemory } from "../memory/project-memory.js";
 import { addRecord, searchByKeyword } from "../memory/vector-store.js";
 import { buildPrompt } from "../prompt-engine/prompt-builder.js";
+import { evaluatePromptMetrics } from "../prompt-engine/prompt-evaluator.js";
 import {
   exportStatisticsAsCsv,
   exportStatisticsAsJson,
@@ -216,8 +199,9 @@ const DEFAULT_PROTECTED_TOOLS = [
   "get_event_automation_config",
   "update_event_automation_config"
 ];
-const { emitSystemEvent, loadSystemEvents, registerToolFailure } = createSystemEventManager({
+const { emitSystemEvent, loadSystemEvents, registerToolFailure, getSystemEventLogStatus } = createSystemEventManager({
   rootDir: ROOT,
+  outputsDir: OUTPUTS_DIR,
   ensureDir,
   applyEventAutomation,
   bridgeCoreEvent: async (event: SystemEventName, timestamp: string, payload: Record<string, unknown>) => {
@@ -268,6 +252,10 @@ export async function invokeRegisteredToolForTest(name: string, input: unknown):
     throw new Error(`Tool not found: ${name}`);
   }
   return handler(input);
+}
+
+export function clearOrchestrationSessionsForTest(): void {
+  orchestrationSessions.clear();
 }
 
 // ============================================================
@@ -338,8 +326,12 @@ async function refreshDisabledToolsCache(): Promise<void> {
 }
 
 const { govTool } = createGovernedToolRegistrar({
-  registerTool: (name: string, config: any, handler: any) => {
-    server.registerTool(name as any, config as any, handler as any);
+  registerTool: (name, config, handler) => {
+    server.registerTool(
+      name,
+      config as Parameters<typeof server.registerTool>[1],
+      handler as Parameters<typeof server.registerTool>[2]
+    );
   },
   isToolDisabled: (toolName: string) => {
     maybeRefreshDisabledToolsCache("on-check");
@@ -663,6 +655,7 @@ const BUILTIN_TOOL_CATALOG = [
   "auto_select_resources",
   "smart_chat",
   "analyze_chat_trends",
+  "health_check",
   "get_tool_execution_statistics",
   "get_handlers_dashboard",
   "export_handlers_statistics",
@@ -675,6 +668,7 @@ const BUILTIN_TOOL_CATALOG = [
   "add_vector_record",
   "search_vector",
   "build_prompt",
+  "evaluate_prompt_metrics",
   "get_context"
 ];
 
@@ -748,7 +742,7 @@ async function applyEventAutomation(event: SystemEventName, payload: Record<stri
 async function validateAndCreateSkillWithQuality(
   skillName: string,
   skillContent: string,
-  state: any // GovernanceState
+  state: GovernanceState
 ): Promise<{
   success: boolean;
   message: string;
@@ -769,7 +763,7 @@ async function validateAndCreatePresetWithQuality(
     agents: string[];
     topic: string;
   },
-  state: any // GovernanceState
+  state: GovernanceState
 ): Promise<{
   success: boolean;
   message: string;
@@ -786,7 +780,7 @@ async function validateAndCreatePresetWithQuality(
 async function validateAndCreateToolWithQuality(
   toolName: string,
   toolDescription: string,
-  state: any // GovernanceState
+  state: GovernanceState
 ): Promise<{
   success: boolean;
   message: string;
@@ -797,173 +791,74 @@ async function validateAndCreateToolWithQuality(
   return validateToolCreation(toolName, toolDescription, existingTools);
 }
 
-function registerAllTools(): void {
-  registerCoreAnalysisTools(govTool);
-  registerBranchReviewTools(govTool);
-  registerResourceCatalogTools({ govTool, listMdFiles, getMdFile });
-
-  registerChatOrchestrationTools({
-    govTool,
-    chatInputSchema,
-    triggerRuleSchema,
-    runChatTool,
-    generateSessionId,
-    filterDisabledSkills,
-    emitSystemEvent: emitSystemEventCompat,
-    buildChatPrompt: buildChatPromptCompat,
-    evaluatePseudoHooks,
-    orchestrationSessions,
-    saveOrchestrationSession,
-    saveSessionHistory,
-    restoreOrchestrationSession,
-    sessionsDir: join(ROOT, "outputs", "sessions"),
-    readDir: (path: string) => fsPromises.readdir(path),
-    readFile: (path: string, encoding: BufferEncoding) => fsPromises.readFile(path, encoding)
-  });
-
-  registerLoggingTools({
-    govTool,
-    agentLog,
-    loadSystemEvents: loadSystemEventsCompat,
-    loadGovernanceState,
-    saveGovernanceState,
-    buildDefaultGovernanceState,
-    normalizeProtectedTools,
-    saveChatHistory,
-    emitSystemEvent: emitSystemEventCompat
-  });
-
-  registerHistoryTools({
-    govTool,
-    agentLog,
-    saveChatHistory,
-    loadChatHistories,
-    restoreChatHistory,
-    emitSystemEvent: emitSystemEventCompat
-  });
-
-  registerResourceSearchTools({
-    govTool,
-    loadGovernanceState,
-    listMdFiles,
-    listPresetsData,
-    scoreByQuery,
-    emitSystemEvent: emitSystemEventCompat,
-    lowRelevanceScoreThreshold: LOW_RELEVANCE_SCORE_THRESHOLD,
-    registeredToolMetadata
-  });
-
-  registerPresetTools({
-    govTool,
-    createPreset,
-    listPresetsData,
-    getPreset,
-    isPresetDisabled,
-    filterDisabledSkills,
-    buildChatPrompt: buildChatPromptCompat,
-    emitSystemEvent: emitSystemEventCompat
-  });
-
-  registerSmartChatTools({
-    govTool,
-    root: ROOT,
-    filterDisabledSkills,
-    buildChatPrompt: buildChatPromptCompat
-  });
-
-  registerAnalyticsTools({
-    govTool,
-    agentLog,
-    loadChatHistories,
-    loadSystemEvents: loadSystemEventsCompat,
-    loadGovernanceState,
-    generateHandlersDashboard: generateHandlersDashboardCompat,
-    handlersState,
-    exportStatisticsAsCsv: exportStatisticsAsCsvCompat,
-    exportStatisticsAsJson: exportStatisticsAsJsonCompat,
-    ensureDir
-  });
-
-  registerExportTools({
-    govTool,
-    agentLog,
-    loadChatHistories,
-    ensureDir
-  });
-
-  registerMemoryTools({
-    govTool,
-    addMemory,
-    searchMemory,
-    listMemory,
-    clearMemory
-  });
-
-  registerContextTools({
-    govTool,
-    root: ROOT,
-    findMdFilesRecursive,
-    toPosixPath
-  });
-
-  registerVectorPromptTools({
-    govTool,
-    addRecord,
-    searchByKeyword,
-    buildPrompt
-  });
-
-  registerBatchTools({
-    govTool,
-    buildChatPrompt: buildChatPromptCompat
-  });
-
-  registerKamilessTools({
-    govTool,
-    root: ROOT
-  });
-
-  registerResourceGovernanceTools({
-    govTool,
-    loadGovernanceState,
-    saveGovernanceState,
-    getCatalogCounts,
-    listSkillsCatalog,
-    listPresetsCatalog,
-    listToolsCatalog,
-    resourceScore,
-    emitSystemEvent: emitSystemEventCompat
-  });
-
-  registerResourceActionTools({
-    govTool,
-    root: ROOT,
-    presetsDir: PRESETS_DIR,
-    toolProposalsDir: TOOL_PROPOSALS_DIR,
-    customToolsDir: CUSTOM_TOOLS_DIR,
-    governanceFile: GOVERNANCE_FILE,
-    loadGovernanceState,
-    saveGovernanceState,
-    ensureDir,
-    loadRecentOperations: loadRecentOperationsCompat,
-    checkDailyLimitExceeded,
-    listSkillsCatalog,
-    listPresetsCatalog,
-    listToolsCatalog,
-    validateAndCreateSkillWithQuality,
-    validateAndCreatePresetWithQuality,
-    validateAndCreateToolWithQuality,
-    createPreset: createPresetCompat,
-    registerCustomTool: registerCustomToolCompat,
-    unregisterCustomTool,
-    refreshDisabledToolsCache,
-    appendOperationLog,
-    emitEvent: emitCoreEventCompat,
-    toPosixPath
-  });
-}
-
-registerAllTools();
+registerAllToolsModule({
+  govTool,
+  chatInputSchema,
+  triggerRuleSchema,
+  runChatTool,
+  generateSessionId,
+  filterDisabledSkills,
+  emitSystemEvent: emitSystemEventCompat,
+  buildChatPrompt: buildChatPromptCompat,
+  evaluatePseudoHooks,
+  orchestrationSessions,
+  saveOrchestrationSession,
+  saveSessionHistory,
+  restoreOrchestrationSession,
+  root: ROOT,
+  agentLog,
+  loadSystemEvents: loadSystemEventsCompat,
+  loadGovernanceState,
+  saveGovernanceState,
+  buildDefaultGovernanceState,
+  normalizeProtectedTools,
+  saveChatHistory,
+  loadChatHistories,
+  restoreChatHistory,
+  listMdFiles,
+  getMdFile,
+  listPresetsData,
+  scoreByQuery,
+  lowRelevanceScoreThreshold: LOW_RELEVANCE_SCORE_THRESHOLD,
+  registeredToolMetadata,
+  createPreset: createPresetCompat,
+  getPreset,
+  isPresetDisabled,
+  getSystemEventLogStatus,
+  generateHandlersDashboard: generateHandlersDashboardCompat,
+  handlersState,
+  exportStatisticsAsCsv: exportStatisticsAsCsvCompat,
+  exportStatisticsAsJson: exportStatisticsAsJsonCompat,
+  ensureDir,
+  addMemory,
+  searchMemory,
+  listMemory,
+  clearMemory,
+  findMdFilesRecursive,
+  toPosixPath,
+  addRecord,
+  searchByKeyword,
+  buildPrompt,
+  evaluatePromptMetrics,
+  presetsDir: PRESETS_DIR,
+  toolProposalsDir: TOOL_PROPOSALS_DIR,
+  customToolsDir: CUSTOM_TOOLS_DIR,
+  governanceFile: GOVERNANCE_FILE,
+  loadRecentOperations: loadRecentOperationsCompat,
+  checkDailyLimitExceeded,
+  listSkillsCatalog,
+  listPresetsCatalog,
+  listToolsCatalog,
+  validateAndCreateSkillWithQuality,
+  validateAndCreatePresetWithQuality,
+  validateAndCreateToolWithQuality,
+  registerCustomTool: registerCustomToolCompat,
+  unregisterCustomTool,
+  refreshDisabledToolsCache,
+  appendOperationLog,
+  emitEvent: emitCoreEventCompat,
+  resourceScore
+});
 
 async function initializeServerRuntime(): Promise<void> {
   logger.info("Runtime initialization started");

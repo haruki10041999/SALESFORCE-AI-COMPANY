@@ -1,11 +1,10 @@
-import { z } from "zod";
+﻿import { z } from "zod";
 import { analyzeRepo } from "../tools/repo-analyzer.js";
 import { analyzeApex } from "../tools/apex-analyzer.js";
 import { analyzeLwc } from "../tools/lwc-analyzer.js";
 import { buildDeployCommand } from "../tools/deploy-org.js";
 import { buildTestCommand } from "../tools/run-tests.js";
-
-type GovTool = (name: string, config: any, handler: any) => void;
+import type { GovTool } from "@mcp/tool-types.js";
 
 export function registerCoreAnalysisTools(govTool: GovTool): void {
   govTool(
@@ -117,3 +116,4 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
     }
   );
 }
+

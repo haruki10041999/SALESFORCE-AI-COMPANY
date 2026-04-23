@@ -12,7 +12,12 @@ import {
   listMemory,
   searchMemory
 } from "../memory/project-memory.js";
-import { addRecord, searchByKeyword } from "../memory/vector-store.js";
+import {
+  addRecord,
+  clearRecords,
+  configureVectorStoreForTest,
+  searchByKeyword
+} from "../memory/vector-store.js";
 import { buildPrompt } from "../prompt-engine/prompt-builder.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -20,21 +25,29 @@ const __dirname = dirname(__filename);
 const ROOT = join(__dirname, "..");
 
 test("project-memory supports add, search, and list copy semantics", () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "sf-ai-memory-copy-test-"));
+  const tempStorage = join(tempRoot, "memory.jsonl");
   const token = `memory-token-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const searchable = `Release checklist ${token}`;
 
-  addMemory(searchable);
-  addMemory(`Security note ${token}`);
+  try {
+    configureMemoryStorageForTest(tempStorage);
+    clearMemory();
+    addMemory(searchable);
+    addMemory(`Security note ${token}`);
 
-  const found = searchMemory(token.toUpperCase());
-  assert.ok(found.some((v) => v === searchable));
+    const found = searchMemory(token.toUpperCase());
+    assert.ok(found.some((v) => v === searchable));
 
-  const snapshot = listMemory();
-  const injected = `injected-${token}`;
-  snapshot.push(injected);
+    const snapshot = listMemory();
+    const injected = `injected-${token}`;
+    snapshot.push(injected);
 
-  const after = listMemory();
-  assert.equal(after.includes(injected), false);
+    const after = listMemory();
+    assert.equal(after.includes(injected), false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("project-memory persists to disk and can be reloaded", () => {
@@ -57,18 +70,50 @@ test("project-memory persists to disk and can be reloaded", () => {
 });
 
 test("vector-store searchByKeyword matches both text and tags case-insensitively", () => {
-  const id = `record-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  addRecord({
-    id,
-    text: "Order validation guard for bulk update",
-    tags: ["Salesforce", "Bulk"]
-  });
+  const tempRoot = mkdtempSync(join(tmpdir(), "sf-ai-vector-search-test-"));
+  const tempStorage = join(tempRoot, "vector-store.jsonl");
 
-  const byText = searchByKeyword("validation guard");
-  assert.ok(byText.some((r) => r.id === id));
+  configureVectorStoreForTest(tempStorage);
+  clearRecords();
 
-  const byTag = searchByKeyword("bulk");
-  assert.ok(byTag.some((r) => r.id === id));
+  try {
+    const id = `record-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    addRecord({
+      id,
+      text: "Order validation guard for bulk update",
+      tags: ["Salesforce", "Bulk"]
+    });
+
+    const byText = searchByKeyword("validation guard");
+    assert.ok(byText.some((r) => r.id === id));
+
+    const byTag = searchByKeyword("bulk");
+    assert.ok(byTag.some((r) => r.id === id));
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("vector-store persists to disk and can be reloaded", () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "sf-ai-vector-test-"));
+  const tempStorage = join(tempRoot, "vector-store.jsonl");
+  const id = `vector-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  try {
+    configureVectorStoreForTest(tempStorage);
+    clearRecords();
+    addRecord({
+      id,
+      text: "Persistent vector note for orchestration recovery",
+      tags: ["orchestration", "recovery"]
+    });
+
+    configureVectorStoreForTest(tempStorage);
+    const results = searchByKeyword("recovery");
+    assert.ok(results.some((record) => record.id === id));
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("prompt-builder includes base, agent, task, and reasoning framework", () => {

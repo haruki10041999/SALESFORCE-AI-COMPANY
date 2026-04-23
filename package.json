@@ -6,9 +6,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
+    "ci": "npm run typecheck && npm test && npm run audit:deps",
     "mcp:dev": "tsx mcp/server.ts",
     "mcp:start": "node dist/mcp/server.js",
-    "test": "node --test --import tsx tests/**/*.test.ts",
+    "test": "node --test --import tsx --import ./tests/_setup.ts tests/**/*.test.ts",
     "audit:deps": "npm audit --audit-level=moderate",
     "init": "node scripts/init-config.js"
   },
