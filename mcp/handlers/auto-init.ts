@@ -36,6 +36,9 @@ import {
   handleGovernanceThresholdExceeded,
   DEFAULT_THRESHOLD_CONFIG
 } from "./governance/threshold.handler.js";
+import { createLogger } from "../core/logging/logger.js";
+
+const logger = createLogger("HandlersAutoInit");
 
 /**
  * グローバルハンドラー状態（server.ts で管理）
@@ -67,7 +70,7 @@ export function initializeHandlersState(): HandlersState {
 export function autoInitializeHandlers(
   handlersState: HandlersState
 ): void {
-  console.error("[Handlers] 自動初期化を開始しています...");
+  logger.info("自動初期化を開始しています...");
 
   const register = (
     eventType: SystemEvent["type"],
@@ -81,7 +84,7 @@ export function autoInitializeHandlers(
   // resource_gap_detected ハンドラー
   // ============================================================
   register("resource_gap_detected", async (event: SystemEvent) => {
-    console.error(`[Handler] resource_gap_detected: ${event.payload.topic}`);
+    logger.info(`resource_gap_detected: ${event.payload.topic}`);
 
     const gap = {
       detected: true,
@@ -97,7 +100,7 @@ export function autoInitializeHandlers(
     const result = await handleResourceGapDetected(gap, [], DEFAULT_HANDLER_CONFIG);
 
     if (result.suggestion) {
-      console.error(`[Handler] 提案: ${result.suggestion.name} (${result.suggestion.priority})`);
+      logger.info(`提案: ${result.suggestion.name} (${result.suggestion.priority})`);
     }
   });
 
@@ -105,7 +108,7 @@ export function autoInitializeHandlers(
   // resource_created ハンドラー
   // ============================================================
   register("resource_created", async (event: SystemEvent) => {
-    console.error(
+    logger.info(
       `[Handler] resource_created: ${event.payload.resourceType}:${event.payload.name}`
     );
 
@@ -123,7 +126,7 @@ export function autoInitializeHandlers(
   // resource_deleted ハンドラー
   // ============================================================
   register("resource_deleted", async (event: SystemEvent) => {
-    console.error(
+    logger.info(
       `[Handler] resource_deleted: ${event.payload.resourceType}:${event.payload.name}`
     );
 
@@ -138,7 +141,7 @@ export function autoInitializeHandlers(
   // error_aggregate_detected ハンドラー
   // ============================================================
   register("error_aggregate_detected", async (event: SystemEvent) => {
-    console.error(`[Handler] error_aggregate_detected: ${event.payload.toolName}`);
+    logger.warn(`error_aggregate_detected: ${event.payload.toolName}`);
 
     recordToolError(
       handlersState.errorTracker,
@@ -151,7 +154,7 @@ export function autoInitializeHandlers(
   // quality_check_failed ハンドラー
   // ============================================================
   register("quality_check_failed", async (event: SystemEvent) => {
-    console.error(
+    logger.warn(
       `[Handler] quality_check_failed: ${event.payload.resourceType}:${event.payload.name}`
     );
 
@@ -204,7 +207,7 @@ export function autoInitializeHandlers(
     }
   });
 
-  console.error(`[Handlers] ${handlersState.registeredHandlers}個のハンドラーを登録完了`);
+  logger.info(`${handlersState.registeredHandlers}個のハンドラーを登録完了`);
 }
 
 /**

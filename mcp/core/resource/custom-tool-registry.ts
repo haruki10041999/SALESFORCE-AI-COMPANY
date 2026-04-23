@@ -7,6 +7,7 @@ export interface CustomToolDefinition {
   description: string;
   agents: string[];
   skills: string[];
+  tags?: string[];
   persona?: string;
   createdAt: string;
 }
@@ -40,6 +41,7 @@ export function createCustomToolRegistry(deps: CreateCustomToolRegistryDeps) {
       {
         title: def.name,
         description: def.description,
+        tags: def.tags ?? [],
         inputSchema: {
           topic: z.string().optional(),
           maxContextChars: z.number().int().min(500).max(200000).optional()

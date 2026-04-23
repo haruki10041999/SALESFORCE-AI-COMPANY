@@ -1,5 +1,5 @@
 import { existsSync, promises as fsPromises } from "fs";
-import { dirname } from "path";
+import { basename, dirname, join } from "path";
 
 // ============================================================
 // Governance State Types
@@ -51,6 +51,51 @@ export interface GovernanceState {
   bugSignals: Record<GovernedResourceType, Record<string, number>>;
   disabled: Record<GovernedResourceType, string[]>;
   updatedAt: string;
+}
+
+const governanceStateLocks = new Map<string, Promise<void>>();
+
+async function withGovernanceStateLock<T>(governanceFile: string, operation: () => Promise<T>): Promise<T> {
+  const previous = governanceStateLocks.get(governanceFile) ?? Promise.resolve();
+  let releaseLock: (() => void) | undefined;
+  const current = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+  governanceStateLocks.set(governanceFile, previous.then(() => current));
+
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    releaseLock?.();
+    if (governanceStateLocks.get(governanceFile) === current) {
+      governanceStateLocks.delete(governanceFile);
+    }
+  }
+}
+
+async function writeGovernanceStateAtomic(governanceFile: string, state: GovernanceState): Promise<void> {
+  const stateDir = dirname(governanceFile);
+  await fsPromises.mkdir(stateDir, { recursive: true });
+
+  const tempFile = join(
+    stateDir,
+    `.${basename(governanceFile)}.${process.pid}.${Date.now()}.tmp`
+  );
+  const payload = JSON.stringify(state, null, 2);
+  await fsPromises.writeFile(tempFile, payload, "utf-8");
+  try {
+    await fsPromises.rename(tempFile, governanceFile);
+  } catch (err) {
+    // Windows では監視中ディレクトリ内の rename が EPERM になることがある。
+    // フォールバックとして直接上書きする。
+    try {
+      await fsPromises.unlink(tempFile);
+    } catch {
+      // temp ファイル削除失敗は無視
+    }
+    await fsPromises.writeFile(governanceFile, payload, "utf-8");
+  }
 }
 
 // ============================================================
@@ -112,77 +157,81 @@ export async function loadGovernanceState(
   ensureDir: (dir: string) => Promise<void>,
   defaultProtectedTools: string[]
 ): Promise<GovernanceState> {
-  await ensureDir(dirname(governanceFile));
+  return withGovernanceStateLock(governanceFile, async () => {
+    await ensureDir(dirname(governanceFile));
 
-  if (!existsSync(governanceFile)) {
-    const initial = buildDefaultGovernanceState(defaultProtectedTools);
-    await fsPromises.writeFile(governanceFile, JSON.stringify(initial, null, 2));
-    return initial;
-  }
+    if (!existsSync(governanceFile)) {
+      const initial = buildDefaultGovernanceState(defaultProtectedTools);
+      await writeGovernanceStateAtomic(governanceFile, initial);
+      return initial;
+    }
 
-  try {
-    const raw = await fsPromises.readFile(governanceFile, "utf-8");
-    const parsed = JSON.parse(raw) as GovernanceState;
-    const defaults = buildDefaultGovernanceState(defaultProtectedTools);
-    return {
-      ...defaults,
-      ...parsed,
-      config: {
-        ...defaults.config,
-        ...parsed.config,
-        maxCounts: { ...defaults.config.maxCounts, ...parsed.config?.maxCounts },
-        thresholds: { ...defaults.config.thresholds, ...parsed.config?.thresholds },
-        resourceLimits: { ...defaults.config.resourceLimits, ...parsed.config?.resourceLimits },
-        toolExecution: {
-          ...defaults.config.toolExecution,
-          ...parsed.config?.toolExecution,
-          retryablePatterns:
-            Array.isArray(parsed.config?.toolExecution?.retryablePatterns) &&
-            parsed.config?.toolExecution?.retryablePatterns.length > 0
-              ? [...parsed.config.toolExecution.retryablePatterns]
-              : [...defaults.config.toolExecution.retryablePatterns],
-          retryableCodes:
-            Array.isArray(parsed.config?.toolExecution?.retryableCodes) &&
-            parsed.config?.toolExecution?.retryableCodes.length > 0
-              ? [...parsed.config.toolExecution.retryableCodes]
-              : [...defaults.config.toolExecution.retryableCodes]
-        },
-        eventAutomation: {
-          ...defaults.config.eventAutomation,
-          ...parsed.config?.eventAutomation,
-          protectedTools: normalizeProtectedTools(
-            parsed.config?.eventAutomation?.protectedTools ?? defaults.config.eventAutomation.protectedTools,
-            defaultProtectedTools
-          ),
-          rules: {
-            ...defaults.config.eventAutomation.rules,
-            ...parsed.config?.eventAutomation?.rules,
-            errorAggregateDetected: {
-              ...defaults.config.eventAutomation.rules.errorAggregateDetected,
-              ...parsed.config?.eventAutomation?.rules?.errorAggregateDetected
-            },
-            governanceThresholdExceeded: {
-              ...defaults.config.eventAutomation.rules.governanceThresholdExceeded,
-              ...parsed.config?.eventAutomation?.rules?.governanceThresholdExceeded
+    try {
+      const raw = await fsPromises.readFile(governanceFile, "utf-8");
+      const parsed = JSON.parse(raw) as GovernanceState;
+      const defaults = buildDefaultGovernanceState(defaultProtectedTools);
+      return {
+        ...defaults,
+        ...parsed,
+        config: {
+          ...defaults.config,
+          ...parsed.config,
+          maxCounts: { ...defaults.config.maxCounts, ...parsed.config?.maxCounts },
+          thresholds: { ...defaults.config.thresholds, ...parsed.config?.thresholds },
+          resourceLimits: { ...defaults.config.resourceLimits, ...parsed.config?.resourceLimits },
+          toolExecution: {
+            ...defaults.config.toolExecution,
+            ...parsed.config?.toolExecution,
+            retryablePatterns:
+              Array.isArray(parsed.config?.toolExecution?.retryablePatterns) &&
+              parsed.config?.toolExecution?.retryablePatterns.length > 0
+                ? [...parsed.config.toolExecution.retryablePatterns]
+                : [...defaults.config.toolExecution.retryablePatterns],
+            retryableCodes:
+              Array.isArray(parsed.config?.toolExecution?.retryableCodes) &&
+              parsed.config?.toolExecution?.retryableCodes.length > 0
+                ? [...parsed.config.toolExecution.retryableCodes]
+                : [...defaults.config.toolExecution.retryableCodes]
+          },
+          eventAutomation: {
+            ...defaults.config.eventAutomation,
+            ...parsed.config?.eventAutomation,
+            protectedTools: normalizeProtectedTools(
+              parsed.config?.eventAutomation?.protectedTools ?? defaults.config.eventAutomation.protectedTools,
+              defaultProtectedTools
+            ),
+            rules: {
+              ...defaults.config.eventAutomation.rules,
+              ...parsed.config?.eventAutomation?.rules,
+              errorAggregateDetected: {
+                ...defaults.config.eventAutomation.rules.errorAggregateDetected,
+                ...parsed.config?.eventAutomation?.rules?.errorAggregateDetected
+              },
+              governanceThresholdExceeded: {
+                ...defaults.config.eventAutomation.rules.governanceThresholdExceeded,
+                ...parsed.config?.eventAutomation?.rules?.governanceThresholdExceeded
+              }
             }
           }
-        }
-      },
-      usage: { ...defaults.usage, ...parsed.usage },
-      bugSignals: { ...defaults.bugSignals, ...parsed.bugSignals },
-      disabled: { ...defaults.disabled, ...parsed.disabled }
-    };
-  } catch {
-    const initial = buildDefaultGovernanceState(defaultProtectedTools);
-    await fsPromises.writeFile(governanceFile, JSON.stringify(initial, null, 2));
-    return initial;
-  }
+        },
+        usage: { ...defaults.usage, ...parsed.usage },
+        bugSignals: { ...defaults.bugSignals, ...parsed.bugSignals },
+        disabled: { ...defaults.disabled, ...parsed.disabled }
+      };
+    } catch {
+      const initial = buildDefaultGovernanceState(defaultProtectedTools);
+      await writeGovernanceStateAtomic(governanceFile, initial);
+      return initial;
+    }
+  });
 }
 
 export async function saveGovernanceState(
   governanceFile: string,
   state: GovernanceState
 ): Promise<void> {
-  state.updatedAt = new Date().toISOString();
-  await fsPromises.writeFile(governanceFile, JSON.stringify(state, null, 2));
+  await withGovernanceStateLock(governanceFile, async () => {
+    state.updatedAt = new Date().toISOString();
+    await writeGovernanceStateAtomic(governanceFile, state);
+  });
 }

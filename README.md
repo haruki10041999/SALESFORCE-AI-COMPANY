@@ -40,6 +40,14 @@
 │  → イベント駆動による自動実行                                  │
 │  → 人的介入なしで自己進化を継続                                │
 └─────────────────────────────────────────────────────────────────┘
+                ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  Phase 6: 信頼性・堅牢性強化                                  │
+│  → Governance state の直列化 + アトミック書き込み             │
+│  → EventDispatcher リスナー障害追跡 + 自動無効化              │
+│  → 統合ロガー (LOG_LEVEL) + SF_AI_OUTPUTS_DIR 設定           │
+│  → 無効ツールキャッシュの fs.watch + 定期同期                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -90,6 +98,7 @@ classDiagram
     +on(type, listener): void
     +emit(event): void
     +getHistory(): SystemEvent[]
+    +getListenerFailureStats(type?): ListenerFailureStat[]
     +getGlobalDispatcher(): EventDispatcher
   }
 
@@ -328,6 +337,54 @@ autoInitializeHandlers(handlersState);
 
 ---
 
+### フェーズ 6: 信頼性・堅牢性強化
+
+#### 統合ロガー
+
+**ファイル**: mcp/core/logging/logger.ts
+
+`createLogger(scope, level?)` で取得できる構造化ロガーです。`LOG_LEVEL` 環境変数で出力粒度を一元管理します。
+
+```typescript
+const logger = createLogger("MyModule");
+logger.info("処理開始");
+logger.debug("詳細:", payload);
+```
+
+| ログレベル | 説明 |
+|---|---|
+| `error` | 致命的エラーのみ |
+| `warn` | 警告以上 |
+| `info` | 操作ログ（デフォルト） |
+| `debug` | 全ログ |
+
+#### Governance State の直列化・アトミック書き込み
+
+**ファイル**: mcp/core/governance/governance-state.ts
+
+- `withGovernanceStateLock<T>()` — Promise チェーニングによる 1 ファイル = 1 書き込みのミューテックス
+- `writeGovernanceStateAtomic()` — 一時ファイル書き込み後にリネームするアトミック書き込み（Windows EPERM 時は直接書き込みにフォールバック）
+
+#### EventDispatcher リスナー障害追跡
+
+**ファイル**: mcp/core/event/event-dispatcher.ts
+
+| メソッド | 効果 |
+|---|---|
+| `getListenerFailureStats(type?)` | リスナーごとの連続失敗数・無効化状態を返す |
+
+- リスナーが 3 回連続で例外を投げると自動無効化されます
+- 無効化されたリスナーはイベント処理をスキップします
+
+#### 無効ツールキャッシュ同期
+
+**ファイル**: mcp/server.ts
+
+- fs.watch による governance ファイル変更検知 + 15 分間隔の定期更新
+- `isToolDisabled()` 呼び出し時にも 5 分経過で自動リフレッシュ
+
+---
+
 ## 🧪 テスト
 
 ### テストファイル
@@ -342,6 +399,12 @@ npm test -- tests/handlers-modules.test.ts
 # 品質・重複排除テスト
 npm test -- tests/apply-resource-actions.test.ts
 
+# 信頼性テスト（Governance 並行書き込み・EventDispatcher 自動無効化）
+npm test -- tests/governance-event-reliability.test.ts
+
+# プロンプト生成単体テスト
+npm test -- tests/chat-prompt-building.test.ts
+
 # すべてのテスト実行
 npm test
 ```
@@ -355,6 +418,10 @@ npm test
 - ✅ ガバナンスマネージャー（スコアリング、リスク評価）
 - ✅ 6つのハンドラー（作成・削除・エラー・品質・閾値追跡）
 - ✅ 統計マネージャー（集計、エクスポート）
+- ✅ Governance state 並行書き込み・アトミック書き込み
+- ✅ EventDispatcher リスナー連続失敗・自動無効化
+- ✅ chat プロンプト context 注入・レビューセクション・review-mode フラグ
+- ✅ orchestration once ルール・ラウンドロビン fallback 無効化
 
 ---
 
@@ -364,6 +431,7 @@ npm test
 
 ```bash
 npm install
+npm run init   # 初回のみ
 npm run build
 ```
 
@@ -622,10 +690,29 @@ classDiagram
 
 ```bash
 npm install
+
+# 初回のみ: outputs/ ディレクトリ構造と governance-state.json の雛形を生成
+npm run init
+
 npm run build
 ```
 
-### 5.2 開発起動
+`SF_AI_OUTPUTS_DIR` 環境変数を設定すると、outputs/ の場所を変更できます。
+
+```bash
+SF_AI_OUTPUTS_DIR=/data/sf-ai/outputs npm run init
+SF_AI_OUTPUTS_DIR=/data/sf-ai/outputs npm run mcp:dev
+```
+
+### 5.2 型チェック
+
+```bash
+npm run typecheck
+```
+
+`tsc --noEmit` を実行します。ビルド成果物を生成せず型エラーのみ検出します。CI での活用を推奨します。
+
+### 5.3 開発起動
 
 ```bash
 npm run mcp:dev
@@ -633,7 +720,7 @@ npm run mcp:dev
 
 tsx mcp/server.ts によりソースから直接起動します。
 
-### 5.3 本番相当起動
+### 5.4 本番相当起動
 
 ```bash
 npm run mcp:start
@@ -641,7 +728,22 @@ npm run mcp:start
 
 node dist/mcp/server.js によりビルド成果物から起動します。
 
-### 5.4 プロジェクトルート解決
+### 5.5 ログレベル制御
+
+環境変数 `LOG_LEVEL` でサーバーログの粒度を変更できます（デフォルト: `info`）。
+
+| 値 | 出力内容 |
+|---|---|
+| `error` | 致命的エラーのみ |
+| `warn` | エラー + 警告 |
+| `info` | エラー + 警告 + 操作ログ（デフォルト） |
+| `debug` | 全ログ |
+
+```bash
+LOG_LEVEL=debug npm run mcp:dev
+```
+
+### 5.6 プロジェクトルート解決
 
 サーバーは mcp/server.ts の位置から親ディレクトリをたどり、package.json と agents ディレクトリの両方が存在する位置をプロジェクトルートとみなします。
 

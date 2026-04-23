@@ -13,15 +13,25 @@
 # 依存インストール
 npm install
 
+# 初回のみ: outputs/ の初期化
+npm run init
+
 # TypeScript ビルド
 npm run build
 
+# 型チェックのみ（CI 推奨）
+npm run typecheck
+
 # テスト実行（全件）
-node --test tests/*.test.ts
+npm test
 
 # テスト実行（個別）
-node --test tests/server-tools.integration.test.ts
+node --test --import tsx tests/server-tools.integration.test.ts
 ```
+
+> **環境変数**  
+> `SF_AI_OUTPUTS_DIR=/path/to/outputs` を設定すると `outputs/` の場所を変更できます。  
+> `LOG_LEVEL=debug` でサーバー詳細ログを有効化できます（`error` / `warn` / `info` / `debug`）。
 
 ### 検証の種別
 
@@ -39,7 +49,7 @@ node --test tests/server-tools.integration.test.ts
 
 | ファイル | 検証範囲 | 主要確認項目 |
 |---|---|---|
-| `server-tools.integration.test.ts` | ツール登録・E2E | 全ツール名の登録確認・Kamiless 生成・イベント自動無効化 |
+| `server-tools.integration.test.ts` | ツール登録・E2E | 全ツール名の登録確認・Kamiless 生成・イベント自動無効化・`once` ルール・fallback 無効化 |
 | `core-tools.test.ts` | 静的解析ツール | `analyzeRepo` / `analyzeApex` / `analyzeLwc` / `buildDeployCommand` / `buildTestCommand` |
 | `advanced-tools.test.ts` | 高度なツール動作 | `branch_diff` 系・`pr_readiness` 等 |
 | `branch-diff-tools.test.ts` | 差分解析ツール | `summarizeBranchDiff` / `buildBranchDiffPrompt` |
@@ -47,6 +57,8 @@ node --test tests/server-tools.integration.test.ts
 | `core-modules.test.ts` | コアモジュール | スコアリング・ギャップ検出・ガバナンス |
 | `handlers-modules.test.ts` | ハンドラー | 6ハンドラーの登録・動作 |
 | `memory-prompt.test.ts` | メモリ・プロンプト | `add/search/list/clear` memory・`buildPrompt` |
+| `governance-event-reliability.test.ts` | 堅牢性 | Governance state 並行書き込み・EventDispatcher 失敗リスナー自動隔離 |
+| `chat-prompt-building.test.ts` | プロンプト生成 | context 注入・レビューセクション注入・トピックキーワードによる review mode |
 
 ### 1-2. テスト実行と期待結果
 
@@ -62,15 +74,21 @@ node --test tests/*.test.ts
 #   → kamiless-export-generator.ts の実装依存
 ```
 
-### 1-3. テストカバレッジ上の盲点
+### 1-3. テストカバレッジ状況
 
-以下はテストが存在しない or 薄いため、手動検証が必要。
+以下の項目は自動テストで検証済みです。
 
-- `buildChatPrompt()` の `context/` 自動注入（`## プロジェクトコンテキスト` が含まれるか）
+- `buildChatPrompt()` の `context/` 自動注入（`## プロジェクトコンテキスト`・`## ディスカッション規約`）
 - `discussion-framework.md` / `review-framework.md` の注入タイミング
-- `reviewModeTriggered` フラグ（topic に「レビュー」が含まれる場合の review-mode.md 注入）
-- `orchestrate_chat` → `evaluate_triggers` → `dequeue_next_agent` の一連の流れ
-- `error_aggregate_detected` イベントによるツール自動無効化の復旧フロー
+- `reviewModeTriggered` フラグ（topic に「レビュー/確認/チェック」が含まれる場合の review-mode.md 注入）
+- `orchestrate_chat` → `evaluate_triggers`（`once` ルール・ラウンドロビン fallback）→ `dequeue_next_agent` の一連の流れ
+- Governance state の並行書き込みによる JSON 破損防止
+- EventDispatcher でのリスナー連続失敗による自動隔離
+
+以下は引き続き手動検証が必要です。
+
+- `error_aggregate_detected` イベントによるツール自動無効化の復旧フロー（LLM 経由の E2E）
+- プロンプト出力の LLM 動作品質（response quality）
 
 ---
 

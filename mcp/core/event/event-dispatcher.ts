@@ -4,6 +4,10 @@
  * システムイベントを管理・発火・リスニング
  */
 
+import { createLogger } from "../logging/logger.js";
+
+const logger = createLogger("EventDispatcher");
+
 export type SystemEventType =
   | "resource_gap_detected"
   | "resource_created"
@@ -24,6 +28,24 @@ export interface EventDispatcherConfig {
   maxListeners?: number;
 }
 
+interface ListenerFailureState {
+  failureCount: number;
+  consecutiveFailures: number;
+  lastError: string;
+  lastFailedAt: string;
+  disabled: boolean;
+}
+
+export interface ListenerFailureStat {
+  eventType: SystemEventType;
+  listenerName: string;
+  failureCount: number;
+  consecutiveFailures: number;
+  lastError: string;
+  lastFailedAt: string;
+  disabled: boolean;
+}
+
 /**
  * イベントディスパッチャー
  */
@@ -31,6 +53,7 @@ export class EventDispatcher {
   private listeners: Map<SystemEventType, Set<EventListener>> = new Map();
   private eventHistory: SystemEvent[] = [];
   private maxHistorySize: number = 1000;
+  private listenerFailures: Map<SystemEventType, Map<EventListener, ListenerFailureState>> = new Map();
 
   constructor(config?: EventDispatcherConfig) {
     if (config?.maxListeners) {
@@ -46,6 +69,17 @@ export class EventDispatcher {
       this.listeners.set(eventType, new Set());
     }
     this.listeners.get(eventType)!.add(listener);
+
+    if (!this.listenerFailures.has(eventType)) {
+      this.listenerFailures.set(eventType, new Map());
+    }
+    this.listenerFailures.get(eventType)!.set(listener, {
+      failureCount: 0,
+      consecutiveFailures: 0,
+      lastError: "",
+      lastFailedAt: "",
+      disabled: false
+    });
   }
 
   /**
@@ -53,6 +87,7 @@ export class EventDispatcher {
    */
   public off(eventType: SystemEventType, listener: EventListener): void {
     this.listeners.get(eventType)?.delete(listener);
+    this.listenerFailures.get(eventType)?.delete(listener);
   }
 
   /**
@@ -69,11 +104,40 @@ export class EventDispatcher {
     const listeners = this.listeners.get(event.type);
     if (!listeners) return;
 
-    const promises = Array.from(listeners).map((listener) =>
-      listener(event).catch((err) => {
-        console.error(`Error in event listener for ${event.type}:`, err);
+    const failureMap = this.listenerFailures.get(event.type) ?? new Map<EventListener, ListenerFailureState>();
+
+    const promises = Array.from(listeners)
+      .filter((listener) => {
+        const state = failureMap.get(listener);
+        return !state?.disabled;
       })
-    );
+      .map((listener) =>
+        listener(event)
+          .then(() => {
+            const state = failureMap.get(listener);
+            if (state) {
+              state.consecutiveFailures = 0;
+            }
+          })
+          .catch((err) => {
+            const now = new Date().toISOString();
+            const state = failureMap.get(listener);
+            if (state) {
+              state.failureCount += 1;
+              state.consecutiveFailures += 1;
+              state.lastError = err instanceof Error ? err.message : String(err);
+              state.lastFailedAt = now;
+              if (state.consecutiveFailures >= 3) {
+                state.disabled = true;
+              }
+            }
+            logger.error(`Error in event listener for ${event.type}:`, err);
+          })
+      );
+
+    if (!this.listenerFailures.has(event.type)) {
+      this.listenerFailures.set(event.type, failureMap);
+    }
 
     await Promise.all(promises);
   }
@@ -109,6 +173,35 @@ export class EventDispatcher {
    */
   public clearHistory(): void {
     this.eventHistory = [];
+  }
+
+  public getListenerFailureStats(eventType?: SystemEventType): ListenerFailureStat[] {
+    const stats: ListenerFailureStat[] = [];
+    const types = eventType ? [eventType] : Array.from(this.listenerFailures.keys());
+
+    for (const type of types) {
+      const failures = this.listenerFailures.get(type);
+      if (!failures) {
+        continue;
+      }
+
+      for (const [listener, state] of failures.entries()) {
+        if (state.failureCount === 0) {
+          continue;
+        }
+        stats.push({
+          eventType: type,
+          listenerName: listener.name || "anonymous-listener",
+          failureCount: state.failureCount,
+          consecutiveFailures: state.consecutiveFailures,
+          lastError: state.lastError,
+          lastFailedAt: state.lastFailedAt,
+          disabled: state.disabled
+        });
+      }
+    }
+
+    return stats;
   }
 
   /**

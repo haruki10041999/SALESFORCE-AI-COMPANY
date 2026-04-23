@@ -1,8 +1,8 @@
 ﻿import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { existsSync, promises as fsPromises } from "fs";
-import { join, resolve, relative } from "path";
+import { existsSync, promises as fsPromises, watch, type FSWatcher } from "fs";
+import { basename, dirname, join, resolve, relative } from "path";
 import { pathToFileURL } from "url";
 
 // ============================================================
@@ -100,9 +100,14 @@ import {
   evaluatePseudoHooks as _evaluatePseudoHooks
 } from "./core/orchestration/pseudo-hooks.js";
 import type { SystemEventType } from "./core/event/event-dispatcher.js";
+import { createLogger } from "./core/logging/logger.js";
 
 // Resolve project root from this file location so cross-repo clients can share one server.
 const ROOT = resolveProjectRootFromFile(import.meta.url);
+const OUTPUTS_DIR = process.env.SF_AI_OUTPUTS_DIR
+  ? resolve(process.env.SF_AI_OUTPUTS_DIR)
+  : join(ROOT, "outputs");
+const logger = createLogger("Server");
 
 function listMdFiles(dir: string): { name: string; summary: string }[] {
   return listMdFilesFromCatalog(ROOT, dir);
@@ -199,7 +204,7 @@ interface AgentMessage {
 
 const agentLog: AgentMessage[] = [];
 const handlersState = initializeHandlersState();
-const OPERATIONS_LOG_FILE = join(ROOT, "outputs", "operations-log.jsonl");
+const OPERATIONS_LOG_FILE = join(OUTPUTS_DIR, "operations-log.jsonl");
 const { loadRecentOperations, appendOperationLog } = createOperationLog({ logFile: OPERATIONS_LOG_FILE, ensureDir });
 const LOW_RELEVANCE_SCORE_THRESHOLD = 6;
 const DEFAULT_PROTECTED_TOOLS = [
@@ -234,7 +239,7 @@ const server = new McpServer({
 type RegisteredToolHandler = (input: unknown) => Promise<{ content: Array<{ type: string; text: string }> }>;
 
 const registeredToolHandlers = new Map<string, RegisteredToolHandler>();
-const registeredToolMetadata = new Map<string, { title?: string; description?: string }>();
+const registeredToolMetadata = new Map<string, { title?: string; description?: string; tags?: string[] }>();
 const registerToolOriginal = server.registerTool.bind(server);
 
 (server as unknown as {
@@ -247,7 +252,8 @@ const registerToolOriginal = server.registerTool.bind(server);
   registeredToolHandlers.set(name, handler as RegisteredToolHandler);
   registeredToolMetadata.set(name, {
     title: (config as { title?: string })?.title,
-    description: (config as { description?: string })?.description
+    description: (config as { description?: string })?.description,
+    tags: (config as { tags?: string[] })?.tags
   });
   return registerToolOriginal(name, config, handler);
 }) as typeof server.registerTool;
@@ -269,13 +275,65 @@ export async function invokeRegisteredToolForTest(name: string, input: unknown):
 // ============================================================
 
 let cachedDisabledTools: Set<string> = new Set();
+let disabledToolsCacheLastRefreshAt = 0;
+let refreshDisabledToolsCacheInFlight: Promise<void> | null = null;
+let governanceWatcher: FSWatcher | null = null;
+let disabledToolsCacheRefreshInterval: NodeJS.Timeout | null = null;
+
+const DISABLED_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
+const DISABLED_CACHE_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+
+function triggerRefreshDisabledToolsCache(reason: string): void {
+  if (!refreshDisabledToolsCacheInFlight) {
+    refreshDisabledToolsCacheInFlight = refreshDisabledToolsCache()
+      .catch((error) => {
+        logger.warn(`Disabled tools cache refresh failed (${reason})`, error);
+      })
+      .finally(() => {
+        refreshDisabledToolsCacheInFlight = null;
+      });
+  }
+}
+
+function maybeRefreshDisabledToolsCache(reason: string): void {
+  const isStale = Date.now() - disabledToolsCacheLastRefreshAt > DISABLED_CACHE_MAX_AGE_MS;
+  if (isStale) {
+    triggerRefreshDisabledToolsCache(reason);
+  }
+}
+
+function startDisabledToolsCacheSync(governanceFilePath: string): void {
+  if (!disabledToolsCacheRefreshInterval) {
+    disabledToolsCacheRefreshInterval = setInterval(() => {
+      triggerRefreshDisabledToolsCache("interval");
+    }, DISABLED_CACHE_REFRESH_INTERVAL_MS);
+    disabledToolsCacheRefreshInterval.unref?.();
+  }
+
+  if (!governanceWatcher) {
+    const watchedDir = dirname(governanceFilePath);
+    const watchedFile = basename(governanceFilePath);
+    governanceWatcher = watch(watchedDir, (_eventType, fileName) => {
+      if (!fileName || fileName.toString() !== watchedFile) {
+        return;
+      }
+      triggerRefreshDisabledToolsCache("fs-watch");
+    });
+    governanceWatcher.on("error", (error) => {
+      logger.warn("Governance file watcher error", error);
+    });
+    governanceWatcher.unref?.();
+  }
+}
 
 async function refreshDisabledToolsCache(): Promise<void> {
   try {
     const state = await loadGovernanceState();
     cachedDisabledTools = new Set((state.disabled.tools ?? []).map((name: string) => normalizeResourceName(name)));
+    disabledToolsCacheLastRefreshAt = Date.now();
   } catch {
     cachedDisabledTools = new Set();
+    disabledToolsCacheLastRefreshAt = Date.now();
   }
 }
 
@@ -283,7 +341,10 @@ const { govTool } = createGovernedToolRegistrar({
   registerTool: (name: string, config: any, handler: any) => {
     server.registerTool(name as any, config as any, handler as any);
   },
-  isToolDisabled: (toolName: string) => cachedDisabledTools.has(toolName),
+  isToolDisabled: (toolName: string) => {
+    maybeRefreshDisabledToolsCache("on-check");
+    return cachedDisabledTools.has(toolName);
+  },
   normalizeResourceName,
   emitSystemEvent: emitSystemEventCompat,
   summarizeValue,
@@ -429,9 +490,9 @@ async function runChatTool({
   };
 }
 
-const HISTORY_DIR = join(ROOT, "outputs", "history");
-const PRESETS_DIR = join(ROOT, "outputs", "presets");
-const SESSIONS_DIR = join(ROOT, "outputs", "sessions");
+const HISTORY_DIR = join(OUTPUTS_DIR, "history");
+const PRESETS_DIR = join(OUTPUTS_DIR, "presets");
+const SESSIONS_DIR = join(OUTPUTS_DIR, "sessions");
 const HISTORY_RETENTION_DAYS = 30;
 const HISTORY_MAX_FILES = 200;
 const SESSION_RETENTION_DAYS = 30;
@@ -467,9 +528,9 @@ const { saveOrchestrationSession, restoreOrchestrationSession } = createOrchestr
 // Resource Governance（スキル・ツール・プリセット管理）
 // ============================================================
 
-const GOVERNANCE_FILE = join(ROOT, "outputs", "resource-governance.json");
-const TOOL_PROPOSALS_DIR = join(ROOT, "outputs", "tool-proposals");
-const CUSTOM_TOOLS_DIR = join(ROOT, "outputs", "custom-tools");
+const GOVERNANCE_FILE = join(OUTPUTS_DIR, "resource-governance.json");
+const TOOL_PROPOSALS_DIR = join(OUTPUTS_DIR, "tool-proposals");
+const CUSTOM_TOOLS_DIR = join(OUTPUTS_DIR, "custom-tools");
 
 const { loadedCustomToolNames, registerCustomTool, unregisterCustomTool, loadCustomToolsFromDir } = createCustomToolRegistry({
   govTool,
@@ -904,19 +965,44 @@ function registerAllTools(): void {
 
 registerAllTools();
 
-async function main(): Promise<void> {
-  // 起動時: カスタムツールを読み込み登録、disabled キャッシュを初期化
-  await loadCustomToolsFromDir(CUSTOM_TOOLS_DIR);
-  await refreshDisabledToolsCache();
+async function initializeServerRuntime(): Promise<void> {
+  logger.info("Runtime initialization started");
 
-  // ============================================================
-  // Phase 5: Auto-Initialize Handlers (Event-Driven Auto-Execution)
-  // ============================================================
-  autoInitializeHandlers(handlersState);
-  console.error("[Server] Handlers auto-initialization complete");
+  try {
+    await loadCustomToolsFromDir(CUSTOM_TOOLS_DIR);
+    logger.info("Custom tools loaded");
+  } catch (error) {
+    logger.warn("Failed to load custom tools. Continuing with core tools only.", error);
+  }
+
+  try {
+    await refreshDisabledToolsCache();
+    startDisabledToolsCacheSync(GOVERNANCE_FILE);
+    logger.info("Disabled tools cache initialized");
+  } catch (error) {
+    cachedDisabledTools = new Set();
+    logger.warn("Failed to initialize disabled tools cache. Using empty cache.", error);
+  }
+
+  try {
+    autoInitializeHandlers(handlersState);
+    logger.info(`Handlers auto-initialization complete (${handlersState.registeredHandlers} handlers)`);
+  } catch (error) {
+    logger.warn("Handler auto-initialization failed. Continuing without handlers.", error);
+  }
+}
+
+async function main(): Promise<void> {
+  await initializeServerRuntime();
 
   const transport = new StdioServerTransport();
-  await server.connect(transport);
+  try {
+    await server.connect(transport);
+    logger.info("MCP transport connected");
+  } catch (error) {
+    logger.error("Failed to connect MCP transport", error);
+    throw error;
+  }
 }
 
 const isDirectRun = process.argv[1]
@@ -925,7 +1011,7 @@ const isDirectRun = process.argv[1]
 
 if (isDirectRun) {
   main().catch((error) => {
-    console.error("MCP server failed to start", error);
+    logger.error("MCP server failed to start", error);
     process.exit(1);
   });
 }

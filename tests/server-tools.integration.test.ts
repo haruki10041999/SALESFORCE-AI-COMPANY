@@ -381,6 +381,76 @@ test("orchestration tools execute end-to-end session flow", async () => {
   assert.equal(session.firedRuleCount, 1);
 });
 
+test("orchestration evaluate_triggers honors once rules and uses round-robin fallback", async () => {
+  const orchestrated = parseFirstJson<{
+    sessionId: string;
+  }>(await callTool("orchestrate_chat", {
+    topic: "once rule test",
+    agents: ["architect", "qa-engineer"],
+    triggerRules: [
+      {
+        whenAgent: "architect",
+        thenAgent: "debug-specialist",
+        messageIncludes: "実装",
+        once: true
+      }
+    ]
+  }));
+
+  const firstEval = parseFirstJson<{
+    nextAgents: string[];
+    usedRoundRobinFallback: boolean;
+  }>(await callTool("evaluate_triggers", {
+    sessionId: orchestrated.sessionId,
+    lastAgent: "architect",
+    lastMessage: "実装方針を確定します"
+  }));
+
+  assert.deepEqual(firstEval.nextAgents, ["debug-specialist"]);
+  assert.equal(firstEval.usedRoundRobinFallback, false);
+
+  const secondEval = parseFirstJson<{
+    nextAgents: string[];
+    usedRoundRobinFallback: boolean;
+  }>(await callTool("evaluate_triggers", {
+    sessionId: orchestrated.sessionId,
+    lastAgent: "architect",
+    lastMessage: "実装を続行します"
+  }));
+
+  assert.deepEqual(secondEval.nextAgents, ["qa-engineer"]);
+  assert.equal(secondEval.usedRoundRobinFallback, true);
+});
+
+test("orchestration evaluate_triggers can disable round-robin fallback", async () => {
+  const orchestrated = parseFirstJson<{
+    sessionId: string;
+  }>(await callTool("orchestrate_chat", {
+    topic: "fallback off test",
+    agents: ["architect", "qa-engineer"],
+    triggerRules: [
+      {
+        whenAgent: "architect",
+        thenAgent: "qa-engineer",
+        messageIncludes: "検出しない語"
+      }
+    ]
+  }));
+
+  const evaluated = parseFirstJson<{
+    nextAgents: string[];
+    usedRoundRobinFallback: boolean;
+  }>(await callTool("evaluate_triggers", {
+    sessionId: orchestrated.sessionId,
+    lastAgent: "architect",
+    lastMessage: "この文章は条件に一致しません",
+    fallbackRoundRobin: false
+  }));
+
+  assert.deepEqual(evaluated.nextAgents, []);
+  assert.equal(evaluated.usedRoundRobinFallback, false);
+});
+
 test("parse_and_record_chat and get_agent_log return expected JSON structure", async () => {
   const before = await callTool("get_agent_log", {});
   const beforePayload = JSON.parse(before.content[0].text) as { total: number };

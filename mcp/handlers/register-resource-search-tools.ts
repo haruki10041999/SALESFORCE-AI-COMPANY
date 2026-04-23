@@ -10,7 +10,7 @@ interface RegisterResourceSearchToolsDeps {
   scoreByQuery: (query: string, ...targets: string[]) => number;
   emitSystemEvent: (event: string, payload: Record<string, unknown>) => Promise<void>;
   lowRelevanceScoreThreshold: number;
-  registeredToolMetadata: Map<string, { title?: string; description?: string }>;
+  registeredToolMetadata: Map<string, { title?: string; description?: string; tags?: string[] }>;
 }
 
 export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDeps): void {
@@ -67,7 +67,7 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
             name,
             title: meta.title ?? name,
             description: meta.description ?? "",
-            score: scoreByQuery(query, name, meta.title ?? "", meta.description ?? ""),
+            score: scoreByQuery(query, name, meta.title ?? "", meta.description ?? "", ...(meta.tags ?? [])),
             disabled: state.disabled.tools.includes(name)
           }))
           .filter((x) => x.score > 0 && (showDisabled || !x.disabled))
@@ -154,7 +154,7 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
         .map(([name, meta]) => ({
           name,
           title: meta.title ?? name,
-          score: scoreByQuery(topic, name, meta.title ?? "", meta.description ?? ""),
+          score: scoreByQuery(topic, name, meta.title ?? "", meta.description ?? "", ...(meta.tags ?? [])),
           disabled: state.disabled.tools.includes(name)
         }))
         .filter((x) => x.score > 0 && !x.disabled)

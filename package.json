@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
     "mcp:dev": "tsx mcp/server.ts",
     "mcp:start": "node dist/mcp/server.js",
     "test": "node --test --import tsx tests/**/*.test.ts",
-    "audit:deps": "npm audit --audit-level=moderate"
+    "audit:deps": "npm audit --audit-level=moderate",
+    "init": "node scripts/init-config.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.5",
