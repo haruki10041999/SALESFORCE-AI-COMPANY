@@ -1,22 +1,6 @@
 ﻿import { z } from "zod";
 import type { GovTool } from "@mcp/tool-types.js";
-
-interface ChatPreset {
-  name: string;
-  description: string;
-  topic: string;
-  agents: string[];
-  skills: string[];
-  persona?: string;
-  filePaths?: string[];
-  triggerRules?: Array<{
-    whenAgent: string;
-    thenAgent: string;
-    messageIncludes?: string;
-    reason?: string;
-    once?: boolean;
-  }>;
-}
+import type { ChatPreset } from "../core/types/index.js";
 
 interface RegisterPresetToolsDeps {
   govTool: GovTool;

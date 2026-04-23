@@ -11,6 +11,13 @@ function isApexFile(fileName: string): boolean {
   return fileName.endsWith(".cls") || fileName.endsWith(".trigger");
 }
 
+/**
+ * Normalize path to POSIX format (forward slashes)
+ */
+function toPosixPath(filePath: string): string {
+  return filePath.split(path.sep).join("/");
+}
+
 export function analyzeRepo(root: string): RepoAnalysis {
   const result: RepoAnalysis = {
     apex: [],
@@ -31,15 +38,17 @@ export function analyzeRepo(root: string): RepoAnalysis {
       }
 
       if (isApexFile(file)) {
-        result.apex.push(full);
+        result.apex.push(toPosixPath(full));
       }
 
-      if (full.includes(`${path.sep}lwc${path.sep}`) && file.endsWith(".js")) {
-        result.lwc.push(full);
+      // Use posix path for check
+      const posixFull = toPosixPath(full);
+      if (posixFull.includes("/lwc/") && file.endsWith(".js")) {
+        result.lwc.push(posixFull);
       }
 
       if (file.endsWith(".object-meta.xml")) {
-        result.objects.push(full);
+        result.objects.push(toPosixPath(full));
       }
     }
   }

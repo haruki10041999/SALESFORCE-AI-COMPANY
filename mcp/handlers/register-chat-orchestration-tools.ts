@@ -2,36 +2,7 @@
 import { join } from "node:path";
 import { z } from "zod";
 import type { GovTool } from "@mcp/tool-types.js";
-
-interface TriggerRule {
-  whenAgent: string;
-  thenAgent: string;
-  messageIncludes?: string;
-  reason?: string;
-  once?: boolean;
-}
-
-interface AgentMessage {
-  agent: string;
-  message: string;
-  timestamp: string;
-  topic?: string;
-}
-
-interface OrchestrationSession {
-  id: string;
-  topic: string;
-  appendInstruction?: string;
-  agents: string[];
-  persona?: string;
-  skills: string[];
-  filePaths: string[];
-  turns: number;
-  triggerRules: TriggerRule[];
-  queue: string[];
-  history: AgentMessage[];
-  firedRules: string[];
-}
+import type { TriggerRule, AgentMessage, OrchestrationSession } from "../core/types/index.js";
 
 interface RegisterChatOrchestrationToolsDeps {
   govTool: GovTool;

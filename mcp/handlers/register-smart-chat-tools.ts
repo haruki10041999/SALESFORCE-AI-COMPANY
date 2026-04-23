@@ -22,7 +22,10 @@ interface RegisterSmartChatToolsDeps {
 }
 
 function extractExistingFilePathsFromTopic(topic: string): string[] {
-  const matches = topic.match(/[A-Za-z]:\/[\w\-./]+\.[A-Za-z0-9]+|\.?\.\/?[\w\-./]+\.[A-Za-z0-9]+/g) ?? [];
+  // Windows paths: C:\path\to\file.ext, posix paths: ./path/to/file.ext, /path/to/file.ext
+  const matches = topic.match(
+    /(?:[A-Za-z]:[\\\/]|\.\.?[\\\/])[A-Za-z0-9\-._\s\\\/]+\.[A-Za-z0-9]+/g
+  ) ?? [];
   const unique = Array.from(new Set(matches.map((v) => v.replace(/\\/g, "/"))));
   return unique.filter((candidate) => existsSync(candidate));
 }
@@ -73,8 +76,10 @@ export function registerSmartChatTools(deps: RegisterSmartChatToolsDeps): void {
         ];
         const analyzedPaths = candidates.filter((pathValue) => pathValue && existsSync(pathValue));
         autoFilePaths = Array.from(new Set([...autoFilePaths, ...analyzedPaths]));
-      } catch {
-        // repo_analyze 螟ｱ謨玲凾縺ｯ遨ｺ驟榊・縺ｧ邯夊｡・
+      } catch (err) {
+        // repo_analyze 失敗時は空配列で継続（デフォルト動作）
+        const error = err instanceof Error ? err.message : String(err);
+        console.warn(`[smart_chat] repo_analyze failed: ${error}`);
       }
 
       const prompt = await buildChatPrompt(

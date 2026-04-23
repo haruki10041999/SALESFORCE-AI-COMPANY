@@ -23,6 +23,7 @@
     "orchestrator/**/*.ts",
     "prompt-engine/**/*.ts",
     "mcp/**/*.ts",
-    "memory/**/*.ts"
+    "memory/**/*.ts",
+    "tests/**/*.ts"
   ]
 }

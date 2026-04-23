@@ -4,36 +4,7 @@ import { z } from "zod";
 import type { GovTool } from "@mcp/tool-types.js";
 import type { GovernanceState } from "../core/governance/governance-state.js";
 import type { SystemEventRecord, SystemEventLogStatus } from "../core/event/system-event-manager.js";
-
-interface AgentMessage {
-  agent: string;
-  message: string;
-  timestamp: string;
-  topic?: string;
-}
-
-interface ChatSession {
-  id: string;
-  timestamp: string;
-  topic: string;
-  agents: string[];
-  entries: AgentMessage[];
-}
-
-interface HandlersStateShape {
-  createdTracker: unknown;
-  deletedTracker: unknown;
-  errorTracker: unknown;
-  qualityTracker: unknown;
-}
-
-interface HandlersStatisticsShape {
-  created: unknown;
-  deleted: unknown;
-  errors: unknown;
-  qualityFailures: unknown;
-  lastUpdated: string;
-}
+import type { AgentMessage, ChatSession, HandlersDashboardState, ExportStatistics } from "../core/types/index.js";
 
 interface RegisterAnalyticsToolsDeps {
   govTool: GovTool;
@@ -42,10 +13,10 @@ interface RegisterAnalyticsToolsDeps {
   loadSystemEvents: (limit?: number, event?: string) => Promise<SystemEventRecord[]>;
   getSystemEventLogStatus: () => Promise<SystemEventLogStatus>;
   loadGovernanceState: () => Promise<GovernanceState>;
-  generateHandlersDashboard: (state: HandlersStateShape) => unknown;
-  handlersState: HandlersStateShape;
-  exportStatisticsAsCsv: (stats: HandlersStatisticsShape) => string;
-  exportStatisticsAsJson: (stats: HandlersStatisticsShape) => string;
+  generateHandlersDashboard: (state: HandlersDashboardState) => HandlersDashboardState;
+  handlersState: HandlersDashboardState;
+  exportStatisticsAsCsv: (stats: ExportStatistics) => string;
+  exportStatisticsAsJson: (stats: ExportStatistics) => string;
   ensureDir: (dir: string) => Promise<void>;
 }
 
@@ -417,7 +388,7 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
       }
     },
     async ({ format, outputPath }: { format?: "json" | "csv"; outputPath?: string }) => {
-      const stats: HandlersStatisticsShape = {
+      const stats: ExportStatistics = {
         created: handlersState.createdTracker,
         deleted: handlersState.deletedTracker,
         errors: handlersState.errorTracker,

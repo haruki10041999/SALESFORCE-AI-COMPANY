@@ -23,72 +23,18 @@ import { registerBatchTools } from "../../handlers/register-batch-tools.js";
 import type { GovTool } from "@mcp/tool-types.js";
 import type { GovernanceState } from "../governance/governance-state.js";
 import type { SystemEventName, SystemEventRecord } from "../event/system-event-manager.js";
-
-interface AgentMessage {
-  agent: string;
-  message: string;
-  timestamp: string;
-  topic?: string;
-}
-
-interface ChatPreset {
-  name: string;
-  description: string;
-  topic: string;
-  agents: string[];
-  skills?: string[];
-  persona?: string;
-  filePaths?: string[];
-  triggerRules?: Array<{
-    whenAgent: string;
-    thenAgent: string;
-    messageIncludes?: string;
-    reason?: string;
-    once?: boolean;
-  }>;
-}
-
-interface StoredPreset {
-  name: string;
-  description: string;
-  topic: string;
-  agents: string[];
-  skills: string[];
-  persona?: string;
-  filePaths?: string[];
-  triggerRules?: Array<{
-    whenAgent: string;
-    thenAgent: string;
-    messageIncludes?: string;
-    reason?: string;
-    once?: boolean;
-  }>;
-}
-
-interface CustomToolDefinition {
-  name: string;
-  description: string;
-  agents: string[];
-  skills?: string[];
-  tags?: string[];
-  persona?: string;
-  createdAt: string;
-}
-
-interface ResourceOperation {
-  type: "create" | "delete";
-  resourceType: "skills" | "tools" | "presets";
-  name: string;
-  timestamp: string;
-}
-
-interface ChatSession {
-  id: string;
-  timestamp: string;
-  topic: string;
-  agents: string[];
-  entries: AgentMessage[];
-}
+import type {
+  AgentMessage,
+  ChatSession,
+  ChatPreset,
+  StoredPreset,
+  CustomToolDefinition,
+  ResourceOperation,
+  TriggerRule,
+  OrchestrationSession,
+  HandlersDashboardState,
+  ExportStatistics
+} from "../types/index.js";
 
 interface RegisterAllToolsDeps {
   govTool: GovTool;
@@ -121,55 +67,13 @@ interface RegisterAllToolsDeps {
   evaluatePseudoHooks: (
     lastAgent: string,
     lastMessage: string,
-    triggerRules: Array<{
-      whenAgent: string;
-      thenAgent: string;
-      messageIncludes?: string;
-      reason?: string;
-      once?: boolean;
-    }>,
+    triggerRules: TriggerRule[],
     firedRules: string[]
   ) => { nextAgents: string[]; fired: string[]; reasons: string[] };
-  orchestrationSessions: Map<string, {
-    id: string;
-    topic: string;
-    agents: string[];
-    persona?: string;
-    skills: string[];
-    filePaths: string[];
-    turns: number;
-    triggerRules: Array<{
-      whenAgent: string;
-      thenAgent: string;
-      messageIncludes?: string;
-      reason?: string;
-      once?: boolean;
-    }>;
-    queue: string[];
-    history: AgentMessage[];
-    firedRules: string[];
-  }>;
+  orchestrationSessions: Map<string, OrchestrationSession>;
   saveOrchestrationSession: (sessionId: string) => Promise<{ sessionId: string; filePath: string; historyCount: number } | null>;
   saveSessionHistory: (topic: string, entries: AgentMessage[]) => Promise<string>;
-  restoreOrchestrationSession: (sessionId: string) => Promise<{
-    id: string;
-    topic: string;
-    agents: string[];
-    persona?: string;
-    skills: string[];
-    filePaths: string[];
-    turns: number;
-    triggerRules: Array<{
-      whenAgent: string;
-      thenAgent: string;
-      messageIncludes?: string;
-      reason?: string;
-      once?: boolean;
-    }>;
-    queue: string[];
-    history: AgentMessage[];
-    firedRules: string[];
-  } | null>;
+  restoreOrchestrationSession: (sessionId: string) => Promise<OrchestrationSession | null>;
   root: string;
   agentLog: AgentMessage[];
   loadSystemEvents: (limit?: number, event?: SystemEventName) => Promise<SystemEventRecord[]>;
@@ -182,7 +86,7 @@ interface RegisterAllToolsDeps {
   restoreChatHistory: (id: string) => Promise<ChatSession | null>;
   listMdFiles: (dir: string) => { name: string; summary: string }[];
   getMdFile: (dir: string, name: string) => string;
-  listPresetsData: () => Promise<Array<{ name: string; description: string; topic: string; agents: string[]; skills: string[] }>>;
+  listPresetsData: () => Promise<StoredPreset[]>;
   scoreByQuery: (query: string, ...targets: string[]) => number;
   lowRelevanceScoreThreshold: number;
   registeredToolMetadata: Map<string, { title?: string; description?: string; tags?: string[] }>;
@@ -198,32 +102,10 @@ interface RegisterAllToolsDeps {
     archiveTotalSizeBytes: number;
     archives: Array<{ file: string; sizeBytes: number; modifiedAt: string }>;
   }>;
-  generateHandlersDashboard: (state: {
-    createdTracker: unknown;
-    deletedTracker: unknown;
-    errorTracker: unknown;
-    qualityTracker: unknown;
-  }) => unknown;
-  handlersState: {
-    createdTracker: unknown;
-    deletedTracker: unknown;
-    errorTracker: unknown;
-    qualityTracker: unknown;
-  };
-  exportStatisticsAsCsv: (stats: {
-    created: unknown;
-    deleted: unknown;
-    errors: unknown;
-    qualityFailures: unknown;
-    lastUpdated: string;
-  }) => string;
-  exportStatisticsAsJson: (stats: {
-    created: unknown;
-    deleted: unknown;
-    errors: unknown;
-    qualityFailures: unknown;
-    lastUpdated: string;
-  }) => string;
+  generateHandlersDashboard: (state: HandlersDashboardState) => HandlersDashboardState;
+  handlersState: HandlersDashboardState;
+  exportStatisticsAsCsv: (stats: ExportStatistics) => string;
+  exportStatisticsAsJson: (stats: ExportStatistics) => string;
   ensureDir: (path: string) => Promise<void>;
   addMemory: (text: string) => void;
   searchMemory: (query: string) => string[];

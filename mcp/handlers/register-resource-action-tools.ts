@@ -3,34 +3,9 @@ import { dirname, join, relative } from "path";
 import { z } from "zod";
 import type { GovTool } from "@mcp/tool-types.js";
 import type { GovernanceState, GovernedResourceType } from "../core/governance/governance-state.js";
+import type { ChatPreset, CustomToolDefinition, ResourceOperation } from "../core/types/index.js";
 
 type GovernanceActionType = "create" | "delete" | "disable" | "enable";
-
-interface ChatPreset {
-  name: string;
-  description: string;
-  topic: string;
-  agents: string[];
-  skills?: string[];
-  persona?: string;
-  filePaths?: string[];
-}
-
-interface CustomToolDefinition {
-  name: string;
-  description: string;
-  agents: string[];
-  skills?: string[];
-  persona?: string;
-  createdAt: string;
-}
-
-interface ResourceOperation {
-  type: "create" | "delete";
-  resourceType: GovernedResourceType;
-  name: string;
-  timestamp: string;
-}
 
 interface RegisterResourceActionToolsDeps {
   govTool: GovTool;

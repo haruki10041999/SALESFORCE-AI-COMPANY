@@ -1,25 +1,8 @@
 import { existsSync, promises as fsPromises } from "fs";
 import { join } from "path";
+import type { ChatPreset, StoredPreset } from "../types/index.js";
 
-export interface ChatPreset {
-  name: string;
-  description: string;
-  topic: string;
-  agents: string[];
-  skills: string[];
-  version?: number;
-  createdAt?: string;
-  updatedAt?: string;
-  persona?: string;
-  filePaths?: string[];
-  triggerRules?: Array<{
-    whenAgent: string;
-    thenAgent: string;
-    messageIncludes?: string;
-    reason?: string;
-    once?: boolean;
-  }>;
-}
+export type { ChatPreset, StoredPreset };
 
 interface PresetStoreDeps {
   presetsDir: string;
@@ -69,17 +52,21 @@ export function createPresetStore(deps: PresetStoreDeps) {
     await fsPromises.writeFile(latestFilePath, JSON.stringify(versionedPreset, null, 2), "utf-8");
   }
 
-  async function listPresetsData(): Promise<ChatPreset[]> {
+  async function listPresetsData(): Promise<StoredPreset[]> {
     if (!existsSync(presetsDir)) return [];
     const files = await fsPromises.readdir(presetsDir);
-    const latestByName = new Map<string, ChatPreset>();
+    const latestByName = new Map<string, StoredPreset>();
 
     function keepLatest(preset: ChatPreset): void {
-      const current = latestByName.get(preset.name);
-      const nextVersion = preset.version ?? 0;
+      const stored: StoredPreset = {
+        ...preset,
+        skills: preset.skills ?? []
+      };
+      const current = latestByName.get(stored.name);
+      const nextVersion = stored.version ?? 0;
       const currentVersion = current?.version ?? 0;
       if (!current || nextVersion >= currentVersion) {
-        latestByName.set(preset.name, preset);
+        latestByName.set(stored.name, stored);
       }
     }
 
@@ -115,7 +102,7 @@ export function createPresetStore(deps: PresetStoreDeps) {
     return [...latestByName.values()];
   }
 
-  async function getPreset(name: string): Promise<ChatPreset | null> {
+  async function getPreset(name: string): Promise<StoredPreset | null> {
     const presets = await listPresetsData();
     return presets.find((p) => p.name === name) ?? null;
   }

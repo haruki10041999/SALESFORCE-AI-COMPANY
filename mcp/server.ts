@@ -562,29 +562,29 @@ function registerCustomToolCompat(tool: {
 }
 
 function generateHandlersDashboardCompat(state: {
-  createdTracker: unknown;
-  deletedTracker: unknown;
-  errorTracker: unknown;
-  qualityTracker: unknown;
-}): unknown {
+  createdTracker: any;
+  deletedTracker: any;
+  errorTracker: any;
+  qualityTracker: any;
+}): any {
   return generateHandlersDashboard(state as HandlersState);
 }
 
 function exportStatisticsAsCsvCompat(stats: {
-  created: unknown;
-  deleted: unknown;
-  errors: unknown;
-  qualityFailures: unknown;
+  created: any;
+  deleted: any;
+  errors: any;
+  qualityFailures: any;
   lastUpdated: string;
 }): string {
   return exportStatisticsAsCsv(stats as HandlersStatistics);
 }
 
 function exportStatisticsAsJsonCompat(stats: {
-  created: unknown;
-  deleted: unknown;
-  errors: unknown;
-  qualityFailures: unknown;
+  created: any;
+  deleted: any;
+  errors: any;
+  qualityFailures: any;
   lastUpdated: string;
 }): string {
   return exportStatisticsAsJson(stats as HandlersStatistics);
