@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { SafeFilePathSchema, runSchemaValidation } from "../core/quality/resource-validation.js";
 
 export type FlowFileAnalysis = {
   path: string;
@@ -19,6 +20,11 @@ function countTag(source: string, tagName: string): number {
 }
 
 export function analyzeFlow(filePath: string): FlowFileAnalysis {
+  const pathCheck = runSchemaValidation(SafeFilePathSchema, filePath);
+  if (!pathCheck.success) {
+    throw new Error(`Invalid filePath: ${pathCheck.errors.join(", ")}`);
+  }
+
   const src = fs.readFileSync(filePath, "utf-8");
 
   const decisionCount = countTag(src, "decisions");

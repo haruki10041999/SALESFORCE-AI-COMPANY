@@ -63,11 +63,11 @@ export function registerExportTools(deps: RegisterExportToolsDeps): void {
 
       const markdown =
         "# " + (title ?? targetSession.topic) + "\n\n" +
-        "**��?E����E*: " + targetSession.timestamp + "  \n" +
-        "**�Q���G�[�W�F���`E*: " + targetSession.agents.join(", ") + "  \n" +
-        "**���`E??�[�W��**: " + targetSession.entries.length + "\n\n" +
+        "**作成日時**: " + targetSession.timestamp + "  \n" +
+        "**参加エージェント**: " + targetSession.agents.join(", ") + "  \n" +
+        "**メッセージ数**: " + targetSession.entries.length + "\n\n" +
         "---\n\n" +
-        "## ��b?E??\n\n" +
+        "## 会話内容\n\n" +
         targetSession.entries.map((entry) => "### " + entry.agent + "\n\n" + entry.message + "\n").join("\n---\n\n") +
         "\n\n---\n\n" +
         "Salesforce AI Company MCP exported markdown.";

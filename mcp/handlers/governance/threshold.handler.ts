@@ -54,6 +54,22 @@ export const DEFAULT_THRESHOLD_CONFIG: ThresholdHandlerConfig = {
 };
 
 /**
+ * 環境変数からガバナンス閾値ハンドラー設定を生成
+ *   SF_AI_AUTO_APPLY=true           → autoApply: true
+ *   SF_AI_AUTO_APPLY_MAX_DELETIONS=<number> → maxDeletionsPerRun
+ */
+export function buildThresholdConfig(overrides: Partial<ThresholdHandlerConfig> = {}): ThresholdHandlerConfig {
+  const autoApply = process.env.SF_AI_AUTO_APPLY === "true";
+  const maxDel = Number.parseInt(process.env.SF_AI_AUTO_APPLY_MAX_DELETIONS ?? "3", 10);
+  return {
+    ...DEFAULT_THRESHOLD_CONFIG,
+    autoApply,
+    maxDeletionsPerRun: Number.isFinite(maxDel) ? maxDel : 3,
+    ...overrides
+  };
+}
+
+/**
  * ガバナンス閾値超過時のハンドラー
  */
 export async function handleGovernanceThresholdExceeded(

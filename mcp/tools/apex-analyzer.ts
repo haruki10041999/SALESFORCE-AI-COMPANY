@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { SafeFilePathSchema, runSchemaValidation } from "../core/quality/resource-validation.js";
 
 export type ApexFileAnalysis = {
   path: string;
@@ -14,6 +15,11 @@ export type ApexFileAnalysis = {
 };
 
 export function analyzeApex(filePath: string): ApexFileAnalysis {
+  const pathCheck = runSchemaValidation(SafeFilePathSchema, filePath);
+  if (!pathCheck.success) {
+    throw new Error(`Invalid filePath: ${pathCheck.errors.join(", ")}`);
+  }
+
   const src = fs.readFileSync(filePath, "utf-8");
 
   const hasLoop = /for\s*\(|while\s*\(/i.test(src);

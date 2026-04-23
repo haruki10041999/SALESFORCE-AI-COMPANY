@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 
 const serverTestOutputsDir = mkdtempSync(join(tmpdir(), "sf-ai-server-outputs-"));
 process.env.SF_AI_OUTPUTS_DIR = serverTestOutputsDir;
@@ -40,6 +41,9 @@ test("server exposes expected core tool registrations", () => {
     "run_tests",
     "flow_analyze",
     "permission_set_analyze",
+    "metrics_summary",
+    "deployment_plan_generate",
+    "benchmark_suite",
     "list_agents",
     "chat",
     "pr_readiness_check",
@@ -88,6 +92,76 @@ test("run_tests returns Apex test command text", async () => {
 
   assert.ok(text.includes("sf apex run test"));
   assert.ok(text.includes("--target-org qa-org"));
+});
+
+test("metrics_summary returns trace-based summary fields", async () => {
+  const result = await callTool("metrics_summary", { limit: 50 });
+  const payload = JSON.parse(result.content[0].text) as {
+    activeCount: number;
+    completedCount: number;
+    successRate: number;
+    errorRate: number;
+  };
+
+  assert.equal(typeof payload.activeCount, "number");
+  assert.equal(typeof payload.completedCount, "number");
+  assert.equal(typeof payload.successRate, "number");
+  assert.equal(typeof payload.errorRate, "number");
+});
+
+test("benchmark_suite returns grade and recommendations", async () => {
+  const result = await callTool("benchmark_suite", {
+    recentTraceLimit: 100,
+    scenarios: ["Apex review", "Release readiness"]
+  });
+  const payload = JSON.parse(result.content[0].text) as {
+    overallScore: number;
+    grade: "A" | "B" | "C" | "D";
+    recommendations: string[];
+  };
+
+  assert.equal(typeof payload.overallScore, "number");
+  assert.ok(["A", "B", "C", "D"].includes(payload.grade));
+  assert.ok(Array.isArray(payload.recommendations));
+});
+
+test("deployment_plan_generate returns risk and plan sections", async () => {
+  const repoPath = mkdtempSync(join(tmpdir(), "sf-ai-deploy-plan-int-"));
+  try {
+    const git = (args: string[]) => execFileSync("git", args, { cwd: repoPath, encoding: "utf-8" });
+    git(["init"]);
+    git(["config", "user.email", "test@example.com"]);
+    git(["config", "user.name", "test-user"]);
+    git(["checkout", "-b", "main"]);
+    writeFileSync(join(repoPath, "README.md"), "# test\n", "utf-8");
+    git(["add", "."]);
+    git(["commit", "-m", "base"]);
+    git(["checkout", "-b", "feature/test"]);
+    writeFileSync(join(repoPath, "README.md"), "# test\n\nchange\n", "utf-8");
+    git(["add", "."]);
+    git(["commit", "-m", "change"]);
+
+    const result = await callTool("deployment_plan_generate", {
+      repoPath,
+      baseBranch: "main",
+      workingBranch: "feature/test"
+    });
+    const payload = JSON.parse(result.content[0].text) as {
+      riskLevel: "low" | "medium" | "high";
+      recommendedOrder: string[];
+      preChecks: string[];
+      postChecks: string[];
+      rollbackHints: string[];
+    };
+
+    assert.ok(["low", "medium", "high"].includes(payload.riskLevel));
+    assert.ok(payload.recommendedOrder.length > 0);
+    assert.ok(payload.preChecks.length > 0);
+    assert.ok(payload.postChecks.length > 0);
+    assert.ok(payload.rollbackHints.length > 0);
+  } finally {
+    rmSync(repoPath, { recursive: true, force: true });
+  }
 });
 
 test("apply_resource_actions writes audit trail metadata", async () => {
@@ -168,6 +242,18 @@ test("health_check returns operational summary", async () => {
       };
     };
     governanceWarnings?: string[];
+    traces?: {
+      activeCount: number;
+      recentCompletedCount: number;
+      recentCompleted: Array<unknown>;
+    };
+    metrics?: {
+      totalCalls: number;
+      totalErrors: number;
+      overallSuccessRate: number;
+      overallAvgDurationMs: number;
+      topTools: Array<unknown>;
+    };
   };
 
   assert.equal(payload.status, "ok");
@@ -180,6 +266,12 @@ test("health_check returns operational summary", async () => {
   assert.ok(payload.governanceValidation);
   assert.equal(typeof payload.governanceValidation?.configSanity.maxCountsPositive, "boolean");
   assert.ok(Array.isArray(payload.governanceWarnings));
+  assert.equal(typeof payload.traces?.activeCount, "number");
+  assert.equal(typeof payload.traces?.recentCompletedCount, "number");
+  assert.ok(Array.isArray(payload.traces?.recentCompleted));
+  assert.equal(typeof payload.metrics?.totalCalls, "number");
+  assert.equal(typeof payload.metrics?.overallSuccessRate, "number");
+  assert.ok(Array.isArray(payload.metrics?.topTools));
 });
 
 test("chat returns prompt skeleton containing topic section", async () => {

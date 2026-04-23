@@ -3,6 +3,11 @@
 > リポジトリ: `D:\Projects\mult-agent-ai\salesforce-ai-company`  
 > 作成日: 2026-04-20
 
+関連ドキュメント:
+- README: 全体像と起動手順
+- docs/documentation-map.md: ドキュメント索引
+- docs/feature-usage-guide.md: ツール利用例
+
 ---
 
 ## 検証の前提
@@ -19,6 +24,9 @@ npm run init
 # TypeScript ビルド
 npm run build
 
+# 開発起動
+npm run mcp:dev
+
 # 型チェックのみ（CI 推奨）
 npm run typecheck
 
@@ -26,7 +34,7 @@ npm run typecheck
 npm test
 
 # テスト実行（個別）
-node --test --import tsx tests/server-tools.integration.test.ts
+node --test --import tsx --import ./tests/_setup.ts tests/server-tools.integration.test.ts
 ```
 
 > **環境変数**  
@@ -37,7 +45,7 @@ node --test --import tsx tests/server-tools.integration.test.ts
 
 | 種別 | 対象 | 方法 |
 |---|---|---|
-| **自動テスト** | コアロジック・ツール登録・統合動作 | `node --test` |
+| **自動テスト** | コアロジック・ツール登録・統合動作 | `npm test` |
 | **MCP クライアント検証** | Claude Desktop / VS Code から実際に呼ぶ | 手動 |
 | **プロンプト品質検証** | LLM が正しく動作するかを確認 | LLM に渡して評価 |
 
@@ -64,7 +72,7 @@ node --test --import tsx tests/server-tools.integration.test.ts
 
 ```bash
 # 全テスト実行
-node --test tests/*.test.ts
+npm test
 
 # 期待結果: すべて pass
 # NG になりやすい箇所:
@@ -98,7 +106,7 @@ Claude Desktop または VS Code から MCP サーバーに接続して実施す
 
 **検証手順**
 
-1. `mcp/server.ts` をビルドして MCP サーバーを起動
+1. `npm run build` の後に `npm run mcp:start` または `npm run mcp:dev` で MCP サーバーを起動
 2. Claude Desktop の設定に `salesforce-ai-company` を登録
 3. 以下のツールを呼んで正常応答を確認
 
@@ -388,7 +396,7 @@ chat({
 
 ### 基本動作（自動テスト）
 
-- [ ] `node --test tests/*.test.ts` が全件 pass する
+- [ ] `npm test` が全件 pass する
 - [ ] `server exposes expected core tool registrations` が全57ツールを確認している
 
 ### プロンプト生成（手動）

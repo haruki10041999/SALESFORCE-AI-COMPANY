@@ -5,6 +5,8 @@ import type { GovTool } from "@mcp/tool-types.js";
 import type { GovernanceState } from "../core/governance/governance-state.js";
 import type { SystemEventRecord, SystemEventLogStatus } from "../core/event/system-event-manager.js";
 import type { AgentMessage, ChatSession, HandlersDashboardState, ExportStatistics } from "../core/types/index.js";
+import { getActiveTraces, getCompletedTraces } from "../core/trace/trace-context.js";
+import { getMetricsSummary } from "../tools/metrics.js";
 
 interface RegisterAnalyticsToolsDeps {
   govTool: GovTool;
@@ -126,6 +128,9 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
       const governanceState = await loadGovernanceState();
       const dashboard = generateHandlersDashboard(handlersState);
       const eventLogs = await getSystemEventLogStatus();
+      const activeTraces = getActiveTraces();
+      const recentCompletedTraces = getCompletedTraces(100);
+      const metricsSummary = getMetricsSummary();
       const duplicateDisabledSkills = duplicateEntries(governanceState.disabled.skills);
       const duplicateDisabledTools = duplicateEntries(governanceState.disabled.tools);
       const duplicateDisabledPresets = duplicateEntries(governanceState.disabled.presets);
@@ -178,6 +183,18 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
                 },
                 governanceValidation,
                 governanceWarnings,
+                traces: {
+                  activeCount: activeTraces.length,
+                  recentCompletedCount: recentCompletedTraces.length,
+                  recentCompleted: recentCompletedTraces.slice(0, 10)
+                },
+                metrics: {
+                  totalCalls: metricsSummary.totalCalls,
+                  totalErrors: metricsSummary.totalErrors,
+                  overallSuccessRate: metricsSummary.overallSuccessRate,
+                  overallAvgDurationMs: metricsSummary.overallAvgDurationMs,
+                  topTools: metricsSummary.perTool.slice(0, 10)
+                },
                 eventLogs,
                 handlers: dashboard
               },

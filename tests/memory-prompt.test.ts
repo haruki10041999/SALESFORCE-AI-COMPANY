@@ -16,6 +16,7 @@ import {
 import {
   addRecord,
   clearRecords,
+  configureEmbeddingProviderForTest,
   configureVectorStoreLimitsForTest,
   configureVectorStoreForTest,
   searchByKeyword
@@ -161,6 +162,76 @@ test("vector-store applies retention limit", () => {
     assert.ok(results.length <= 10);
     assert.equal(results.some((record) => record.id === "id-0"), false);
   } finally {
+    configureVectorStoreLimitsForTest({ maxRecords: 5000, maxBytes: 2 * 1024 * 1024 });
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("vector-store keeps recently searched records under LRU retention", () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "sf-ai-vector-lru-search-test-"));
+  const tempStorage = join(tempRoot, "vector-store.jsonl");
+
+  try {
+    configureVectorStoreForTest(tempStorage);
+    configureVectorStoreLimitsForTest({ maxRecords: 10, maxBytes: 1000000 });
+    configureEmbeddingProviderForTest({
+      search(records, query) {
+        if (query === "touch-first") {
+          return records.filter((record) => record.id === "id-1");
+        }
+        if (query === "all") {
+          return [...records];
+        }
+        return [];
+      }
+    });
+    clearRecords();
+
+    for (let i = 1; i <= 10; i += 1) {
+      addRecord({ id: `id-${i}`, text: `record-${i}`, tags: ["lru"] });
+    }
+
+    searchByKeyword("touch-first");
+    addRecord({ id: "id-11", text: "record-11", tags: ["lru"] });
+
+    const ids = searchByKeyword("all").map((record) => record.id);
+    assert.equal(ids.includes("id-1"), true);
+    assert.equal(ids.includes("id-2"), false);
+    assert.deepEqual(ids.slice(-2), ["id-1", "id-11"]);
+  } finally {
+    configureEmbeddingProviderForTest({ search: (records) => records });
+    configureVectorStoreLimitsForTest({ maxRecords: 5000, maxBytes: 2 * 1024 * 1024 });
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("vector-store updates existing record recency on duplicate id", () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "sf-ai-vector-lru-update-test-"));
+  const tempStorage = join(tempRoot, "vector-store.jsonl");
+
+  try {
+    configureVectorStoreForTest(tempStorage);
+    configureVectorStoreLimitsForTest({ maxRecords: 10, maxBytes: 1000000 });
+    configureEmbeddingProviderForTest({
+      search(records, query) {
+        if (query === "all") {
+          return [...records];
+        }
+        return [];
+      }
+    });
+    clearRecords();
+
+    for (let i = 1; i <= 10; i += 1) {
+      addRecord({ id: `id-${i}`, text: `record-${i}`, tags: ["lru"] });
+    }
+    addRecord({ id: "id-2", text: "second-updated", tags: ["lru", "updated"] });
+
+    const ids = searchByKeyword("all").map((record) => record.id);
+    assert.equal(ids.at(-1), "id-2");
+    assert.equal(ids.filter((id) => id === "id-2").length, 1);
+  } finally {
+    configureEmbeddingProviderForTest({ search: (records) => records });
     configureVectorStoreLimitsForTest({ maxRecords: 5000, maxBytes: 2 * 1024 * 1024 });
     rmSync(tempRoot, { recursive: true, force: true });
   }

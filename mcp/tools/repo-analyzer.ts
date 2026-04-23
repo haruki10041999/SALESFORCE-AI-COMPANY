@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { SafeFilePathSchema, runSchemaValidation } from "../core/quality/resource-validation.js";
 
 export type RepoAnalysis = {
   apex: string[];
@@ -19,6 +20,11 @@ function toPosixPath(filePath: string): string {
 }
 
 export function analyzeRepo(root: string): RepoAnalysis {
+  const pathCheck = runSchemaValidation(SafeFilePathSchema, root);
+  if (!pathCheck.success) {
+    throw new Error(`Invalid path: ${pathCheck.errors.join(", ")}`);
+  }
+
   const result: RepoAnalysis = {
     apex: [],
     lwc: [],

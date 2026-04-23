@@ -1,5 +1,7 @@
 ﻿import type { GovTool, GovToolConfig, GovToolHandler, RegisterToolFn } from "@mcp/tool-types.js";
 import { isRetryableByCode, isRetryableError } from "../errors/tool-error.js";
+import { startTrace, endTrace, failTrace } from "../trace/trace-context.js";
+import { recordMetric } from "../../tools/metrics.js";
 
 type ToolResponse = { content: Array<{ type: string; text: string }> };
 
@@ -37,17 +39,29 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
 
   function govTool<TInput = unknown>(name: string, config: GovToolConfig, handler: GovToolHandler<TInput>): void {
     registerTool(name, config, async (input: unknown) => {
+      const startedAt = new Date();
+      const traceId = startTrace(name, { input: summarizeValue(input) });
       await emitSystemEvent("tool_before_execute", {
         toolName: name,
+        traceId,
         input: summarizeValue(input)
       });
 
       if (isToolDisabled(normalizeResourceName(name))) {
         await emitSystemEvent("tool_after_execute", {
           toolName: name,
+          traceId,
           success: false,
           blockedByDisable: true,
           error: "tool disabled"
+        });
+        endTrace(traceId, { blockedByDisable: true });
+        recordMetric({
+          toolName: name,
+          traceId,
+          startedAt: startedAt.toISOString(),
+          durationMs: Date.now() - startedAt.getTime(),
+          status: "error"
         });
         return {
           content: [
@@ -74,10 +88,19 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
           const result = await handler(input as TInput);
           await emitSystemEvent("tool_after_execute", {
             toolName: name,
+            traceId,
             success: true,
             contentCount: Array.isArray(result?.content) ? result.content.length : 0,
             attempts: attempt + 1,
             retried: attempt > 0
+          });
+          endTrace(traceId, { success: true, attempts: attempt + 1 });
+          recordMetric({
+            toolName: name,
+            traceId,
+            startedAt: startedAt.toISOString(),
+            durationMs: Date.now() - startedAt.getTime(),
+            status: "success"
           });
           return result;
         } catch (error) {
@@ -87,18 +110,28 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
           if (!retryable || attempt >= maxRetries) {
             await emitSystemEvent("tool_after_execute", {
               toolName: name,
+              traceId,
               success: false,
               error: summarizeValue(error, 500),
               attempts: attempt + 1,
               retried: attempt > 0
             });
             await registerToolFailure(name, error);
+            failTrace(traceId, error);
+            recordMetric({
+              toolName: name,
+              traceId,
+              startedAt: startedAt.toISOString(),
+              durationMs: Date.now() - startedAt.getTime(),
+              status: "error"
+            });
             throw error;
           }
 
           const backoffMs = Math.min(maxDelayMs, baseDelayMs * Math.pow(2, attempt));
           await emitSystemEvent("tool_after_execute", {
             toolName: name,
+            traceId,
             success: false,
             retryScheduled: true,
             retryAttempt: attempt + 1,

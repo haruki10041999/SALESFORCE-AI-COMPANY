@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { SafeFilePathSchema, runSchemaValidation } from "../core/quality/resource-validation.js";
 
 export type LwcFileAnalysis = {
   path: string;
@@ -15,6 +16,11 @@ export type LwcFileAnalysis = {
 };
 
 export function analyzeLwc(filePath: string): LwcFileAnalysis {
+  const pathCheck = runSchemaValidation(SafeFilePathSchema, filePath);
+  if (!pathCheck.success) {
+    throw new Error(`Invalid filePath: ${pathCheck.errors.join(", ")}`);
+  }
+
   const src = fs.readFileSync(filePath, "utf-8");
   const hasLabelImport = /@salesforce\/label\//i.test(src);
   const usesLabelValue = /\b(label|labels)\b/i.test(src);

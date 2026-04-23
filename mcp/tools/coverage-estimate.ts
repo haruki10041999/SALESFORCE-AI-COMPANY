@@ -1,3 +1,4 @@
+import { OrgIdentifierSchema, runSchemaValidation } from "../core/quality/resource-validation.js";
 import { ensureGitRepoAndRefs, getDiffFiles, runGit, unique, validateRef } from "./git-diff-helpers.js";
 
 export type CoverageEstimateInput = {
@@ -87,6 +88,12 @@ export function estimateChangedCoverage(input: CoverageEstimateInput): CoverageE
   const baseBranch = input.baseBranch ?? input.integrationBranch;
   if (!baseBranch) {
     throw new Error("baseBranch is required");
+  }
+  if (targetOrg) {
+    const orgCheck = runSchemaValidation(OrgIdentifierSchema, targetOrg);
+    if (!orgCheck.success) {
+      throw new Error(`targetOrg validation failed: ${orgCheck.errors.join(", ")}`);
+    }
   }
 
   validateRef(baseBranch, "baseBranch");

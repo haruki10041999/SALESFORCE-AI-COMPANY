@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { SafeFilePathSchema, runSchemaValidation } from "../core/quality/resource-validation.js";
 
 export type PermissionSetAnalysis = {
   path: string;
@@ -16,6 +17,11 @@ function countMatches(source: string, pattern: RegExp): number {
 }
 
 export function analyzePermissionSet(filePath: string): PermissionSetAnalysis {
+  const pathCheck = runSchemaValidation(SafeFilePathSchema, filePath);
+  if (!pathCheck.success) {
+    throw new Error(`Invalid filePath: ${pathCheck.errors.join(", ")}`);
+  }
+
   const src = fs.readFileSync(filePath, "utf-8");
 
   const objectPermissionCount = countMatches(src, /<objectPermissions>/g);

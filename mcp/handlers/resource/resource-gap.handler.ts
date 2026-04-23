@@ -64,6 +64,25 @@ export const DEFAULT_HANDLER_CONFIG: HandlerConfig = {
 };
 
 /**
+ * 環境変数からハンドラー設定を生成
+ *   SF_AI_AUTO_APPLY=true    → autoApply: true
+ *   SF_AI_AUTO_APPLY_MIN_SCORE=<number> → minimumScoreToApply
+ *   SF_AI_AUTO_APPLY_MAX_PER_DAY=<number> → maxCreationsPerDay
+ */
+export function buildHandlerConfig(overrides: Partial<HandlerConfig> = {}): HandlerConfig {
+  const autoApply = process.env.SF_AI_AUTO_APPLY === "true";
+  const minimumScore = Number.parseInt(process.env.SF_AI_AUTO_APPLY_MIN_SCORE ?? "70", 10);
+  const maxPerDay = Number.parseInt(process.env.SF_AI_AUTO_APPLY_MAX_PER_DAY ?? "5", 10);
+  return {
+    ...DEFAULT_HANDLER_CONFIG,
+    autoApply,
+    minimumScoreToApply: Number.isFinite(minimumScore) ? minimumScore : 70,
+    maxCreationsPerDay: Number.isFinite(maxPerDay) ? maxPerDay : 5,
+    ...overrides
+  };
+}
+
+/**
  * リソースギャップハンドラー
  */
 export async function handleResourceGapDetected(

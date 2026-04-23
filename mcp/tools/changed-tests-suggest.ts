@@ -1,3 +1,4 @@
+import { OrgIdentifierSchema, runSchemaValidation } from "../core/quality/resource-validation.js";
 import { ensureGitRepoAndRefs, getDiffFiles, unique, validateRef } from "./git-diff-helpers.js";
 
 export type ChangedTestsSuggestInput = {
@@ -32,6 +33,12 @@ export function suggestChangedTests(input: ChangedTestsSuggestInput): ChangedTes
   const baseBranch = input.baseBranch ?? input.integrationBranch;
   if (!baseBranch) {
     throw new Error("baseBranch is required");
+  }
+  if (targetOrg) {
+    const orgCheck = runSchemaValidation(OrgIdentifierSchema, targetOrg);
+    if (!orgCheck.success) {
+      throw new Error(`targetOrg validation failed: ${orgCheck.errors.join(", ")}`);
+    }
   }
   validateRef(baseBranch, "baseBranch");
   validateRef(workingBranch, "workingBranch");

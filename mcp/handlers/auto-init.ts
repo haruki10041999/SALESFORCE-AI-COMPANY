@@ -1,6 +1,6 @@
 /**
  * Handlers Auto-Initialization
- * 
+ *
  * すべてのハンドラーをイベントディスパッチャーに自動登録する
  * server.ts の main() 関数から呼び出す
  */
@@ -10,7 +10,7 @@ import { onEvent } from "../core/event/event-dispatcher.js";
 
 import {
   handleResourceGapDetected,
-  DEFAULT_HANDLER_CONFIG
+  buildHandlerConfig
 } from "./resource/resource-gap.handler.js";
 
 import {
@@ -32,10 +32,12 @@ import {
   recordQualityCheckFailure,
   initializeQualityCheckFailureTracker
 } from "./governance/quality-check-failed.handler.js";
+
 import {
   handleGovernanceThresholdExceeded,
-  DEFAULT_THRESHOLD_CONFIG
+  buildThresholdConfig
 } from "./governance/threshold.handler.js";
+
 import { createLogger } from "../core/logging/logger.js";
 
 const logger = createLogger("HandlersAutoInit");
@@ -80,6 +82,14 @@ export function autoInitializeHandlers(
     handlersState.registeredHandlers += 1;
   };
 
+  // 起動時に env var からコンフィグを生成（SF_AI_AUTO_APPLY=true で自動適用が有効になる）
+  const handlerConfig = buildHandlerConfig();
+  const thresholdConfig = buildThresholdConfig();
+
+  logger.info(
+    `autoApply=${handlerConfig.autoApply} (SF_AI_AUTO_APPLY=${process.env.SF_AI_AUTO_APPLY ?? "未設定"})`
+  );
+
   // ============================================================
   // resource_gap_detected ハンドラー
   // ============================================================
@@ -96,11 +106,13 @@ export function autoInitializeHandlers(
       timestamp: event.timestamp
     };
 
-    // ハンドラー実行（現在は提案のみ）
-    const result = await handleResourceGapDetected(gap, [], DEFAULT_HANDLER_CONFIG);
+    const result = await handleResourceGapDetected(gap, [], handlerConfig);
 
     if (result.suggestion) {
       logger.info(`提案: ${result.suggestion.name} (${result.suggestion.priority})`);
+    }
+    if (result.applied) {
+      logger.info(`自動適用済み: ${result.suggestion?.name}`);
     }
   });
 
@@ -146,7 +158,7 @@ export function autoInitializeHandlers(
     recordToolError(
       handlersState.errorTracker,
       event.payload.toolName as string,
-      event.payload.error as string || "Unknown error"
+      (event.payload.error as string) || "Unknown error"
     );
   });
 
@@ -172,13 +184,15 @@ export function autoInitializeHandlers(
   register("governance_threshold_exceeded", async (event: SystemEvent) => {
     const counts = (event.payload.counts as Record<string, number> | undefined) ?? {};
     const maxCounts = (event.payload.maxCounts as Record<string, number> | undefined) ?? {};
-    const recommendations = (event.payload.recommendations as Array<{
-      resourceType: "skills" | "tools" | "presets";
-      name: string;
-      usage: number;
-      bugSignals: number;
-      score: number;
-    }> | undefined) ?? [];
+    const recommendations = (
+      event.payload.recommendations as Array<{
+        resourceType: "skills" | "tools" | "presets";
+        name: string;
+        usage: number;
+        bugSignals: number;
+        score: number;
+      }> | undefined
+    ) ?? [];
 
     for (const resourceType of ["skills", "tools", "presets"] as const) {
       const currentCount = counts[resourceType] ?? 0;
@@ -202,7 +216,7 @@ export function autoInitializeHandlers(
         currentCount,
         maxCount,
         candidates,
-        DEFAULT_THRESHOLD_CONFIG
+        thresholdConfig
       );
     }
   });

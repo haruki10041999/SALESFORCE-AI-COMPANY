@@ -4,6 +4,14 @@
 
 **Salesforce AI Company** は、MCP サーバーとして Salesforce 開発を支援する AI エージェント・スキル・ツールを**動的に選択・補完・拡張する**システムです。
 
+## 📚 ドキュメント
+
+- 全体像とセットアップ: README
+- ドキュメント索引: docs/documentation-map.md
+- 環境変数一覧: docs/configuration.md
+- ツール利用例: docs/feature-usage-guide.md
+- 検証手順: verification-guide.md
+
 ### 7フェーズ進化
 
 ```
@@ -439,13 +447,52 @@ npm test
 ```bash
 npm install
 npm run init   # 初回のみ
+npm run doctor # 任意: outputs / 設定 / 権限の診断
 npm run build
 ```
 
 ### サーバー起動
 
 ```bash
-npm start
+# 開発実行
+npm run mcp:dev
+
+# ビルド済み成果物から起動
+npm run mcp:start
+```
+
+### 主要環境変数（追加分）
+
+```bash
+# outputs 配下の保存先ルート
+SF_AI_OUTPUTS_DIR=outputs
+
+# ハンドラーの自動適用を有効化
+SF_AI_AUTO_APPLY=true
+
+# 自動適用時の品質しきい値
+SF_AI_AUTO_APPLY_MIN_SCORE=70
+
+# 1日あたりの自動生成上限
+SF_AI_AUTO_APPLY_MAX_PER_DAY=5
+
+# 1回のガバナンス処理での最大削除数
+SF_AI_AUTO_APPLY_MAX_DELETIONS=3
+
+# EventDispatcher の履歴上限
+EVENT_HISTORY_MAX=1000
+
+# Trace 履歴上限
+TRACE_HISTORY_MAX=500
+
+# Trace 永続化ファイル
+SF_AI_TRACE_FILE=outputs/events/trace-log.jsonl
+
+# Metrics 永続化ファイル
+SF_AI_METRICS_FILE=outputs/events/metrics-samples.jsonl
+
+# Vector Store 保持上限
+SF_AI_VECTOR_MAX_RECORDS=5000
 ```
 
 起動時に実行される処理:
@@ -470,6 +517,37 @@ const result = await auto_select_resources({
 // Phase 5: statistics-manager が統計更新
 ```
 
+### 使用例: metrics_summary
+
+```text
+metrics_summary:
+  limit: 200
+```
+
+- 直近トレースから `successRate`, `errorRate`, `averageDurationMs`, `p95DurationMs` を返します
+
+### 使用例: deployment_plan_generate
+
+```text
+deployment_plan_generate:
+  repoPath: "D:/Projects/mult-agent-ai/salesforce-ai-company"
+  baseBranch: "main"
+  workingBranch: "feature/refactor"
+  targetOrg: "devhub"
+```
+
+- 差分からリスクレベル、推奨デプロイ順序、事前/事後チェック、ロールバックヒントを返します
+
+### 使用例: benchmark_suite
+
+```text
+benchmark_suite:
+  recentTraceLimit: 300
+  scenarios: ["Apex review", "LWC optimization", "Release readiness"]
+```
+
+- 直近メトリクスに基づき総合スコア（A-D）と改善提案を返します
+
 ---
 
 ## 📊 主要メトリクス
@@ -481,7 +559,7 @@ const result = await auto_select_resources({
 - **品質プロファイル**: 3
 - **リスクレベル**: 3
 - **ギャップ深刻度**: 4
-- **テストカバレッジ**: 92 テスト（pass 92 / fail 0）
+- **テスト状況**: 最新の実行手順と確認観点は verification-guide.md を参照
 
 ---
 

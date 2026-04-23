@@ -20,6 +20,7 @@ const records: MemoryRecord[] = [];
 let storageFilePath = process.env.SF_AI_VECTOR_STORE_FILE ?? DEFAULT_VECTOR_STORE_FILE;
 let maxRecords = Number.parseInt(process.env.SF_AI_VECTOR_MAX_RECORDS ?? "5000", 10);
 let maxBytes = Number.parseInt(process.env.SF_AI_VECTOR_MAX_BYTES ?? `${2 * 1024 * 1024}`, 10);
+let warnedLargeStore = false;
 
 function normalizeLimits(): void {
   if (!Number.isFinite(maxRecords) || maxRecords < 10) {
@@ -36,6 +37,21 @@ function applyRetention(): void {
     if (overflow > 0) {
       records.splice(0, overflow);
     }
+  }
+
+  if (records.length > 10000 && !warnedLargeStore) {
+    warnedLargeStore = true;
+    console.warn("[vector-store] records exceed 10000; consider raising storage limits carefully or pruning old entries.");
+  }
+}
+
+function touchRecordById(id: string): void {
+  const index = records.findIndex((r) => r.id === id);
+  if (index <= -1) return;
+  if (index === records.length - 1) return;
+  const [record] = records.splice(index, 1);
+  if (record) {
+    records.push(record);
   }
 }
 
@@ -191,10 +207,23 @@ export function clearRecords(): void {
 }
 
 export function addRecord(record: MemoryRecord): void {
+  const existingIndex = records.findIndex((r) => r.id === record.id);
+  if (existingIndex >= 0) {
+    records.splice(existingIndex, 1);
+  }
+  // LRU: 新規追加・更新を末尾へ移動
   records.push(record);
   saveToDisk();
 }
 
 export function searchByKeyword(query: string): MemoryRecord[] {
-  return embeddingProvider.search(records, query);
+  const results = embeddingProvider.search(records, query);
+  // LRU: 検索ヒットしたレコードを末尾へ移動
+  for (const result of results) {
+    touchRecordById(result.id);
+  }
+  if (results.length > 0) {
+    saveToDisk();
+  }
+  return results;
 }

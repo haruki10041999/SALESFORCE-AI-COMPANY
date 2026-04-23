@@ -4,6 +4,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "baseUrl": ".",
+      "ignoreDeprecations": "5.0",
     "paths": {
       "@mcp/*": ["mcp/*"]
     },

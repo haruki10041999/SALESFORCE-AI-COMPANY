@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { ensureGitRepoAndRefs, runGit, validateRef } from "./git-diff-helpers.js";
 
 export type BranchDiffInput = {
   repoPath: string;
@@ -29,26 +29,6 @@ export type BranchDiffSummary = {
   fileChanges: FileChange[];
   summary: string;
 };
-
-function runGit(repoPath: string, args: string[]): string {
-  try {
-    return execFileSync("git", args, {
-      cwd: repoPath,
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-      maxBuffer: 20 * 1024 * 1024
-    }).trim();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`git command failed (${args.join(" ")}): ${message}`);
-  }
-}
-
-function validateRef(ref: string, fieldName: string): void {
-  if (!ref || ref.startsWith("-") || !/^[A-Za-z0-9._/\-]+$/.test(ref)) {
-    throw new Error(`Invalid ${fieldName}: ${ref}`);
-  }
-}
 
 function resolveBaseBranch(input: BranchDiffInput): string {
   const branch = input.baseBranch ?? input.integrationBranch;
@@ -160,26 +140,9 @@ export function summarizeBranchDiff(input: BranchDiffInput): BranchDiffSummary {
   const baseBranch = resolveBaseBranch(input);
   validateRef(baseBranch, "baseBranch");
   validateRef(workingBranch, "workingBranch");
+  ensureGitRepoAndRefs(repoPath, [baseBranch, workingBranch]);
 
   const comparison = `${baseBranch}...${workingBranch}`;
-
-  try {
-    runGit(repoPath, ["rev-parse", "--is-inside-work-tree"]);
-  } catch {
-    throw new Error(`repoPath is not a git repository: ${repoPath}`);
-  }
-
-  try {
-    runGit(repoPath, ["rev-parse", "--verify", baseBranch]);
-  } catch {
-    throw new Error(`baseBranch not found: ${baseBranch}`);
-  }
-
-  try {
-    runGit(repoPath, ["rev-parse", "--verify", workingBranch]);
-  } catch {
-    throw new Error(`workingBranch not found: ${workingBranch}`);
-  }
 
   const nameStatus = parseNameStatus(runGit(repoPath, ["diff", "--name-status", comparison]));
   const numStat = parseNumStat(runGit(repoPath, ["diff", "--numstat", comparison]));

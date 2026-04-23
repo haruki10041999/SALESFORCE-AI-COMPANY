@@ -400,6 +400,23 @@ test("suggestChangedTests throws for invalid branch names", () => {
   }
 });
 
+test("suggestChangedTests throws for invalid targetOrg", () => {
+  const fixture = setupRepoForAdvancedTools();
+  try {
+    assert.throws(
+      () => suggestChangedTests({
+        repoPath: fixture.repoPath,
+        baseBranch: fixture.baseBranch,
+        workingBranch: fixture.workingBranch,
+        targetOrg: "devOrg;whoami"
+      }),
+      /targetOrg validation failed/
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("summarizeDeploymentImpact includes deletion caution when files are removed", () => {
   const fixture = setupRepoWithDeletionAndNoTests();
   try {
@@ -495,6 +512,23 @@ test("estimateChangedCoverage maps changed classes to likely tests", () => {
     assert.ok(result.recommendedTests.includes("OrderServiceTest"));
     assert.ok(result.runCommand?.includes("--target-org devOrg"));
     assert.ok(["high", "medium", "low", "none"].includes(result.overallCoverageHint));
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("estimateChangedCoverage throws for invalid targetOrg", () => {
+  const fixture = setupRepoForAdvancedTools();
+  try {
+    assert.throws(
+      () => estimateChangedCoverage({
+        repoPath: fixture.repoPath,
+        baseBranch: fixture.baseBranch,
+        workingBranch: fixture.workingBranch,
+        targetOrg: "devOrg;whoami"
+      }),
+      /targetOrg validation failed/
+    );
   } finally {
     fixture.cleanup();
   }

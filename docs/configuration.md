@@ -1,26 +1,37 @@
-# Configuration
+# 設定リファレンス
 
-This document summarizes runtime environment variables.
+ランタイムで参照される環境変数の一覧です。
 
-| Variable | Purpose | Default |
+| 変数名 | 用途 | デフォルト値 |
 |---|---|---|
-| `SF_AI_OUTPUTS_DIR` | Base output directory for events, history, sessions, governance and generated artifacts | `outputs/` |
-| `SF_AI_MEMORY_FILE` | JSONL path for project memory store | `outputs/memory.jsonl` |
-| `SF_AI_VECTOR_STORE_FILE` | JSONL path for vector store persistence | `outputs/vector-store.jsonl` |
-| `LOG_LEVEL` | Logger verbosity (`error`, `warn`, `info`, `debug`) | `info` |
-| `PROMPT_CACHE_MAX_ENTRIES` | Maximum number of prompts to cache in memory | `100` |
-| `PROMPT_CACHE_TTL_SECONDS` | Time-to-live for cached prompts in seconds | `60` |
+| `SF_AI_OUTPUTS_DIR` | イベント・履歴・セッション・ガバナンス・生成物の出力ベースディレクトリ | `outputs/` |
+| `SF_AI_MEMORY_FILE` | プロジェクトメモリストアの JSONL ファイルパス | `outputs/memory.jsonl` |
+| `SF_AI_VECTOR_STORE_FILE` | ベクターストア永続化先の JSONL ファイルパス | `outputs/vector-store.jsonl` |
+| `SF_AI_VECTOR_MAX_RECORDS` | メモリ/ディスク上に保持するベクターレコードの最大件数（LRU） | `5000` |
+| `SF_AI_TRACE_FILE` | トレース履歴の永続化先 JSONL ファイルパス | `outputs/events/trace-log.jsonl` |
+| `SF_AI_METRICS_FILE` | メトリクスサンプルの永続化先 JSONL ファイルパス | `outputs/events/metrics-samples.jsonl` |
+| `LOG_LEVEL` | ログ出力レベル（`error` / `warn` / `info` / `debug`） | `info` |
+| `PROMPT_CACHE_MAX_ENTRIES` | メモリ上にキャッシュするプロンプトの最大件数 | `100` |
+| `PROMPT_CACHE_TTL_SECONDS` | キャッシュエントリの有効期間（秒） | `60` |
+| `SF_AI_AUTO_APPLY` | リソースハンドラー・閾値ハンドラーによる自動 apply を有効化 | `false` |
+| `SF_AI_AUTO_APPLY_MIN_SCORE` | 自動 apply を実行する最低品質スコア（0〜100） | `70` |
+| `SF_AI_AUTO_APPLY_MAX_PER_DAY` | 1日あたりの自動リソース作成上限件数 | `5` |
+| `SF_AI_AUTO_APPLY_MAX_DELETIONS` | 1回の閾値ハンドリングで許可する削除件数の上限 | `3` |
+| `EVENT_HISTORY_MAX` | EventDispatcher がメモリ上に保持するイベントの最大件数 | `1000` |
+| `TRACE_HISTORY_MAX` | メモリ上に保持する完了トレースの最大件数 | `500` |
+| `METRICS_SAMPLES_MAX` | メモリ上に保持するメトリクスサンプルの最大件数 | `2000` |
 
-## Prompt Caching
+## プロンプトキャッシュ
 
-The `buildChatPromptFromContext` function caches built prompts to avoid redundant markdown file I/O. Cache configuration is controlled by two environment variables:
+`buildChatPromptFromContext` は同一入力に対する Markdown ファイルの重複 I/O を避けるため、LRU キャッシュを内蔵しています。
+以下の環境変数で動作を調整できます。
 
-- **`PROMPT_CACHE_MAX_ENTRIES`** (default: `100`): Maximum cache size. When exceeded, the oldest entry is evicted (LRU).
-- **`PROMPT_CACHE_TTL_SECONDS`** (default: `60`): Cache entry lifetime. Expired entries are automatically removed on access.
+- **`PROMPT_CACHE_MAX_ENTRIES`**（デフォルト: `100`）: キャッシュの最大エントリ数。超えた場合は最も古いエントリが追い出されます（LRU）。
+- **`PROMPT_CACHE_TTL_SECONDS`**（デフォルト: `60`）: キャッシュエントリの有効期間。アクセス時に期限切れのエントリは自動削除されます。
 
-This is particularly useful when the same prompt input is requested multiple times in quick succession.
+同じトピック・エージェント・スキルの組み合わせが短時間内に繰り返される場合に特に有効です。
 
-### Example
+### 設定例
 
 ```bash
 SF_AI_OUTPUTS_DIR=/data/sf-ai/outputs \

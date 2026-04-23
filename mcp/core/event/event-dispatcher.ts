@@ -52,14 +52,16 @@ export interface ListenerFailureStat {
 export class EventDispatcher {
   private listeners: Map<SystemEventType, Set<EventListener>> = new Map();
   private eventHistory: SystemEvent[] = [];
-  private maxHistorySize: number = 1000;
+    private maxHistorySize: number;
   private listenerFailures: Map<SystemEventType, Map<EventListener, ListenerFailureState>> = new Map();
 
-  constructor(config?: EventDispatcherConfig) {
-    if (config?.maxListeners) {
-      // 必要に応じて max listeners チェック
+    constructor(config?: EventDispatcherConfig) {
+      const envMax = Number.parseInt(process.env.EVENT_HISTORY_MAX ?? "1000", 10);
+      this.maxHistorySize = Number.isFinite(envMax) && envMax > 0 ? envMax : 1000;
+      if (config?.maxListeners) {
+        // 必要に応じて max listeners チェック
+      }
     }
-  }
 
   /**
    * イベントリスナーを登録

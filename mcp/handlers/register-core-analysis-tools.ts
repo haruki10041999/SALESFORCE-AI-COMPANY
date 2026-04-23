@@ -6,6 +6,9 @@ import { analyzeFlow } from "../tools/flow-analyzer.js";
 import { analyzePermissionSet } from "../tools/permission-set-analyzer.js";
 import { buildDeployCommand } from "../tools/deploy-org.js";
 import { buildTestCommand } from "../tools/run-tests.js";
+import { summarizeMetrics } from "../tools/metrics-summary.js";
+import { generateDeploymentPlan } from "../tools/deployment-plan-generator.js";
+import { runBenchmarkSuite } from "../tools/benchmark-suite.js";
 import type { GovTool } from "@mcp/tool-types.js";
 
 export function registerCoreAnalysisTools(govTool: GovTool): void {
@@ -146,6 +149,74 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
     },
     async ({ filePath }: { filePath: string }) => {
       const result = analyzePermissionSet(filePath);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "metrics_summary",
+    {
+      title: "Metrics Summary",
+      description: "Summarize recent tool execution metrics from trace history.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(1000).optional()
+      }
+    },
+    async ({ limit }: { limit?: number }) => {
+      const result = summarizeMetrics({ limit });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "deployment_plan_generate",
+    {
+      title: "Deployment Plan Generator",
+      description: "Generate deployment order, risk, and rollback hints from branch diff.",
+      inputSchema: {
+        repoPath: z.string(),
+        baseBranch: z.string().optional(),
+        integrationBranch: z.string().optional(),
+        workingBranch: z.string(),
+        targetOrg: z.string().optional()
+      }
+    },
+    async ({ repoPath, baseBranch, integrationBranch, workingBranch, targetOrg }: {
+      repoPath: string;
+      baseBranch?: string;
+      integrationBranch?: string;
+      workingBranch: string;
+      targetOrg?: string;
+    }) => {
+      const result = generateDeploymentPlan({
+        repoPath,
+        baseBranch,
+        integrationBranch,
+        workingBranch,
+        targetOrg
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "benchmark_suite",
+    {
+      title: "Benchmark Suite",
+      description: "Run lightweight benchmark scoring based on recent trace metrics.",
+      inputSchema: {
+        scenarios: z.array(z.string()).optional(),
+        recentTraceLimit: z.number().int().min(1).max(5000).optional()
+      }
+    },
+    async ({ scenarios, recentTraceLimit }: { scenarios?: string[]; recentTraceLimit?: number }) => {
+      const result = runBenchmarkSuite({ scenarios, recentTraceLimit });
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
       };

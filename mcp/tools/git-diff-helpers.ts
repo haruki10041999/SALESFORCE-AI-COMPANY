@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { SafeFilePathSchema, runSchemaValidation } from "../core/quality/resource-validation.js";
 
 export type DiffStatus = "A" | "M" | "D" | "R" | "C" | "T" | "U" | "X" | "B";
 
@@ -11,6 +12,10 @@ export type DiffFile = {
 };
 
 export function runGit(repoPath: string, args: string[]): string {
+  const repoCheck = runSchemaValidation(SafeFilePathSchema, repoPath);
+  if (!repoCheck.success) {
+    throw new Error(`Invalid repoPath: ${repoCheck.errors.join(", ")}`);
+  }
   try {
     return execFileSync("git", args, {
       cwd: repoPath,

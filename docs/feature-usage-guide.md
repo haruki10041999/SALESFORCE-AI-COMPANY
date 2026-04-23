@@ -5,6 +5,11 @@
 このドキュメントは README とは別に、各機能の実行方法と使用例をまとめた実践ガイドです。
 MCP クライアントからそのまま呼べる入力例を中心に記載しています。
 
+関連ドキュメント:
+- README: 全体像とクイックスタート
+- docs/configuration.md: 環境変数一覧
+- verification-guide.md: 検証手順
+
 ---
 
 ## 2. 使い始める前の前提
@@ -16,7 +21,7 @@ npm install
 npm run init   # 初回のみ: outputs/ ディレクトリ構造と governance-state.json を生成
 npm run doctor # 設定/権限/outputs 構造を診断
 npm run build
-npm start
+npm run mcp:dev
 ```
 
 2. 環境変数（任意）
@@ -25,9 +30,12 @@ npm start
 |---|---|---|
 | `SF_AI_OUTPUTS_DIR` | `<root>/outputs` | outputs/ ディレクトリの場所を変更 |
 | `LOG_LEVEL` | `info` | ログ粒度: `error` / `warn` / `info` / `debug` |
+| `SF_AI_AUTO_APPLY` | `false` | resource / threshold handler の自動適用を有効化 |
+| `SF_AI_TRACE_FILE` | `<root>/outputs/events/trace-log.jsonl` | trace 履歴の永続化先 |
+| `SF_AI_METRICS_FILE` | `<root>/outputs/events/metrics-samples.jsonl` | metrics サンプルの永続化先 |
 
 ```bash
-SF_AI_OUTPUTS_DIR=/data/sf-ai/outputs LOG_LEVEL=debug npm start
+SF_AI_OUTPUTS_DIR=/data/sf-ai/outputs LOG_LEVEL=debug npm run mcp:dev
 ```
 
 3. 代表的な入力ルール
@@ -133,6 +141,65 @@ flow_analyze:
 permission_set_analyze:
   filePath: "force-app/main/default/permissionsets/Admin.permissionset-meta.xml"
 ```
+
+### 3.8 metrics_summary
+
+用途:
+- 直近のツール実行トレースから成功率・遅延を集計
+
+入力例:
+
+```text
+metrics_summary:
+  limit: 200
+```
+
+主な出力:
+- activeCount
+- completedCount
+- successRate / errorRate
+- averageDurationMs / p95DurationMs
+- slowest (遅い呼び出し上位)
+
+### 3.9 deployment_plan_generate
+
+用途:
+- ブランチ差分からデプロイ計画（リスク・順序・チェック項目）を生成
+
+入力例:
+
+```text
+deployment_plan_generate:
+  repoPath: "D:/Projects/mult-agent-ai/salesforce-ai-company"
+  baseBranch: "main"
+  workingBranch: "feature/refactor"
+  targetOrg: "devhub"
+```
+
+主な出力:
+- riskLevel
+- recommendedOrder
+- preChecks / postChecks
+- rollbackHints
+
+### 3.10 benchmark_suite
+
+用途:
+- 直近メトリクスを元に簡易ベンチマーク評価を実行
+
+入力例:
+
+```text
+benchmark_suite:
+  recentTraceLimit: 300
+  scenarios: ["Apex review", "LWC optimization", "Release readiness"]
+```
+
+主な出力:
+- overallScore
+- grade (A/B/C/D)
+- metricsSnapshot
+- recommendations
 
 ---
 
