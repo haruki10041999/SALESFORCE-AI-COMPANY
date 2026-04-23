@@ -18,6 +18,7 @@ interface BuildChatPromptInput {
   turns: number;
   maxContextChars?: number;
   appendInstruction?: string;
+  includeProjectContext?: boolean;
 }
 
 export async function buildChatPromptFromContext(
@@ -32,7 +33,8 @@ export async function buildChatPromptFromContext(
     filePaths,
     turns,
     maxContextChars,
-    appendInstruction
+    appendInstruction,
+    includeProjectContext
   } = input;
   const {
     root,
@@ -44,8 +46,11 @@ export async function buildChatPromptFromContext(
 
   const selectedAgents = agentNames.length > 0 ? agentNames : ["product-manager", "architect", "qa-engineer"];
 
+  const shouldIncludeProjectContext = includeProjectContext ?? true;
   const contextDir = join(root, "context");
-  const contextFiles = existsSync(contextDir) ? findMdFilesRecursive(contextDir) : [];
+  const contextFiles = shouldIncludeProjectContext && existsSync(contextDir)
+    ? findMdFilesRecursive(contextDir)
+    : [];
 
   const totalItems = filePaths.length + selectedAgents.length + skillNames.length + (personaName ? 1 : 0) + contextFiles.length;
   const perItemBudget = maxContextChars && totalItems > 0

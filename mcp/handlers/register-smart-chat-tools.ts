@@ -1,4 +1,5 @@
 import { existsSync } from "fs";
+import { resolve } from "path";
 import { z } from "zod";
 import { analyzeRepo } from "../tools/repo-analyzer.js";
 
@@ -16,8 +17,15 @@ interface RegisterSmartChatToolsDeps {
     filePaths?: string[],
     maxFiles?: number,
     maxContextChars?: number,
-    appendInstruction?: string
+    appendInstruction?: string,
+    includeProjectContext?: boolean
   ) => Promise<string>;
+}
+
+function extractExistingFilePathsFromTopic(topic: string): string[] {
+  const matches = topic.match(/[A-Za-z]:\/[\w\-./]+\.[A-Za-z0-9]+|\.?\.\/?[\w\-./]+\.[A-Za-z0-9]+/g) ?? [];
+  const unique = Array.from(new Set(matches.map((v) => v.replace(/\\/g, "/"))));
+  return unique.filter((candidate) => existsSync(candidate));
 }
 
 export function registerSmartChatTools(deps: RegisterSmartChatToolsDeps): void {
@@ -47,9 +55,15 @@ export function registerSmartChatTools(deps: RegisterSmartChatToolsDeps): void {
       maxContextChars?: number;
       appendInstruction?: string;
     }) => {
-      const targetPath = repoPath ?? root;
+      const targetPath = resolve(repoPath ?? root);
+      const includeProjectContext = resolve(root) === targetPath;
       let autoFilePaths: string[] = [];
       const { enabled: enabledSkills } = await filterDisabledSkills(skills ?? []);
+
+      const topicFilePaths = extractExistingFilePathsFromTopic(topic);
+      if (topicFilePaths.length > 0) {
+        autoFilePaths = topicFilePaths;
+      }
 
       try {
         const repoAnalysis = analyzeRepo(targetPath);
@@ -58,7 +72,8 @@ export function registerSmartChatTools(deps: RegisterSmartChatToolsDeps): void {
           ...(repoAnalysis.lwc?.slice(0, 1) ?? []),
           ...(repoAnalysis.objects?.slice(0, 1) ?? [])
         ];
-        autoFilePaths = candidates.filter((pathValue) => pathValue && existsSync(pathValue));
+        const analyzedPaths = candidates.filter((pathValue) => pathValue && existsSync(pathValue));
+        autoFilePaths = Array.from(new Set([...autoFilePaths, ...analyzedPaths]));
       } catch {
         // repo_analyze 失敗時は空配列で続行
       }
@@ -71,14 +86,21 @@ export function registerSmartChatTools(deps: RegisterSmartChatToolsDeps): void {
         autoFilePaths,
         6,
         maxContextChars,
-        appendInstruction
+        appendInstruction,
+        includeProjectContext
       );
 
       return {
         content: [
           {
             type: "text",
-            text: "【自動検出ファイル】\n" + (autoFilePaths.length > 0 ? autoFilePaths.join("\n") : "(なし)") + "\n\n" + prompt
+            text:
+              "【対象リポジトリ】\n" +
+              targetPath +
+              "\n\n【自動検出ファイル】\n" +
+              (autoFilePaths.length > 0 ? autoFilePaths.join("\n") : "(なし)") +
+              "\n\n" +
+              prompt
           }
         ]
       };

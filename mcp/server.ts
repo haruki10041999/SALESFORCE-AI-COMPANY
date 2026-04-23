@@ -124,7 +124,8 @@ async function buildChatPrompt(
   filePaths: string[],
   turns: number,
   maxContextChars?: number,
-  appendInstruction?: string
+  appendInstruction?: string,
+  includeProjectContext?: boolean
 ): Promise<string> {
   return buildChatPromptFromContext(
     {
@@ -135,7 +136,8 @@ async function buildChatPrompt(
       filePaths,
       turns,
       maxContextChars,
-      appendInstruction
+      appendInstruction,
+      includeProjectContext
     },
     {
       root: ROOT,
@@ -155,7 +157,8 @@ async function buildChatPromptCompat(
   filePaths?: string[],
   turns?: number,
   maxContextChars?: number,
-  appendInstruction?: string
+  appendInstruction?: string,
+  includeProjectContext?: boolean
 ): Promise<string> {
   return buildChatPrompt(
     topic,
@@ -165,7 +168,8 @@ async function buildChatPromptCompat(
     filePaths ?? [],
     turns ?? 6,
     maxContextChars,
-    appendInstruction
+    appendInstruction,
+    includeProjectContext
   );
 }
 
