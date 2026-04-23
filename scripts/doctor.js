@@ -21,6 +21,7 @@ const REQUIRED_DIRS = [
   "presets",
   "sessions",
   "events",
+  "audit",
   "tool-proposals",
   "custom-tools"
 ];

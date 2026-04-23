@@ -9,7 +9,10 @@
 | ファイル | 内容 |
 |---|---|
 | [README.md](../README.md) | プロジェクト概要・アーキテクチャ・クイックスタート |
+| [docs/architecture.md](./architecture.md) | レイヤ構成・主要フロー・非機能観点の要約 |
 | [docs/configuration.md](./configuration.md) | 環境変数の全一覧とデフォルト値 |
+| [docs/outputs-structure.md](./outputs-structure.md) | outputs 配下の保存先構成と運用ルール |
+| [docs/metrics-evaluation.md](./metrics-evaluation.md) | 指標の算出式・評価基準・しきい値 |
 | [verification-guide.md](../verification-guide.md) | ビルド・テスト・手動検証の手順 |
 
 ---

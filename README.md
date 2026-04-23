@@ -8,9 +8,16 @@
 
 - 全体像とセットアップ: README
 - ドキュメント索引: docs/documentation-map.md
+- 設計概要: docs/architecture.md
 - 環境変数一覧: docs/configuration.md
+- outputs 構成: docs/outputs-structure.md
+- 指標評価方法: docs/metrics-evaluation.md
 - ツール利用例: docs/feature-usage-guide.md
 - 検証手順: verification-guide.md
+- 変更履歴: CHANGELOG.md
+- メトリクス集計: npm run metrics:report
+- メトリクス可視化HTML生成: npm run metrics:dashboard
+- GitHub定期公開: .github/workflows/metrics-dashboard-publish.yml
 
 ### 7フェーズ進化
 

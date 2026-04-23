@@ -25,6 +25,7 @@ const SUBDIRS = [
   "presets",
   "sessions",
   "events",
+  "audit",
   "tool-proposals",
   "custom-tools",
 ];

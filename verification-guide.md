@@ -33,6 +33,18 @@ npm run typecheck
 # テスト実行（全件）
 npm test
 
+# outputs 健全性チェック
+npm run doctor
+
+# metrics サマリー
+npm run metrics:report -- --top 10
+
+# metrics ダッシュボード生成
+npm run metrics:dashboard
+
+# outputs クリーンアップ（事前確認）
+npm run outputs:cleanup -- --dry-run
+
 # テスト実行（個別）
 node --test --import tsx --import ./tests/_setup.ts tests/server-tools.integration.test.ts
 ```
