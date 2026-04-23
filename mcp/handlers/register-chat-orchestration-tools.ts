@@ -61,6 +61,7 @@ interface RegisterChatOrchestrationToolsDeps {
   ) => { nextAgents: string[]; fired: string[]; reasons: string[] };
   orchestrationSessions: Map<string, OrchestrationSession>;
   saveOrchestrationSession: (sessionId: string) => Promise<{ sessionId: string; filePath: string; historyCount: number } | null>;
+  saveSessionHistory: (topic: string, entries: AgentMessage[]) => Promise<string>;
   restoreOrchestrationSession: (sessionId: string) => Promise<OrchestrationSession | null>;
   sessionsDir: string;
   readDir: (path: string) => Promise<string[]>;
@@ -80,6 +81,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     evaluatePseudoHooks,
     orchestrationSessions,
     saveOrchestrationSession,
+    saveSessionHistory,
     restoreOrchestrationSession,
     sessionsDir,
     readDir,
@@ -317,12 +319,19 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
       }
 
       if (session.queue.length === 0) {
+        const savedSession = await saveOrchestrationSession(sessionId);
+        const savedHistoryId = session.history.length > 0
+          ? await saveSessionHistory(session.topic, session.history)
+          : null;
+
         await emitSystemEvent("session_end", {
           sessionId,
           topic: session.topic,
           reason: "queue-empty",
           historyCount: session.history.length,
-          firedRuleCount: session.firedRules.length
+          firedRuleCount: session.firedRules.length,
+          autoSavedSessionPath: savedSession?.filePath ?? null,
+          autoSavedHistoryId: savedHistoryId
         });
       }
 

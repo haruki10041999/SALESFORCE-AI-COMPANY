@@ -432,6 +432,10 @@ async function runChatTool({
 const HISTORY_DIR = join(ROOT, "outputs", "history");
 const PRESETS_DIR = join(ROOT, "outputs", "presets");
 const SESSIONS_DIR = join(ROOT, "outputs", "sessions");
+const HISTORY_RETENTION_DAYS = 30;
+const HISTORY_MAX_FILES = 200;
+const SESSION_RETENTION_DAYS = 30;
+const SESSION_MAX_FILES = 200;
 
 async function ensureDir(dir: string): Promise<void> {
   if (!existsSync(dir)) {
@@ -440,10 +444,12 @@ async function ensureDir(dir: string): Promise<void> {
 }
 
 const { createPreset, listPresetsData, getPreset } = createPresetStore({ presetsDir: PRESETS_DIR, ensureDir });
-const { saveChatHistory, loadChatHistories, restoreChatHistory } = createHistoryStore({
+const { saveChatHistory, saveSessionHistory, loadChatHistories, restoreChatHistory } = createHistoryStore({
   historyDir: HISTORY_DIR,
   ensureDir,
-  agentLog
+  agentLog,
+  maxHistoryFiles: HISTORY_MAX_FILES,
+  retentionDays: HISTORY_RETENTION_DAYS
 });
 const { saveOrchestrationSession, restoreOrchestrationSession } = createOrchestrationSessionStore<OrchestrationSession>({
   sessionsDir: SESSIONS_DIR,
@@ -452,7 +458,9 @@ const { saveOrchestrationSession, restoreOrchestrationSession } = createOrchestr
   setSession: (session: OrchestrationSession) => {
     orchestrationSessions.set(session.id, session);
   },
-  toRelativePosixPath: (absoluteFilePath: string) => toPosixPath(relative(ROOT, absoluteFilePath))
+  toRelativePosixPath: (absoluteFilePath: string) => toPosixPath(relative(ROOT, absoluteFilePath)),
+  maxSessionFiles: SESSION_MAX_FILES,
+  retentionDays: SESSION_RETENTION_DAYS
 });
 
 // ============================================================
@@ -745,6 +753,7 @@ function registerAllTools(): void {
     evaluatePseudoHooks,
     orchestrationSessions,
     saveOrchestrationSession,
+    saveSessionHistory,
     restoreOrchestrationSession,
     sessionsDir: join(ROOT, "outputs", "sessions"),
     readDir: (path: string) => fsPromises.readdir(path),
@@ -758,7 +767,9 @@ function registerAllTools(): void {
     loadGovernanceState,
     saveGovernanceState,
     buildDefaultGovernanceState,
-    normalizeProtectedTools
+    normalizeProtectedTools,
+    saveChatHistory,
+    emitSystemEvent: emitSystemEventCompat
   });
 
   registerHistoryTools({

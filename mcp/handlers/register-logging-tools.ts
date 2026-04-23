@@ -17,6 +17,8 @@ interface RegisterLoggingToolsDeps {
   saveGovernanceState: (state: any) => Promise<void>;
   buildDefaultGovernanceState: () => any;
   normalizeProtectedTools: (names: string[]) => string[];
+  saveChatHistory?: (topic: string) => Promise<string>;
+  emitSystemEvent?: (event: string, payload: Record<string, unknown>) => Promise<void>;
 }
 
 export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
@@ -27,7 +29,9 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
     loadGovernanceState,
     saveGovernanceState,
     buildDefaultGovernanceState,
-    normalizeProtectedTools
+    normalizeProtectedTools,
+    saveChatHistory,
+    emitSystemEvent
   } = deps;
 
   govTool(
@@ -123,6 +127,20 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
 
       agentLog.push(...parsed);
       const uniqueAgents = [...new Set(parsed.map((p) => p.agent))];
+      let autoSavedHistoryId: string | null = null;
+
+      if (topic && saveChatHistory) {
+        autoSavedHistoryId = await saveChatHistory(topic);
+        if (emitSystemEvent) {
+          await emitSystemEvent("history_saved", {
+            historyId: autoSavedHistoryId,
+            topic,
+            messageCount: parsed.length,
+            path: "outputs/history/" + autoSavedHistoryId + ".json",
+            source: "parse_and_record_chat:auto-save"
+          });
+        }
+      }
 
       return {
         content: [
@@ -133,7 +151,8 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
                 recorded: parsed.length,
                 topic: topic ?? null,
                 agents: uniqueAgents,
-                totalLogCount: agentLog.length
+                totalLogCount: agentLog.length,
+                autoSavedHistoryId
               },
               null,
               2
