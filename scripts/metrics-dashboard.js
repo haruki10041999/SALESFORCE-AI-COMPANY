@@ -19,11 +19,13 @@ const DEFAULT_INPUT = process.env.SF_AI_METRICS_FILE
   ? resolve(process.env.SF_AI_METRICS_FILE)
   : join(ROOT, "outputs", "events", "metrics-samples.jsonl");
 const DEFAULT_OUTPUT = join(ROOT, "outputs", "reports", "metrics-dashboard.html");
+const DEFAULT_SNAPSHOT = join(ROOT, "docs", "metrics-snapshot.json");
 
 function parseArgs(argv) {
   const options = {
     input: DEFAULT_INPUT,
     output: DEFAULT_OUTPUT,
+    snapshot: "",
     top: 10,
     days: 7
   };
@@ -46,6 +48,11 @@ function parseArgs(argv) {
       i += 1;
       continue;
     }
+    if (token === "--snapshot" && argv[i + 1]) {
+      options.snapshot = resolve(argv[i + 1]);
+      i += 1;
+      continue;
+    }
     if (token === "--days" && argv[i + 1]) {
       const parsed = Number.parseInt(argv[i + 1], 10);
       if (Number.isFinite(parsed) && parsed > 0) options.days = Math.min(parsed, 90);
@@ -55,6 +62,30 @@ function parseArgs(argv) {
   }
 
   return options;
+}
+
+function isValidSummary(summary) {
+  return Boolean(
+    summary &&
+    typeof summary.totalCalls === "number" &&
+    typeof summary.totalErrors === "number" &&
+    typeof summary.successRate === "number" &&
+    typeof summary.p95Ms === "number" &&
+    Array.isArray(summary.perTool) &&
+    Array.isArray(summary.trend)
+  );
+}
+
+function loadSummaryFromSnapshot(snapshotPath) {
+  const target = snapshotPath || DEFAULT_SNAPSHOT;
+  if (!existsSync(target)) {
+    throw new Error(`snapshot file not found: ${target}`);
+  }
+  const raw = JSON.parse(readFileSync(target, "utf-8"));
+  if (!isValidSummary(raw?.summary)) {
+    throw new Error(`invalid snapshot format: ${target}`);
+  }
+  return { summary: raw.summary, sourcePath: target };
 }
 
 function percentile(sorted, p) {
@@ -269,9 +300,13 @@ table{width:100%;border-collapse:collapse} th,td{padding:8px;border-bottom:1px s
 
 function main() {
   const options = parseArgs(process.argv.slice(2));
-  const samples = readSamples(options.input);
-  const summary = buildSummary(samples, options.top, options.days);
-  const html = renderHtml(summary, options.input);
+  const { summary, sourcePath } = options.snapshot
+    ? loadSummaryFromSnapshot(options.snapshot)
+    : (() => {
+      const samples = readSamples(options.input);
+      return { summary: buildSummary(samples, options.top, options.days), sourcePath: options.input };
+    })();
+  const html = renderHtml(summary, sourcePath);
 
   mkdirSync(dirname(options.output), { recursive: true });
   writeFileSync(options.output, html, "utf-8");

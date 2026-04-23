@@ -94,6 +94,9 @@
   - npm run doctor
 - メトリクス要約:
   - npm run metrics:report
+- メトリクス公開スナップショット生成:
+  - npm run metrics:snapshot
+  - 出力先: docs/metrics-snapshot.json
 - メトリクスサンプル生成（CI/ローカル検証用）:
   - npm run metrics:seed
   - npm run metrics:seed -- --days 30 --records-per-day 20 --reset
@@ -111,11 +114,14 @@
   - MCP サーバを起動し、いくつかツールを実行して metrics を蓄積
 2. 要約確認
   - npm run metrics:report -- --top 10
-3. ダッシュボード生成
-  - npm run metrics:dashboard
-4. ブラウザ確認
+3. 公開スナップショット更新
+  - npm run metrics:snapshot
+  - docs/metrics-snapshot.json をコミット
+4. ダッシュボード生成
+  - npm run metrics:dashboard -- --snapshot docs/metrics-snapshot.json
+5. ブラウザ確認
   - outputs/reports/metrics-dashboard.html を開いて確認
-5. 運用時チェック
+6. 運用時チェック
   - success rate 低下、p95 増加、error 増加のツールを優先調査
 
 ## GitHub での公開と定期更新
@@ -131,7 +137,8 @@
 
 注意:
 - GitHub Actions はローカル PC の metrics ファイルを参照できません。
-- そのため公開ワークフローでは `metrics:seed` で入力データを生成してからダッシュボードを作成します。
+- 公開ワークフローはリポジトリにコミットされた `docs/metrics-snapshot.json` を入力として使用します。
+- ローカル実測値を反映するには、`metrics:snapshot` 実行後に snapshot ファイルをコミットしてください。
 
 ## 保持期間の推奨値
 

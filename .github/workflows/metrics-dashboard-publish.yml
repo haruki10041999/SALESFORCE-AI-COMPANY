@@ -7,10 +7,10 @@ on:
     paths:
       - scripts/metrics-dashboard.js
       - scripts/metrics-report.js
-      - scripts/seed-metrics.js
+      - scripts/metrics-snapshot.js
       - docs/metrics-evaluation.md
+      - docs/metrics-snapshot.json
       - package.json
-      - outputs/events/metrics-samples.jsonl
   schedule:
     - cron: "0 1 * * *"
   workflow_dispatch:
@@ -42,18 +42,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Seed metrics data for CI dashboard
-        run: npm run metrics:seed -- --days 30 --records-per-day 20 --reset
-
-      - name: Validate metrics input exists
+      - name: Validate metrics snapshot exists
         run: |
-          if [ ! -s outputs/events/metrics-samples.jsonl ]; then
-            echo "::error title=Metrics source missing::outputs/events/metrics-samples.jsonl is missing or empty."
+          if [ ! -s docs/metrics-snapshot.json ]; then
+            echo "::error title=Metrics snapshot missing::docs/metrics-snapshot.json is missing or empty."
             exit 1
           fi
 
       - name: Generate metrics dashboard
-        run: npm run metrics:dashboard -- --days 30 --top 15
+        run: npm run metrics:dashboard -- --snapshot docs/metrics-snapshot.json
 
       - name: Prepare pages artifact
         run: |
@@ -77,4 +74,4 @@ jobs:
           echo "## Metrics Dashboard Published" >> "$GITHUB_STEP_SUMMARY"
           echo "- URL: ${{ steps.deployment.outputs.page_url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Source: outputs/reports/metrics-dashboard.html" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Metrics input: outputs/events/metrics-samples.jsonl (seeded in CI)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Metrics input: docs/metrics-snapshot.json (committed snapshot)" >> "$GITHUB_STEP_SUMMARY"

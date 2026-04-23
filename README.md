@@ -16,6 +16,7 @@
 - 検証手順: verification-guide.md
 - 変更履歴: CHANGELOG.md
 - メトリクス集計: npm run metrics:report
+- メトリクス公開スナップショット生成: npm run metrics:snapshot
 - メトリクス可視化HTML生成: npm run metrics:dashboard
 - GitHub定期公開: .github/workflows/metrics-dashboard-publish.yml
 
