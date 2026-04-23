@@ -137,7 +137,7 @@ export function normalizeProtectedTools(names: string[], defaultProtectedTools: 
 export function buildDefaultGovernanceState(defaultProtectedTools: string[]): GovernanceState {
   return {
     config: {
-      maxCounts: { skills: 30, tools: 40, presets: 20 },
+      maxCounts: { skills: 150, tools: 150, presets: 150 },
       thresholds: { minUsageToKeep: 2, bugSignalToFlag: 2 },
       resourceLimits: { creationsPerDay: 5, deletionsPerDay: 3 },
       toolExecution: {

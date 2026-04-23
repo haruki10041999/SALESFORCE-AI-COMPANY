@@ -126,6 +126,19 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
     };
   }
 
+  function duplicateEntries(values: string[]): string[] {
+    const seen = new Set<string>();
+    const duplicates = new Set<string>();
+    for (const value of values) {
+      if (seen.has(value)) {
+        duplicates.add(value);
+      } else {
+        seen.add(value);
+      }
+    }
+    return [...duplicates].sort();
+  }
+
   govTool(
     "health_check",
     {
@@ -142,6 +155,37 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
       const governanceState = await loadGovernanceState();
       const dashboard = generateHandlersDashboard(handlersState);
       const eventLogs = await getSystemEventLogStatus();
+      const duplicateDisabledSkills = duplicateEntries(governanceState.disabled.skills);
+      const duplicateDisabledTools = duplicateEntries(governanceState.disabled.tools);
+      const duplicateDisabledPresets = duplicateEntries(governanceState.disabled.presets);
+      const duplicateProtectedTools = duplicateEntries(governanceState.config.eventAutomation.protectedTools);
+
+      const governanceValidation = {
+        duplicateEntries: {
+          disabledSkills: duplicateDisabledSkills,
+          disabledTools: duplicateDisabledTools,
+          disabledPresets: duplicateDisabledPresets,
+          protectedTools: duplicateProtectedTools
+        },
+        configSanity: {
+          maxCountsPositive:
+            governanceState.config.maxCounts.skills > 0 &&
+            governanceState.config.maxCounts.tools > 0 &&
+            governanceState.config.maxCounts.presets > 0,
+          retryWindowValid:
+            governanceState.config.toolExecution.baseDelayMs > 0 &&
+            governanceState.config.toolExecution.maxDelayMs >= governanceState.config.toolExecution.baseDelayMs,
+          thresholdsNonNegative:
+            governanceState.config.thresholds.minUsageToKeep >= 0 &&
+            governanceState.config.thresholds.bugSignalToFlag >= 0
+        }
+      };
+      const governanceWarnings = [
+        ...duplicateDisabledSkills.map((name) => `disabled.skills duplicate: ${name}`),
+        ...duplicateDisabledTools.map((name) => `disabled.tools duplicate: ${name}`),
+        ...duplicateDisabledPresets.map((name) => `disabled.presets duplicate: ${name}`),
+        ...duplicateProtectedTools.map((name) => `protectedTools duplicate: ${name}`)
+      ];
 
       return {
         content: [
@@ -161,6 +205,8 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
                   tools: governanceState.disabled.tools.length,
                   presets: governanceState.disabled.presets.length
                 },
+                governanceValidation,
+                governanceWarnings,
                 eventLogs,
                 handlers: dashboard
               },

@@ -1,0 +1,157 @@
+name: PR Readiness Report
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      baseBranch:
+        description: "Comparison base branch"
+        required: false
+        default: "main"
+      workingBranch:
+        description: "Comparison working branch"
+        required: false
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  pr-readiness-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate PR readiness reports (JSON/JUnit/SARIF)
+        shell: bash
+        env:
+          BASE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.baseBranch || github.base_ref || 'main' }}
+          WORKING_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.workingBranch || github.head_ref || github.ref_name }}
+        run: |
+          mkdir -p outputs/ci
+          node --import tsx --input-type=module -e "
+          import { writeFileSync } from 'node:fs';
+          import { checkPrReadiness } from './mcp/tools/pr-readiness-check.ts';
+
+          const repoPath = process.cwd();
+          const baseBranch = process.env.BASE_BRANCH;
+          const workingBranch = process.env.WORKING_BRANCH;
+
+          if (!baseBranch || !workingBranch) {
+            throw new Error('BASE_BRANCH and WORKING_BRANCH are required.');
+          }
+
+          const result = checkPrReadiness({ repoPath, baseBranch, workingBranch });
+
+          const escapeXml = (value) => value
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&apos;');
+
+          const failures = result.checklist.filter((item) => item.status !== 'pass');
+          const testCases = result.checklist.map((item) => {
+            if (item.status === 'pass') {
+              return `    <testcase name=\"${escapeXml(item.id)}\" classname=\"pr_readiness\"/>`;
+            }
+            return [
+              `    <testcase name=\"${escapeXml(item.id)}\" classname=\"pr_readiness\">`,
+              `      <failure message=\"${escapeXml(item.title)}\">${escapeXml(item.detail)}</failure>`,
+              '    </testcase>'
+            ].join('\n');
+          }).join('\n');
+
+          const junit = [
+            '<?xml version=\"1.0\" encoding=\"UTF-8\"?>',
+            `<testsuite name=\"pr_readiness_check\" tests=\"${result.checklist.length}\" failures=\"${failures.length}\">`,
+            `  <properties><property name=\"comparison\" value=\"${escapeXml(result.comparison)}\"/><property name=\"gate\" value=\"${result.gate}\"/></properties>`,
+            testCases,
+            '</testsuite>'
+          ].join('\n');
+
+          const sarif = {
+            version: '2.1.0',
+            $schema: 'https://json.schemastore.org/sarif-2.1.0.json',
+            runs: [
+              {
+                tool: {
+                  driver: {
+                    name: 'salesforce-ai-company/pr_readiness_check',
+                    informationUri: 'https://github.com',
+                    rules: result.checklist.map((item) => ({
+                      id: `pr-${item.id}`,
+                      shortDescription: { text: item.title },
+                      defaultConfiguration: {
+                        level: item.status === 'fail' ? 'error' : item.status === 'warning' ? 'warning' : 'note'
+                      }
+                    }))
+                  }
+                },
+                invocations: [
+                  {
+                    executionSuccessful: true,
+                    properties: {
+                      comparison: result.comparison,
+                      gate: result.gate
+                    }
+                  }
+                ],
+                results: result.checklist
+                  .filter((item) => item.status !== 'pass')
+                  .map((item) => ({
+                    ruleId: `pr-${item.id}`,
+                    level: item.status === 'fail' ? 'error' : 'warning',
+                    message: { text: `${item.title}: ${item.detail}` }
+                  }))
+              }
+            ]
+          };
+
+          writeFileSync('outputs/ci/pr-readiness.json', JSON.stringify(result, null, 2), 'utf-8');
+          writeFileSync('outputs/ci/pr-readiness.junit.xml', junit, 'utf-8');
+          writeFileSync('outputs/ci/pr-readiness.sarif', JSON.stringify(sarif, null, 2), 'utf-8');
+
+          const summary = [
+            '## PR Readiness Report',
+            `- comparison: ${result.comparison}`,
+            `- gate: ${result.gate}`,
+            `- score: ${result.score}/${result.maxScore}`,
+            `- blocked: ${result.blockedReasons.length}`,
+            `- needsReview: ${result.needsReviewReasons.length}`
+          ].join('\n');
+          process.stdout.write(`${summary}\n`);
+          " | tee readiness-summary.md
+
+          cat readiness-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload readiness artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-readiness-report
+          path: |
+            outputs/ci/pr-readiness.json
+            outputs/ci/pr-readiness.junit.xml
+            outputs/ci/pr-readiness.sarif
+          if-no-files-found: error
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: outputs/ci/pr-readiness.sarif

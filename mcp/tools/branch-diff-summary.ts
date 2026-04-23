@@ -2,7 +2,8 @@ import { execFileSync } from "node:child_process";
 
 export type BranchDiffInput = {
   repoPath: string;
-  integrationBranch: string;
+  baseBranch?: string;
+  integrationBranch?: string;
   workingBranch: string;
   maxFiles?: number;
 };
@@ -47,6 +48,14 @@ function validateRef(ref: string, fieldName: string): void {
   if (!ref || ref.startsWith("-") || !/^[A-Za-z0-9._/\-]+$/.test(ref)) {
     throw new Error(`Invalid ${fieldName}: ${ref}`);
   }
+}
+
+function resolveBaseBranch(input: BranchDiffInput): string {
+  const branch = input.baseBranch ?? input.integrationBranch;
+  if (!branch) {
+    throw new Error("baseBranch is required");
+  }
+  return branch;
 }
 
 function statusToKey(status: FileChange["status"]): "added" | "modified" | "deleted" | "renamed" | "copied" {
@@ -147,11 +156,12 @@ function parseTouchedSymbolsByFile(output: string): Map<string, string[]> {
 }
 
 export function summarizeBranchDiff(input: BranchDiffInput): BranchDiffSummary {
-  const { repoPath, integrationBranch, workingBranch, maxFiles = 20 } = input;
-  validateRef(integrationBranch, "integrationBranch");
+  const { repoPath, workingBranch, maxFiles = 20 } = input;
+  const baseBranch = resolveBaseBranch(input);
+  validateRef(baseBranch, "baseBranch");
   validateRef(workingBranch, "workingBranch");
 
-  const comparison = `${integrationBranch}...${workingBranch}`;
+  const comparison = `${baseBranch}...${workingBranch}`;
 
   try {
     runGit(repoPath, ["rev-parse", "--is-inside-work-tree"]);
@@ -160,9 +170,9 @@ export function summarizeBranchDiff(input: BranchDiffInput): BranchDiffSummary {
   }
 
   try {
-    runGit(repoPath, ["rev-parse", "--verify", integrationBranch]);
+    runGit(repoPath, ["rev-parse", "--verify", baseBranch]);
   } catch {
-    throw new Error(`integrationBranch not found: ${integrationBranch}`);
+    throw new Error(`baseBranch not found: ${baseBranch}`);
   }
 
   try {

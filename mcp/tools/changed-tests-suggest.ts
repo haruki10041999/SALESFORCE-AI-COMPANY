@@ -2,7 +2,8 @@ import { ensureGitRepoAndRefs, getDiffFiles, unique, validateRef } from "./git-d
 
 export type ChangedTestsSuggestInput = {
   repoPath: string;
-  integrationBranch: string;
+  baseBranch?: string;
+  integrationBranch?: string;
   workingBranch: string;
   targetOrg?: string;
 };
@@ -27,12 +28,16 @@ function classNameFromPath(path: string): string | null {
 }
 
 export function suggestChangedTests(input: ChangedTestsSuggestInput): ChangedTestsSuggestResult {
-  const { repoPath, integrationBranch, workingBranch, targetOrg } = input;
-  validateRef(integrationBranch, "integrationBranch");
+  const { repoPath, workingBranch, targetOrg } = input;
+  const baseBranch = input.baseBranch ?? input.integrationBranch;
+  if (!baseBranch) {
+    throw new Error("baseBranch is required");
+  }
+  validateRef(baseBranch, "baseBranch");
   validateRef(workingBranch, "workingBranch");
-  ensureGitRepoAndRefs(repoPath, [integrationBranch, workingBranch]);
+  ensureGitRepoAndRefs(repoPath, [baseBranch, workingBranch]);
 
-  const comparison = `${integrationBranch}...${workingBranch}`;
+  const comparison = `${baseBranch}...${workingBranch}`;
   const files = getDiffFiles(repoPath, comparison).filter((f) => f.status !== "D");
 
   const changedSourceFiles = files

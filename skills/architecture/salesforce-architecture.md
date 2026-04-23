@@ -1,4 +1,4 @@
-﻿# Salesforce Architecture
+﻿# セールスフォースアーキテクチャ
 
 ## 概要
 Salesforce 実装を拡張可能・監査可能・運用可能にするためのアーキテクチャ指針。
@@ -13,7 +13,7 @@ Salesforce 実装を拡張可能・監査可能・運用可能にするための
 - 同期処理は短く、重処理は非同期化
 - 外部連携は境界（Facade）を明示して隔離
 
-## Salesforce 固有の制約・数値
+## プラットフォーム固有の制約・数値
 - 同期 CPU 10,000ms を超える処理は Queueable/Batch を検討
 - LDV（500万件以上）では選択性とアーカイブ戦略が必須
 - Platform Event / CDC / Outbound Message の使い分けを明確化

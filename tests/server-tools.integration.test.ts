@@ -38,12 +38,16 @@ test("server exposes expected core tool registrations", () => {
   for (const required of [
     "deploy_org",
     "run_tests",
+    "flow_analyze",
+    "permission_set_analyze",
     "list_agents",
     "chat",
     "pr_readiness_check",
     "security_delta_scan",
     "deployment_impact_summary",
     "changed_tests_suggest",
+    "coverage_estimate",
+    "metadata_dependency_graph",
     "save_orchestration_session",
     "restore_orchestration_session",
     "list_orchestration_sessions",
@@ -84,6 +88,29 @@ test("run_tests returns Apex test command text", async () => {
 
   assert.ok(text.includes("sf apex run test"));
   assert.ok(text.includes("--target-org qa-org"));
+});
+
+test("apply_resource_actions writes audit trail metadata", async () => {
+  const result = await callTool("apply_resource_actions", {
+    dryRun: true,
+    actions: [
+      {
+        resourceType: "tools",
+        action: "disable",
+        name: "run_tests"
+      }
+    ]
+  });
+
+  const payload = JSON.parse(result.content[0].text) as {
+    auditFile?: string;
+  };
+
+  assert.equal(typeof payload.auditFile, "string");
+  const expectedAuditPath = join(serverTestOutputsDir, "audit", "resource-actions.jsonl");
+  assert.ok(existsSync(expectedAuditPath));
+  const content = readFileSync(expectedAuditPath, "utf-8");
+  assert.ok(content.includes("apply_resource_actions"));
 });
 
 test("list_agents returns JSON array with name and summary", async () => {
@@ -127,6 +154,20 @@ test("health_check returns operational summary", async () => {
       archiveTotalSizeBytes: number;
       archives: Array<{ file: string; sizeBytes: number; modifiedAt: string }>;
     };
+    governanceValidation?: {
+      duplicateEntries: {
+        disabledSkills: string[];
+        disabledTools: string[];
+        disabledPresets: string[];
+        protectedTools: string[];
+      };
+      configSanity: {
+        maxCountsPositive: boolean;
+        retryWindowValid: boolean;
+        thresholdsNonNegative: boolean;
+      };
+    };
+    governanceWarnings?: string[];
   };
 
   assert.equal(payload.status, "ok");
@@ -136,6 +177,9 @@ test("health_check returns operational summary", async () => {
   assert.equal(typeof payload.eventLogs.activeLogExists, "boolean");
   assert.equal(typeof payload.eventLogs.archiveCount, "number");
   assert.ok(Array.isArray(payload.eventLogs.archives));
+  assert.ok(payload.governanceValidation);
+  assert.equal(typeof payload.governanceValidation?.configSanity.maxCountsPositive, "boolean");
+  assert.ok(Array.isArray(payload.governanceWarnings));
 });
 
 test("chat returns prompt skeleton containing topic section", async () => {

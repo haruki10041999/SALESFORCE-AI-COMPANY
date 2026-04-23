@@ -2,7 +2,8 @@ import { ensureGitRepoAndRefs, getDiffFiles, validateRef } from "./git-diff-help
 
 export type DeploymentImpactInput = {
   repoPath: string;
-  integrationBranch: string;
+  baseBranch?: string;
+  integrationBranch?: string;
   workingBranch: string;
 };
 
@@ -30,12 +31,16 @@ function metadataType(path: string): string {
 }
 
 export function summarizeDeploymentImpact(input: DeploymentImpactInput): DeploymentImpactResult {
-  const { repoPath, integrationBranch, workingBranch } = input;
-  validateRef(integrationBranch, "integrationBranch");
+  const { repoPath, workingBranch } = input;
+  const baseBranch = input.baseBranch ?? input.integrationBranch;
+  if (!baseBranch) {
+    throw new Error("baseBranch is required");
+  }
+  validateRef(baseBranch, "baseBranch");
   validateRef(workingBranch, "workingBranch");
-  ensureGitRepoAndRefs(repoPath, [integrationBranch, workingBranch]);
+  ensureGitRepoAndRefs(repoPath, [baseBranch, workingBranch]);
 
-  const comparison = `${integrationBranch}...${workingBranch}`;
+  const comparison = `${baseBranch}...${workingBranch}`;
   const files = getDiffFiles(repoPath, comparison);
 
   const metadataBreakdown: Record<string, number> = {};

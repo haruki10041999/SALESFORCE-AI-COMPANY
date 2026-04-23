@@ -2,7 +2,8 @@ import { ensureGitRepoAndRefs, getDiffFiles, getFileExtension, validateRef } fro
 
 export type PrReadinessInput = {
   repoPath: string;
-  integrationBranch: string;
+  baseBranch?: string;
+  integrationBranch?: string;
   workingBranch: string;
   reviewText?: string;
 };
@@ -135,12 +136,16 @@ function hasPath(files: { path: string }[], pattern: RegExp): boolean {
 }
 
 export function checkPrReadiness(input: PrReadinessInput): PrReadinessResult {
-  const { repoPath, integrationBranch, workingBranch, reviewText } = input;
-  validateRef(integrationBranch, "integrationBranch");
+  const { repoPath, workingBranch, reviewText } = input;
+  const baseBranch = input.baseBranch ?? input.integrationBranch;
+  if (!baseBranch) {
+    throw new Error("baseBranch is required");
+  }
+  validateRef(baseBranch, "baseBranch");
   validateRef(workingBranch, "workingBranch");
-  ensureGitRepoAndRefs(repoPath, [integrationBranch, workingBranch]);
+  ensureGitRepoAndRefs(repoPath, [baseBranch, workingBranch]);
 
-  const comparison = `${integrationBranch}...${workingBranch}`;
+  const comparison = `${baseBranch}...${workingBranch}`;
   const files = getDiffFiles(repoPath, comparison);
 
   const changedFiles = files.length;

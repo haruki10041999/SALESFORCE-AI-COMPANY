@@ -7,6 +7,7 @@ export type ApexFileAnalysis = {
   hasDmlInLoopRisk: boolean;
   withoutSharingUsed: boolean;
   dynamicSoqlUsed: boolean;
+  hasSoqlInjectionRisk: boolean;
   missingCrudFlsCheck: boolean;
   testClassDetected: boolean;
   hasAsyncMethod: boolean;
@@ -19,6 +20,11 @@ export function analyzeApex(filePath: string): ApexFileAnalysis {
   const hasInlineSoql = /\[[\s\S]*?select[\s\S]*?from[\s\S]*?\]/i.test(src);
   const hasDml = /\b(insert|update|upsert|delete|undelete)\b/i.test(src);
   const hasCrudGuard = /stripInaccessible|isAccessible\(|isUpdateable\(|isCreateable\(/i.test(src);
+  const hasDynamicSoql = /\bDatabase\.query\s*\(|Database\.countQuery\s*\(/i.test(src);
+  const dynamicCallArgs = [...src.matchAll(/Database\.(query|countQuery)\s*\(([^)]*)\)/gi)].map((m) => m[2] ?? "");
+  const hasDynamicSoqlConcat = dynamicCallArgs.some((arg) => arg.includes("+"));
+  const hasStringFormatDynamicSoql = dynamicCallArgs.some((arg) => /String\.format\s*\(/i.test(arg));
+  const hasEscapeSingleQuotes = /String\.escapeSingleQuotes\s*\(/i.test(src);
 
   return {
     path: filePath,
@@ -26,7 +32,8 @@ export function analyzeApex(filePath: string): ApexFileAnalysis {
     hasSoqlInLoopRisk: hasLoop && hasInlineSoql,
     hasDmlInLoopRisk: hasLoop && hasDml,
     withoutSharingUsed: /\bwithout\s+sharing\b/i.test(src),
-    dynamicSoqlUsed: /\bDatabase\.query\s*\(|Database\.countQuery\s*\(/i.test(src),
+    dynamicSoqlUsed: hasDynamicSoql,
+    hasSoqlInjectionRisk: (hasDynamicSoqlConcat || hasStringFormatDynamicSoql) && !hasEscapeSingleQuotes,
     missingCrudFlsCheck: hasDml && !hasCrudGuard,
     testClassDetected: /@IsTest\b/i.test(src),
     hasAsyncMethod: /@future\b|implements\s+Queueable|implements\s+Schedulable/i.test(src)

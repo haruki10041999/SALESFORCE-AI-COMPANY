@@ -11,7 +11,8 @@
     "mcp:start": "node dist/mcp/server.js",
     "test": "node --test --import tsx --import ./tests/_setup.ts tests/**/*.test.ts",
     "audit:deps": "npm audit --audit-level=moderate",
-    "init": "node scripts/init-config.js"
+    "init": "node scripts/init-config.js",
+    "doctor": "node scripts/doctor.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.5",

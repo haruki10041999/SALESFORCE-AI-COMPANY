@@ -2,7 +2,8 @@ import { ensureGitRepoAndRefs, getDiffFiles, runGit, validateRef } from "./git-d
 
 export type SecurityDeltaInput = {
   repoPath: string;
-  integrationBranch: string;
+  baseBranch?: string;
+  integrationBranch?: string;
   workingBranch: string;
   maxFindings?: number;
 };
@@ -27,13 +28,29 @@ function addedLinesFromPatch(patch: string): string[] {
     .map((line) => line.slice(1));
 }
 
-export function scanSecurityDelta(input: SecurityDeltaInput): SecurityDeltaResult {
-  const { repoPath, integrationBranch, workingBranch, maxFindings = 50 } = input;
-  validateRef(integrationBranch, "integrationBranch");
-  validateRef(workingBranch, "workingBranch");
-  ensureGitRepoAndRefs(repoPath, [integrationBranch, workingBranch]);
+function normalizeForHeuristics(source: string): string {
+  // Remove block comments and single-line comments first.
+  const withoutComments = source
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|\s)\/\/.*$/gm, "$1");
 
-  const comparison = `${integrationBranch}...${workingBranch}`;
+  // Replace quoted literals to avoid matching risky keywords in text constants.
+  return withoutComments
+    .replace(/'(?:\\.|[^'\\])*'/g, "''")
+    .replace(/"(?:\\.|[^"\\])*"/g, '""');
+}
+
+export function scanSecurityDelta(input: SecurityDeltaInput): SecurityDeltaResult {
+  const { repoPath, workingBranch, maxFindings = 50 } = input;
+  const baseBranch = input.baseBranch ?? input.integrationBranch;
+  if (!baseBranch) {
+    throw new Error("baseBranch is required");
+  }
+  validateRef(baseBranch, "baseBranch");
+  validateRef(workingBranch, "workingBranch");
+  ensureGitRepoAndRefs(repoPath, [baseBranch, workingBranch]);
+
+  const comparison = `${baseBranch}...${workingBranch}`;
   const files = getDiffFiles(repoPath, comparison).filter((f) => /\.cls$|\.trigger$|\.js$|\.ts$/i.test(f.path));
 
   const findings: SecurityFinding[] = [];
@@ -41,7 +58,7 @@ export function scanSecurityDelta(input: SecurityDeltaInput): SecurityDeltaResul
   for (const file of files) {
     const patch = runGit(repoPath, ["diff", "--unified=0", "--no-color", comparison, "--", file.path]);
     const addedLines = addedLinesFromPatch(patch);
-    const joined = addedLines.join("\n");
+    const joined = normalizeForHeuristics(addedLines.join("\n"));
 
     if (/\bwithout\s+sharing\b/i.test(joined)) {
       findings.push({

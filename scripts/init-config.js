@@ -45,7 +45,7 @@ const governanceFile = join(OUTPUTS_DIR, "resource-governance.json");
 if (!existsSync(governanceFile)) {
   const initial = {
     config: {
-      maxCounts: { skills: 30, tools: 40, presets: 20 },
+      maxCounts: { skills: 150, tools: 150, presets: 150 },
       thresholds: { minUsageToKeep: 2, bugSignalToFlag: 2 },
       resourceLimits: { creationsPerDay: 5, deletionsPerDay: 3 },
       toolExecution: {

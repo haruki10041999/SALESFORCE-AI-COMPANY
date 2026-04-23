@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gzipSync } from "node:zlib";
 
 export type MemoryRecord = {
   id: string;
@@ -17,6 +18,48 @@ const DEFAULT_VECTOR_STORE_FILE = join(ROOT, "outputs", "vector-store.jsonl");
 
 const records: MemoryRecord[] = [];
 let storageFilePath = process.env.SF_AI_VECTOR_STORE_FILE ?? DEFAULT_VECTOR_STORE_FILE;
+let maxRecords = Number.parseInt(process.env.SF_AI_VECTOR_MAX_RECORDS ?? "5000", 10);
+let maxBytes = Number.parseInt(process.env.SF_AI_VECTOR_MAX_BYTES ?? `${2 * 1024 * 1024}`, 10);
+
+function normalizeLimits(): void {
+  if (!Number.isFinite(maxRecords) || maxRecords < 10) {
+    maxRecords = 5000;
+  }
+  if (!Number.isFinite(maxBytes) || maxBytes < 1024) {
+    maxBytes = 2 * 1024 * 1024;
+  }
+}
+
+function applyRetention(): void {
+  if (records.length > maxRecords) {
+    const overflow = records.length - maxRecords;
+    if (overflow > 0) {
+      records.splice(0, overflow);
+    }
+  }
+}
+
+function archivePayloadIfNeeded(payload: string): string {
+  const bytes = Buffer.byteLength(payload, "utf-8");
+  if (bytes <= maxBytes) {
+    return payload;
+  }
+
+  try {
+    const archivePath = `${storageFilePath}.${Date.now()}.gz`;
+    writeFileSync(archivePath, gzipSync(payload));
+  } catch {
+    // ignore archive write failures
+  }
+
+  const keep = Math.max(10, Math.floor(maxRecords / 2));
+  if (records.length > keep) {
+    records.splice(0, records.length - keep);
+  }
+
+  const trimmed = records.map((record) => JSON.stringify(record)).join("\n");
+  return trimmed.length > 0 ? `${trimmed}\n` : "";
+}
 
 function tokenize(value: string): string[] {
   return value
@@ -76,6 +119,7 @@ let embeddingProvider: EmbeddingProvider = new TfidfEmbeddingProvider();
 
 function loadFromDisk(): void {
   records.length = 0;
+  normalizeLimits();
   if (!existsSync(storageFilePath)) {
     return;
   }
@@ -99,6 +143,7 @@ function loadFromDisk(): void {
         // 破損行は無視して残りのロードを継続する。
       }
     }
+    applyRetention();
   } catch {
     // 読み込み失敗時はインメモリのまま継続する。
   }
@@ -106,9 +151,12 @@ function loadFromDisk(): void {
 
 function saveToDisk(): void {
   try {
+    normalizeLimits();
+    applyRetention();
     mkdirSync(dirname(storageFilePath), { recursive: true });
     const payload = records.map((record) => JSON.stringify(record)).join("\n");
-    writeFileSync(storageFilePath, payload.length > 0 ? `${payload}\n` : "", "utf-8");
+    const content = archivePayloadIfNeeded(payload.length > 0 ? `${payload}\n` : "");
+    writeFileSync(storageFilePath, content, "utf-8");
   } catch {
     // ツール実行を落とさないため保存失敗は握りつぶす。
   }
@@ -119,6 +167,18 @@ loadFromDisk();
 export function configureVectorStoreForTest(filePath: string): void {
   storageFilePath = filePath;
   loadFromDisk();
+}
+
+export function configureVectorStoreLimitsForTest(limits: { maxRecords?: number; maxBytes?: number }): void {
+  if (typeof limits.maxRecords === "number") {
+    maxRecords = limits.maxRecords;
+  }
+  if (typeof limits.maxBytes === "number") {
+    maxBytes = limits.maxBytes;
+  }
+  normalizeLimits();
+  applyRetention();
+  saveToDisk();
 }
 
 export function configureEmbeddingProviderForTest(provider: EmbeddingProvider): void {

@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import {
   addMemory,
   clearMemory,
+  configureMemoryLimitsForTest,
   configureMemoryStorageForTest,
   listMemory,
   searchMemory
@@ -15,6 +16,7 @@ import {
 import {
   addRecord,
   clearRecords,
+  configureVectorStoreLimitsForTest,
   configureVectorStoreForTest,
   searchByKeyword
 } from "../memory/vector-store.js";
@@ -69,6 +71,28 @@ test("project-memory persists to disk and can be reloaded", () => {
   }
 });
 
+test("project-memory applies retention limit", () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "sf-ai-memory-retention-test-"));
+  const tempStorage = join(tempRoot, "memory.jsonl");
+
+  try {
+    configureMemoryStorageForTest(tempStorage);
+    configureMemoryLimitsForTest({ maxRecords: 10, maxBytes: 1000000 });
+    clearMemory();
+
+    for (let i = 0; i < 15; i += 1) {
+      addMemory(`memory-${i}`);
+    }
+
+    const items = listMemory();
+    assert.equal(items.length, 10);
+    assert.equal(items[0], "memory-5");
+  } finally {
+    configureMemoryLimitsForTest({ maxRecords: 2000, maxBytes: 1024 * 1024 });
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("vector-store searchByKeyword matches both text and tags case-insensitively", () => {
   const tempRoot = mkdtempSync(join(tmpdir(), "sf-ai-vector-search-test-"));
   const tempStorage = join(tempRoot, "vector-store.jsonl");
@@ -112,6 +136,32 @@ test("vector-store persists to disk and can be reloaded", () => {
     const results = searchByKeyword("recovery");
     assert.ok(results.some((record) => record.id === id));
   } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("vector-store applies retention limit", () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "sf-ai-vector-retention-test-"));
+  const tempStorage = join(tempRoot, "vector-store.jsonl");
+
+  try {
+    configureVectorStoreForTest(tempStorage);
+    configureVectorStoreLimitsForTest({ maxRecords: 10, maxBytes: 1000000 });
+    clearRecords();
+
+    for (let i = 0; i < 15; i += 1) {
+      addRecord({
+        id: `id-${i}`,
+        text: `vector text ${i}`,
+        tags: ["retention"]
+      });
+    }
+
+    const results = searchByKeyword("vector");
+    assert.ok(results.length <= 10);
+    assert.equal(results.some((record) => record.id === "id-0"), false);
+  } finally {
+    configureVectorStoreLimitsForTest({ maxRecords: 5000, maxBytes: 2 * 1024 * 1024 });
     rmSync(tempRoot, { recursive: true, force: true });
   }
 });

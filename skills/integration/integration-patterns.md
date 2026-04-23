@@ -1,4 +1,4 @@
-﻿# Integration Patterns
+﻿# 連携パターン
 
 ## 概要
 Salesforce と外部システムを疎結合かつ運用可能に統合するためのパターン集。
@@ -12,7 +12,7 @@ Salesforce と外部システムを疎結合かつ運用可能に統合するた
 - 非同期は再試行と重複排除を実装
 - 監視できるイベントを残す
 
-## Salesforce 固有の制約・数値
+## プラットフォーム固有の制約・数値
 - Callout タイムアウトは最大120秒
 - DML後の同期Callout制約を考慮
 - Platform Event / CDC の特性差を理解する

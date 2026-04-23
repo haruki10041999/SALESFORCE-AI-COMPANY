@@ -8,6 +8,8 @@ import { suggestChangedTests } from "../mcp/tools/changed-tests-suggest.js";
 import { summarizeDeploymentImpact } from "../mcp/tools/deployment-impact-summary.js";
 import { checkPrReadiness } from "../mcp/tools/pr-readiness-check.js";
 import { scanSecurityDelta } from "../mcp/tools/security-delta-scan.js";
+import { estimateChangedCoverage } from "../mcp/tools/coverage-estimate.js";
+import { buildMetadataDependencyGraph } from "../mcp/tools/metadata-dependency-graph.js";
 
 function git(cwd: string, args: string[]): string {
   return execFileSync("git", args, {
@@ -144,6 +146,113 @@ function setupRepoWithDeletionAndNoTests(): {
   };
 }
 
+function setupRepoForSecurityFalsePositive(): {
+  repoPath: string;
+  baseBranch: string;
+  workingBranch: string;
+  cleanup: () => void;
+} {
+  const repoPath = mkdtempSync(join(tmpdir(), "sf-ai-company-advanced-security-fp-"));
+
+  git(repoPath, ["init"]);
+  git(repoPath, ["config", "user.email", "test@example.com"]);
+  git(repoPath, ["config", "user.name", "test-user"]);
+  git(repoPath, ["checkout", "-b", "main"]);
+
+  writeText(
+    join(repoPath, "force-app", "main", "default", "classes", "CommentOnly.cls"),
+    [
+      "public with sharing class CommentOnly {",
+      "  public static void run() {}",
+      "}"
+    ].join("\n")
+  );
+
+  git(repoPath, ["add", "."]);
+  git(repoPath, ["commit", "-m", "base"]);
+
+  const workingBranch = "feature/security-comment-only";
+  git(repoPath, ["checkout", "-b", workingBranch]);
+
+  writeText(
+    join(repoPath, "force-app", "main", "default", "classes", "CommentOnly.cls"),
+    [
+      "public with sharing class CommentOnly {",
+      "  public static void run() {",
+      "    // without sharing should not be detected from comments",
+      "    // Database.query('SELECT Id FROM Account') should also be ignored",
+      "    String note = 'update rows';",
+      "  }",
+      "}"
+    ].join("\n")
+  );
+
+  git(repoPath, ["add", "."]);
+  git(repoPath, ["commit", "-m", "comment only additions"]);
+
+  return {
+    repoPath,
+    baseBranch: "main",
+    workingBranch,
+    cleanup: () => rmSync(repoPath, { recursive: true, force: true })
+  };
+}
+
+function setupRepoForMetadataDependency(): {
+  repoPath: string;
+  baseBranch: string;
+  workingBranch: string;
+  cleanup: () => void;
+} {
+  const repoPath = mkdtempSync(join(tmpdir(), "sf-ai-company-metadata-deps-"));
+
+  git(repoPath, ["init"]);
+  git(repoPath, ["config", "user.email", "test@example.com"]);
+  git(repoPath, ["config", "user.name", "test-user"]);
+  git(repoPath, ["checkout", "-b", "main"]);
+
+  writeText(
+    join(repoPath, "force-app", "main", "default", "objects", "Invoice__c", "Invoice__c.object-meta.xml"),
+    "<CustomObject></CustomObject>\n"
+  );
+  writeText(
+    join(repoPath, "force-app", "main", "default", "objects", "Invoice__c", "fields", "LegacyCode__c.field-meta.xml"),
+    "<CustomField></CustomField>\n"
+  );
+  writeText(
+    join(repoPath, "force-app", "main", "default", "classes", "InvoiceService.cls"),
+    [
+      "public with sharing class InvoiceService {",
+      "  public static List<Invoice__c> find(){",
+      "    return [SELECT Id, LegacyCode__c FROM Invoice__c];",
+      "  }",
+      "}"
+    ].join("\n")
+  );
+
+  git(repoPath, ["add", "."]);
+  git(repoPath, ["commit", "-m", "base metadata"]);
+
+  const workingBranch = "feature/remove-legacy-field";
+  git(repoPath, ["checkout", "-b", workingBranch]);
+
+  git(repoPath, ["rm", "force-app/main/default/objects/Invoice__c/fields/LegacyCode__c.field-meta.xml"]);
+  writeText(
+    join(repoPath, "force-app", "main", "default", "classes", "InvoiceController.cls"),
+    "public with sharing class InvoiceController { public static String f = 'LegacyCode__c'; }\n"
+  );
+
+  git(repoPath, ["add", "."]);
+  git(repoPath, ["commit", "-m", "remove field metadata but keep references"]);
+
+  return {
+    repoPath,
+    baseBranch: "main",
+    workingBranch,
+    cleanup: () => rmSync(repoPath, { recursive: true, force: true })
+  };
+}
+
 test("suggestChangedTests returns Apex and LWC related candidates", () => {
   const fixture = setupRepoForAdvancedTools();
   try {
@@ -200,6 +309,21 @@ test("checkPrReadiness computes score and recommends relevant agents", () => {
     assert.ok(result.recommendedAgents.includes("lwc-developer"));
     assert.ok(result.recommendedAgents.includes("security-engineer"));
     assert.ok(["ready", "needs-review", "blocked"].includes(result.gate));
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("checkPrReadiness accepts baseBranch without integrationBranch", () => {
+  const fixture = setupRepoForAdvancedTools();
+  try {
+    const result = checkPrReadiness({
+      repoPath: fixture.repoPath,
+      baseBranch: fixture.baseBranch,
+      workingBranch: fixture.workingBranch
+    });
+
+    assert.equal(result.comparison, "main...feature/security-and-impact");
   } finally {
     fixture.cleanup();
   }
@@ -269,7 +393,7 @@ test("suggestChangedTests throws for invalid branch names", () => {
         integrationBranch: "-main",
         workingBranch: fixture.workingBranch
       }),
-      /Invalid integrationBranch/
+      /Invalid (baseBranch|integrationBranch)/
     );
   } finally {
     fixture.cleanup();
@@ -320,6 +444,78 @@ test("scanSecurityDelta respects maxFindings limit", () => {
     });
 
     assert.equal(result.findings.length, 1);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("scanSecurityDelta ignores comment and string literal noise", () => {
+  const fixture = setupRepoForSecurityFalsePositive();
+  try {
+    const result = scanSecurityDelta({
+      repoPath: fixture.repoPath,
+      integrationBranch: fixture.baseBranch,
+      workingBranch: fixture.workingBranch,
+      maxFindings: 20
+    });
+
+    assert.equal(result.findings.length, 0);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("suggestChangedTests accepts baseBranch without integrationBranch", () => {
+  const fixture = setupRepoForAdvancedTools();
+  try {
+    const result = suggestChangedTests({
+      repoPath: fixture.repoPath,
+      baseBranch: fixture.baseBranch,
+      workingBranch: fixture.workingBranch
+    });
+
+    assert.equal(result.comparison, "main...feature/security-and-impact");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("estimateChangedCoverage maps changed classes to likely tests", () => {
+  const fixture = setupRepoForAdvancedTools();
+  try {
+    const result = estimateChangedCoverage({
+      repoPath: fixture.repoPath,
+      baseBranch: fixture.baseBranch,
+      workingBranch: fixture.workingBranch,
+      targetOrg: "devOrg"
+    });
+
+    assert.equal(result.comparison, "main...feature/security-and-impact");
+    assert.ok(result.mappings.some((m) => m.sourceType === "apex"));
+    assert.ok(result.recommendedTests.includes("OrderServiceTest"));
+    assert.ok(result.runCommand?.includes("--target-org devOrg"));
+    assert.ok(["high", "medium", "low", "none"].includes(result.overallCoverageHint));
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("buildMetadataDependencyGraph detects references for deleted field metadata", () => {
+  const fixture = setupRepoForMetadataDependency();
+  try {
+    const result = buildMetadataDependencyGraph({
+      repoPath: fixture.repoPath,
+      baseBranch: fixture.baseBranch,
+      workingBranch: fixture.workingBranch,
+      maxReferences: 20
+    });
+
+    assert.equal(result.comparison, "main...feature/remove-legacy-field");
+    const target = result.targets.find((t) => t.apiName === "Invoice__c.LegacyCode__c");
+    assert.ok(target);
+    assert.equal(target?.status, "D");
+    assert.ok((target?.references.length ?? 0) >= 1);
+    assert.equal(target?.risk, "high");
   } finally {
     fixture.cleanup();
   }

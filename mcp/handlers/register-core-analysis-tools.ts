@@ -2,6 +2,8 @@
 import { analyzeRepo } from "../tools/repo-analyzer.js";
 import { analyzeApex } from "../tools/apex-analyzer.js";
 import { analyzeLwc } from "../tools/lwc-analyzer.js";
+import { analyzeFlow } from "../tools/flow-analyzer.js";
+import { analyzePermissionSet } from "../tools/permission-set-analyzer.js";
 import { buildDeployCommand } from "../tools/deploy-org.js";
 import { buildTestCommand } from "../tools/run-tests.js";
 import type { GovTool } from "@mcp/tool-types.js";
@@ -112,6 +114,40 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
       const command = buildTestCommand({ targetOrg, classNames, suiteName, wait, outputDir });
       return {
         content: [{ type: "text", text: command }]
+      };
+    }
+  );
+
+  govTool(
+    "flow_analyze",
+    {
+      title: "Flow Analyze",
+      description: "Run simple static checks for a Salesforce Flow metadata file.",
+      inputSchema: {
+        filePath: z.string()
+      }
+    },
+    async ({ filePath }: { filePath: string }) => {
+      const result = analyzeFlow(filePath);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "permission_set_analyze",
+    {
+      title: "Permission Set Analyze",
+      description: "Run simple static checks for a Salesforce Permission Set metadata file.",
+      inputSchema: {
+        filePath: z.string()
+      }
+    },
+    async ({ filePath }: { filePath: string }) => {
+      const result = analyzePermissionSet(filePath);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
       };
     }
   );

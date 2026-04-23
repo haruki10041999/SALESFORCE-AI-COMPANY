@@ -2,7 +2,8 @@ import { summarizeBranchDiff } from "./branch-diff-summary.js";
 
 export type BranchDiffToPromptInput = {
   repoPath: string;
-  integrationBranch: string;
+  baseBranch?: string;
+  integrationBranch?: string;
   workingBranch: string;
   topic?: string;
   turns?: number;
@@ -43,16 +44,19 @@ function recommendAgents(paths: string[]): string[] {
 export function buildBranchDiffPrompt(input: BranchDiffToPromptInput): BranchDiffToPromptResult {
   const {
     repoPath,
-    integrationBranch,
     workingBranch,
     topic = "ブランチ差分レビュー",
     turns = 6,
     maxHighlights = 8
   } = input;
+  const baseBranch = input.baseBranch ?? input.integrationBranch;
+  if (!baseBranch) {
+    throw new Error("baseBranch is required");
+  }
 
   const diff = summarizeBranchDiff({
     repoPath,
-    integrationBranch,
+    baseBranch,
     workingBranch,
     maxFiles: Math.max(1, maxHighlights)
   });

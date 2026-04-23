@@ -459,7 +459,7 @@ save_orchestration_session({ sessionId })     ← セッションを永続化
 
 ### `tools` の maxCounts 上限超過
 
-ビルトインツールが57件あり、デフォルトの `maxCounts.tools: 40` を超過している。`review_resource_governance` を呼ぶと常に超過警告が表示される。`updateMaxCounts: { tools: 60 }` で上限を引き上げるか、カスタムツールの管理上限として解釈する。
+現在のデフォルトは `maxCounts.tools: 150` のため、ビルトインツール数（57件）では上限超過しない。必要に応じて `review_resource_governance` で `updateMaxCounts` を調整する。
 
 ### `リリース準備チェック` プリセットの triggerRules 未設定
 

@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { analyzeRepo } from "../mcp/tools/repo-analyzer.js";
 import { analyzeApex } from "../mcp/tools/apex-analyzer.js";
 import { analyzeLwc } from "../mcp/tools/lwc-analyzer.js";
+import { analyzeFlow } from "../mcp/tools/flow-analyzer.js";
+import { analyzePermissionSet } from "../mcp/tools/permission-set-analyzer.js";
 import { buildDeployCommand } from "../mcp/tools/deploy-org.js";
 import { buildTestCommand } from "../mcp/tools/run-tests.js";
 
@@ -17,27 +19,31 @@ function createTempRoot(): { root: string; cleanup: () => void } {
   };
 }
 
-test("analyzeRepo detects apex, lwc, and object metadata files", () => {
+test("analyzeRepo detects apex class/trigger, lwc, and object metadata files", () => {
   const fixture = createTempRoot();
   try {
     const clsFile = join(fixture.root, "force-app", "main", "default", "classes", "AccountService.cls");
+    const triggerFile = join(fixture.root, "force-app", "main", "default", "triggers", "AccountTrigger.trigger");
     const lwcFile = join(fixture.root, "force-app", "main", "default", "lwc", "helloWorld", "helloWorld.js");
     const objectFile = join(fixture.root, "force-app", "main", "default", "objects", "Account", "Account.object-meta.xml");
 
     mkdirSync(join(clsFile, ".."), { recursive: true });
+    mkdirSync(join(triggerFile, ".."), { recursive: true });
     mkdirSync(join(lwcFile, ".."), { recursive: true });
     mkdirSync(join(objectFile, ".."), { recursive: true });
 
     writeFileSync(clsFile, "public with sharing class AccountService {}\n", "utf-8");
+    writeFileSync(triggerFile, "trigger AccountTrigger on Account (before insert) {}\n", "utf-8");
     writeFileSync(lwcFile, "export default class HelloWorld {}\n", "utf-8");
     writeFileSync(objectFile, "<CustomObject></CustomObject>\n", "utf-8");
 
     const result = analyzeRepo(fixture.root);
 
-    assert.equal(result.apex.length, 1);
+    assert.equal(result.apex.length, 2);
     assert.equal(result.lwc.length, 1);
     assert.equal(result.objects.length, 1);
     assert.ok(result.apex[0].endsWith("AccountService.cls"));
+    assert.ok(result.apex.some((path) => path.endsWith("AccountTrigger.trigger")));
     assert.ok(result.lwc[0].endsWith("helloWorld.js"));
     assert.ok(result.objects[0].endsWith("Account.object-meta.xml"));
   } finally {
@@ -71,6 +77,7 @@ test("analyzeApex detects trigger-pattern hint and SOQL-in-loop risk", () => {
     assert.equal(result.hasDmlInLoopRisk, false);
     assert.equal(result.withoutSharingUsed, false);
     assert.equal(result.dynamicSoqlUsed, false);
+    assert.equal(result.hasSoqlInjectionRisk, false);
     assert.equal(result.testClassDetected, false);
     assert.equal(result.hasAsyncMethod, false);
   } finally {
@@ -101,6 +108,7 @@ test("analyzeApex detects DML-in-loop, without sharing, dynamic SOQL, and missin
     assert.equal(result.hasDmlInLoopRisk, true);
     assert.equal(result.withoutSharingUsed, true);
     assert.equal(result.dynamicSoqlUsed, true);
+    assert.equal(result.hasSoqlInjectionRisk, false);
     assert.equal(result.missingCrudFlsCheck, true); // update あり、CRUD guard なし
   } finally {
     fixture.cleanup();
@@ -131,6 +139,32 @@ test("analyzeApex detects @IsTest and @future annotations", () => {
   }
 });
 
+test("analyzeApex suppresses SOQL injection risk when escapeSingleQuotes is used", () => {
+  const fixture = createTempRoot();
+  try {
+    const filePath = join(fixture.root, "SafeQuery.cls");
+    writeFileSync(
+      filePath,
+      [
+        "public with sharing class SafeQuery {",
+        "  public static List<Account> search(String input) {",
+        "    String escaped = String.escapeSingleQuotes(input);",
+        "    String soql = 'SELECT Id FROM Account WHERE Name = \'{0}\'';",
+        "    return Database.query(String.format(soql, new List<String>{ escaped }));",
+        "  }",
+        "}"
+      ].join("\n"),
+      "utf-8"
+    );
+
+    const result = analyzeApex(filePath);
+    assert.equal(result.dynamicSoqlUsed, true);
+    assert.equal(result.hasSoqlInjectionRisk, false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("analyzeLwc detects @wire and @api decorators", () => {
   const fixture = createTempRoot();
   try {
@@ -155,6 +189,10 @@ test("analyzeLwc detects @wire and @api decorators", () => {
     assert.equal(result.usesNavigationMixin, false);
     assert.equal(result.usesCustomLabels, false);
     assert.equal(result.hasEventDispatch, false);
+    assert.equal(result.hasRenderedCallbackHeavyRisk, false);
+    assert.equal(result.hasEventListenerLeakRisk, false);
+    assert.equal(result.hasUnsafeInnerHtmlRisk, false);
+    assert.equal(result.trackDecoratorCount, 0);
   } finally {
     fixture.cleanup();
   }
@@ -180,6 +218,124 @@ test("analyzeLwc detects NavigationMixin and dispatchEvent", () => {
     const result = analyzeLwc(filePath);
     assert.equal(result.usesNavigationMixin, true);
     assert.equal(result.hasEventDispatch, true);
+    assert.equal(result.hasRenderedCallbackHeavyRisk, false);
+    assert.equal(result.hasEventListenerLeakRisk, false);
+    assert.equal(result.hasUnsafeInnerHtmlRisk, false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("analyzeLwc detects custom label import", () => {
+  const fixture = createTempRoot();
+  try {
+    const filePath = join(fixture.root, "labelComponent.js");
+    writeFileSync(
+      filePath,
+      [
+        "import { LightningElement } from 'lwc';",
+        "import GREETING_LABEL from '@salesforce/label/c.Greeting';",
+        "export default class LabelComponent extends LightningElement {",
+        "  label = GREETING_LABEL;",
+        "}"
+      ].join("\n"),
+      "utf-8"
+    );
+
+    const result = analyzeLwc(filePath);
+    assert.equal(result.usesCustomLabels, true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("analyzeLwc detects renderedCallback and event-listener risk patterns", () => {
+  const fixture = createTempRoot();
+  try {
+    const filePath = join(fixture.root, "riskyComponent.js");
+    writeFileSync(
+      filePath,
+      [
+        "import { LightningElement, track } from 'lwc';",
+        "export default class RiskyComponent extends LightningElement {",
+        "  @track state;",
+        "  connectedCallback(){ window.addEventListener('resize', this.onResize); }",
+        "  renderedCallback(){ for (let i = 0; i < 3; i++) { this.template.querySelector('div'); } }",
+        "  mutate(el){ el.innerHTML = '<b>unsafe</b>'; }",
+        "}"
+      ].join("\n"),
+      "utf-8"
+    );
+
+    const result = analyzeLwc(filePath);
+    assert.equal(result.hasRenderedCallbackHeavyRisk, true);
+    assert.equal(result.hasEventListenerLeakRisk, true);
+    assert.equal(result.hasUnsafeInnerHtmlRisk, true);
+    assert.equal(result.trackDecoratorCount, 1);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("analyzeFlow summarizes key nodes and risk hints", () => {
+  const fixture = createTempRoot();
+  try {
+    const filePath = join(fixture.root, "sample.flow-meta.xml");
+    writeFileSync(
+      filePath,
+      [
+        "<Flow>",
+        "  <decisions></decisions>",
+        "  <recordCreates></recordCreates>",
+        "  <recordUpdates></recordUpdates>",
+        "  <recordDeletes></recordDeletes>",
+        "  <subflows></subflows>",
+        "  <actionType>Apex</actionType>",
+        "  <scheduledPaths></scheduledPaths>",
+        "</Flow>"
+      ].join("\n"),
+      "utf-8"
+    );
+
+    const result = analyzeFlow(filePath);
+    assert.equal(result.decisionCount, 1);
+    assert.equal(result.recordCreateCount, 1);
+    assert.equal(result.recordUpdateCount, 1);
+    assert.equal(result.recordDeleteCount, 1);
+    assert.equal(result.subflowCount, 1);
+    assert.equal(result.hasApexAction, true);
+    assert.equal(result.hasScheduledPath, true);
+    assert.ok(result.riskHints.length >= 2);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("analyzePermissionSet summarizes risky permissions", () => {
+  const fixture = createTempRoot();
+  try {
+    const filePath = join(fixture.root, "Admin.permissionset-meta.xml");
+    writeFileSync(
+      filePath,
+      [
+        "<PermissionSet>",
+        "  <objectPermissions><modifyAllRecords>true</modifyAllRecords></objectPermissions>",
+        "  <fieldPermissions><editable>true</editable></fieldPermissions>",
+        "  <permissionsViewAllData>true</permissionsViewAllData>",
+        "  <permissionsModifyAllData>true</permissionsModifyAllData>",
+        "</PermissionSet>"
+      ].join("\n"),
+      "utf-8"
+    );
+
+    const result = analyzePermissionSet(filePath);
+    assert.equal(result.objectPermissionCount, 1);
+    assert.equal(result.objectModifyAllCount, 1);
+    assert.equal(result.fieldPermissionCount, 1);
+    assert.equal(result.fieldEditCount, 1);
+    assert.equal(result.hasViewAllData, true);
+    assert.equal(result.hasModifyAllData, true);
+    assert.ok(result.riskHints.length >= 2);
   } finally {
     fixture.cleanup();
   }

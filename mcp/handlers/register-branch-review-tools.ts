@@ -5,7 +5,94 @@ import { checkPrReadiness } from "../tools/pr-readiness-check.js";
 import { scanSecurityDelta } from "../tools/security-delta-scan.js";
 import { summarizeDeploymentImpact } from "../tools/deployment-impact-summary.js";
 import { suggestChangedTests } from "../tools/changed-tests-suggest.js";
+import { estimateChangedCoverage } from "../tools/coverage-estimate.js";
+import { buildMetadataDependencyGraph } from "../tools/metadata-dependency-graph.js";
 import type { GovTool } from "@mcp/tool-types.js";
+
+function escapeXml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function readinessAsJunit(result: {
+  comparison: string;
+  gate: "ready" | "needs-review" | "blocked";
+  checklist: Array<{ id: string; title: string; status: "pass" | "warning" | "fail"; detail: string }>;
+}): string {
+  const failures = result.checklist.filter((item) => item.status !== "pass");
+  const testCases = result.checklist.map((item) => {
+    if (item.status === "pass") {
+      return `    <testcase name="${escapeXml(item.id)}" classname="pr_readiness"/>`;
+    }
+    return [
+      `    <testcase name="${escapeXml(item.id)}" classname="pr_readiness">`,
+      `      <failure message="${escapeXml(item.title)}">${escapeXml(item.detail)}</failure>`,
+      "    </testcase>"
+    ].join("\n");
+  }).join("\n");
+
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    `<testsuite name="pr_readiness_check" tests="${result.checklist.length}" failures="${failures.length}">`,
+    `  <properties><property name="comparison" value="${escapeXml(result.comparison)}"/><property name="gate" value="${result.gate}"/></properties>`,
+    testCases,
+    "</testsuite>"
+  ].join("\n");
+}
+
+function readinessAsSarif(result: {
+  comparison: string;
+  gate: "ready" | "needs-review" | "blocked";
+  checklist: Array<{ id: string; title: string; status: "pass" | "warning" | "fail"; detail: string }>;
+}): string {
+  const findings = result.checklist
+    .filter((item) => item.status !== "pass")
+    .map((item) => ({
+      ruleId: `pr-${item.id}`,
+      level: item.status === "fail" ? "error" : "warning",
+      message: { text: `${item.title}: ${item.detail}` }
+    }));
+
+  return JSON.stringify(
+    {
+      version: "2.1.0",
+      $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+      runs: [
+        {
+          tool: {
+            driver: {
+              name: "salesforce-ai-company/pr_readiness_check",
+              informationUri: "https://github.com",
+              rules: result.checklist.map((item) => ({
+                id: `pr-${item.id}`,
+                shortDescription: { text: item.title },
+                defaultConfiguration: {
+                  level: item.status === "fail" ? "error" : item.status === "warning" ? "warning" : "note"
+                }
+              }))
+            }
+          },
+          invocations: [
+            {
+              executionSuccessful: true,
+              properties: {
+                comparison: result.comparison,
+                gate: result.gate
+              }
+            }
+          ],
+          results: findings
+        }
+      ]
+    },
+    null,
+    2
+  );
+}
 
 export function registerBranchReviewTools(govTool: GovTool): void {
   govTool(
@@ -28,7 +115,7 @@ export function registerBranchReviewTools(govTool: GovTool): void {
     }) => {
       const result = summarizeBranchDiff({
         repoPath,
-        integrationBranch: baseBranch,
+        baseBranch,
         workingBranch,
         maxFiles: maxFiles ?? 20
       });
@@ -83,7 +170,7 @@ export function registerBranchReviewTools(govTool: GovTool): void {
     }) => {
       const result = buildBranchDiffPrompt({
         repoPath,
-        integrationBranch: baseBranch,
+        baseBranch,
         workingBranch,
         topic,
         turns,
@@ -119,21 +206,36 @@ export function registerBranchReviewTools(govTool: GovTool): void {
         repoPath: z.string(),
         baseBranch: z.string(),
         workingBranch: z.string(),
-        reviewText: z.string().optional()
+        reviewText: z.string().optional(),
+        format: z.enum(["json", "junit", "sarif"]).optional()
       }
     },
-    async ({ repoPath, baseBranch, workingBranch, reviewText }: {
+    async ({ repoPath, baseBranch, workingBranch, reviewText, format }: {
       repoPath: string;
       baseBranch: string;
       workingBranch: string;
       reviewText?: string;
+      format?: "json" | "junit" | "sarif";
     }) => {
       const result = checkPrReadiness({
         repoPath,
-        integrationBranch: baseBranch,
+        baseBranch,
         workingBranch,
         reviewText
       });
+
+      if (format === "junit") {
+        return {
+          content: [{ type: "text", text: readinessAsJunit(result) }]
+        };
+      }
+
+      if (format === "sarif") {
+        return {
+          content: [{ type: "text", text: readinessAsSarif(result) }]
+        };
+      }
+
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
       };
@@ -160,7 +262,7 @@ export function registerBranchReviewTools(govTool: GovTool): void {
     }) => {
       const result = scanSecurityDelta({
         repoPath,
-        integrationBranch: baseBranch,
+        baseBranch,
         workingBranch,
         maxFindings
       });
@@ -188,7 +290,7 @@ export function registerBranchReviewTools(govTool: GovTool): void {
     }) => {
       const result = summarizeDeploymentImpact({
         repoPath,
-        integrationBranch: baseBranch,
+        baseBranch,
         workingBranch
       });
       return {
@@ -217,9 +319,69 @@ export function registerBranchReviewTools(govTool: GovTool): void {
     }) => {
       const result = suggestChangedTests({
         repoPath,
-        integrationBranch: baseBranch,
+        baseBranch,
         workingBranch,
         targetOrg
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "coverage_estimate",
+    {
+      title: "Coverage Estimate",
+      description: "Estimate likely test coverage for changed source files.",
+      inputSchema: {
+        repoPath: z.string(),
+        baseBranch: z.string(),
+        workingBranch: z.string(),
+        targetOrg: z.string().optional()
+      }
+    },
+    async ({ repoPath, baseBranch, workingBranch, targetOrg }: {
+      repoPath: string;
+      baseBranch: string;
+      workingBranch: string;
+      targetOrg?: string;
+    }) => {
+      const result = estimateChangedCoverage({
+        repoPath,
+        baseBranch,
+        workingBranch,
+        targetOrg
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "metadata_dependency_graph",
+    {
+      title: "Metadata Dependency Graph",
+      description: "Detect metadata dependency references for changed objects and fields.",
+      inputSchema: {
+        repoPath: z.string(),
+        baseBranch: z.string(),
+        workingBranch: z.string(),
+        maxReferences: z.number().int().min(1).max(200).optional()
+      }
+    },
+    async ({ repoPath, baseBranch, workingBranch, maxReferences }: {
+      repoPath: string;
+      baseBranch: string;
+      workingBranch: string;
+      maxReferences?: number;
+    }) => {
+      const result = buildMetadataDependencyGraph({
+        repoPath,
+        baseBranch,
+        workingBranch,
+        maxReferences
       });
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }]

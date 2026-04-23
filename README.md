@@ -1,10 +1,10 @@
-# Salesforce AI Company - 5フェーズ進化アーキテクチャ
+# Salesforce AI Company - 7フェーズ進化アーキテクチャ
 
 ## 📋 概要
 
 **Salesforce AI Company** は、MCP サーバーとして Salesforce 開発を支援する AI エージェント・スキル・ツールを**動的に選択・補完・拡張する**システムです。
 
-### 5フェーズ進化
+### 7フェーズ進化
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -1418,9 +1418,9 @@ outputs/resource-governance.json
 
 ### 13.3 既定値
 
-- maxCounts.skills: 30
-- maxCounts.tools: 40
-- maxCounts.presets: 20
+- maxCounts.skills: 150
+- maxCounts.tools: 150
+- maxCounts.presets: 150
 - thresholds.minUsageToKeep: 2
 - thresholds.bugSignalToFlag: 2
 - resourceLimits.creationsPerDay: 5
@@ -1686,7 +1686,7 @@ record_resource_signal:
 
 ```text
 review_resource_governance:
-  updateMaxCounts: { skills: 30, tools: 40, presets: 20 }
+  updateMaxCounts: { skills: 150, tools: 150, presets: 150 }
   updateThresholds: { minUsageToKeep: 2, bugSignalToFlag: 2 }
 ```
 

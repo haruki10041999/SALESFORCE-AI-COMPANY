@@ -7,6 +7,10 @@ export type RepoAnalysis = {
   objects: string[];
 };
 
+function isApexFile(fileName: string): boolean {
+  return fileName.endsWith(".cls") || fileName.endsWith(".trigger");
+}
+
 export function analyzeRepo(root: string): RepoAnalysis {
   const result: RepoAnalysis = {
     apex: [],
@@ -26,7 +30,7 @@ export function analyzeRepo(root: string): RepoAnalysis {
         continue;
       }
 
-      if (file.endsWith(".cls")) {
+      if (isApexFile(file)) {
         result.apex.push(full);
       }
 

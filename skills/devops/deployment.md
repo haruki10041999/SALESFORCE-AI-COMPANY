@@ -1,4 +1,4 @@
-﻿# Deployment
+﻿# デプロイ
 
 ## 概要
 Salesforce のデプロイを再現可能・監査可能にする手順ガイド。
@@ -12,7 +12,7 @@ Salesforce のデプロイを再現可能・監査可能にする手順ガイド
 - テスト結果と差分を証跡化する
 - ロールバック手順を事前に準備する
 
-## Salesforce 固有の制約・数値
+## プラットフォーム固有の制約・数値
 - 本番は 75% カバレッジが必須
 - `RunLocalTests` 以上を基本とする
 - CLI 例: `sf project deploy start --target-org <org>`

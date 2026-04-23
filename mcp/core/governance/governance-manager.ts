@@ -41,9 +41,9 @@ export interface GovernanceConfig {
  */
 export const DEFAULT_GOVERNANCE_CONFIG: GovernanceConfig = {
   maxCounts: {
-    skills: 30,
-    tools: 40,
-    presets: 20
+    skills: 150,
+    tools: 150,
+    presets: 150
   },
   thresholds: {
     minUsageToKeep: 2,

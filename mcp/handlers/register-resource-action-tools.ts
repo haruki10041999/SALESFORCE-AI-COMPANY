@@ -86,6 +86,7 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
     emitEvent,
     toPosixPath
   } = deps;
+  const auditFile = join(dirname(governanceFile), "audit", "resource-actions.jsonl");
 
   govTool(
     "apply_resource_actions",
@@ -433,6 +434,25 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
         }
       }
 
+      try {
+        await ensureDir(dirname(auditFile));
+        const timestamp = new Date().toISOString();
+        const records = results.map((result) => JSON.stringify({
+          timestamp,
+          source: "apply_resource_actions",
+          dryRun: effectiveDryRun,
+          action: result.action,
+          resourceType: result.resourceType,
+          name: result.name,
+          outcome: result.result
+        }));
+        if (records.length > 0) {
+          await fsPromises.appendFile(auditFile, `${records.join("\n")}\n`, "utf-8");
+        }
+      } catch {
+        // audit logging failures must not break tool execution
+      }
+
       return {
         content: [
           {
@@ -441,7 +461,8 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
               dryRun: effectiveDryRun,
               applied: results.length,
               results,
-              governanceFile: toPosixPath(relative(root, governanceFile))
+              governanceFile: toPosixPath(relative(root, governanceFile)),
+              auditFile: toPosixPath(relative(root, auditFile))
             }, null, 2)
           }
         ]

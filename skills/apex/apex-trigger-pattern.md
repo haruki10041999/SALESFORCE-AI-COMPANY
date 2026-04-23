@@ -1,4 +1,4 @@
-﻿# Apex Trigger Pattern
+﻿# Apex トリガーパターン
 
 ## 概要
 Trigger を薄く保ち、再利用可能なハンドラ構成で保守性を高める。
@@ -12,7 +12,7 @@ Trigger を薄く保ち、再利用可能なハンドラ構成で保守性を高
 - Trigger は分岐せず Handler へ委譲
 - before/after ごとに責務を分ける
 
-## Salesforce 固有の制約・数値
+## プラットフォーム固有の制約・数値
 - Trigger 再帰防止を考慮する
 - 複数自動化（Flow/Process/Trigger）の実行順影響を考慮する
 

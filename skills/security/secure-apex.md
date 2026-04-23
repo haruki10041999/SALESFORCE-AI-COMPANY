@@ -1,4 +1,4 @@
-﻿# Secure Apex
+﻿# Apex セキュリティ
 
 ## 概要
 Apex の実装で CRUD/FLS/Sharing を強制し、データ露出を防ぐための実践ガイド。
@@ -13,7 +13,7 @@ Apex の実装で CRUD/FLS/Sharing を強制し、データ露出を防ぐため
 - 入出力の両方でアクセス制御を検証する
 - 動的SOQLは原則バインド変数で組み立てる
 
-## Salesforce 固有の制約・数値
+## プラットフォーム固有の制約・数値
 - CRUD: `isAccessible/isCreateable/isUpdateable/isDeletable`
 - FLS: `SObjectType.Field.isAccessible/isUpdateable`
 - 共有制御: `with sharing` / `inherited sharing`
