@@ -56,7 +56,9 @@ export function createLogger(scope: string, configuredLevel?: string): Logger {
     },
     info(message: string, ...args: unknown[]): void {
       if (shouldLog(level, "info")) {
-        console.info(
+        // MCP stdio transport では stdout は JSON-RPC 専用のため、
+        // info/debug も必ず stderr (console.error) に出すこと。
+        console.error(
           formatLogPrefix("info", scope),
           maskLogMessage(message),
           ...args.map((arg) => maskUnknown(arg))
@@ -65,7 +67,7 @@ export function createLogger(scope: string, configuredLevel?: string): Logger {
     },
     debug(message: string, ...args: unknown[]): void {
       if (shouldLog(level, "debug")) {
-        console.debug(
+        console.error(
           formatLogPrefix("debug", scope),
           maskLogMessage(message),
           ...args.map((arg) => maskUnknown(arg))

@@ -15,6 +15,7 @@
     "metrics:report": "node scripts/metrics-report.js",
     "metrics:snapshot": "node scripts/metrics-snapshot.js",
     "benchmark:run": "tsx scripts/benchmark-suite.ts",
+    "tail:progress": "tsx scripts/tail-progress.ts",
     "metrics:seed": "node scripts/seed-metrics.js",
     "metrics:dashboard": "node scripts/metrics-dashboard.js",
     "history:archive": "tsx scripts/archive-history.ts",

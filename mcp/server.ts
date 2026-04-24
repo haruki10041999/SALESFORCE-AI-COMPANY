@@ -1,4 +1,7 @@
-﻿
+﻿// .env を全モジュールより前に読み込む (副作用 import)。
+// 注意: ESM の import は宣言順に評価されるため、必ずトップに配置すること。
+import "./env-loader.js";
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { existsSync, promises as fsPromises } from "fs";
 import { join, resolve, relative } from "path";

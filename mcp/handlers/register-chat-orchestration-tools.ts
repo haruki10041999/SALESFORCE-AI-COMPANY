@@ -199,6 +199,12 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
                     sessionId,
                     mode: "pseudo-hook",
                     nextQueue: session.queue,
+                    queueProgress: {
+                      total: session.agents.length,
+                      executed: 0,
+                      remaining: session.queue.length,
+                      currentAgent: session.queue[0] ?? null
+                    },
                     triggerRuleCount: session.triggerRules.length,
                     disabledSkills,
                     prompt
@@ -470,7 +476,14 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
               {
                 sessionId,
                 dequeued: nextAgents,
-                remainingQueue: session.queue
+                remainingQueue: session.queue,
+                queueProgress: {
+                  total: session.agents.length,
+                  executed: session.agents.length - session.queue.length,
+                  remaining: session.queue.length,
+                  currentAgent: nextAgents[0] ?? null,
+                  nextAgent: session.queue[0] ?? null
+                }
               },
               null,
               2

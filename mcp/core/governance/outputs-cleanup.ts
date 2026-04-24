@@ -81,14 +81,14 @@ export function cleanupDirectory(dirPath: string, thresholdDays: number, dryRun:
     }
 
     if (dryRun) {
-      console.log(`[cleanup][dry-run] remove ${filePath} (age=${days}d)`);
+      console.error(`[cleanup][dry-run] remove ${filePath} (age=${days}d)`);
       removed += 1;
       continue;
     }
 
     try {
       unlinkSync(filePath);
-      console.log(`[cleanup][removed] ${filePath} (age=${days}d)`);
+      console.error(`[cleanup][removed] ${filePath} (age=${days}d)`);
       removed += 1;
     } catch (error) {
       logger.warn("failed to remove file", { filePath, error: String(error) });

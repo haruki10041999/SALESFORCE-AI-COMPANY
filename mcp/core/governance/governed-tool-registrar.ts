@@ -4,6 +4,34 @@ import { startTrace, endTrace, failTrace } from "../trace/trace-context.js";
 import { recordMetric } from "../../tools/metrics.js";
 import { addMemory } from "../../../memory/project-memory.js";
 import { addRecord as addVectorRecord } from "../../../memory/vector-store.js";
+import { buildProgressBanner } from "../progress/progress-formatter.js";
+
+const PROGRESS_BANNER_SKIP_TOOLS = new Set([
+  // 進捗表示の意味が薄い軽量ツール (応答が JSON のみで構造化されているもの含む)
+  "get_tool_progress",
+  "ping"
+]);
+
+function isProgressBannerEnabled(toolName: string): boolean {
+  if (PROGRESS_BANNER_SKIP_TOOLS.has(toolName)) return false;
+  const value = (process.env.SF_AI_PROGRESS_BANNER ?? "true").toLowerCase();
+  return value === "1" || value === "true" || value === "on" || value === "yes";
+}
+
+function attachProgressBanner<T extends { content?: Array<{ type: string; text: string }> }>(
+  toolName: string,
+  traceId: string,
+  result: T
+): T {
+  if (!result || !Array.isArray(result.content)) return result;
+  if (!isProgressBannerEnabled(toolName)) return result;
+  const banner = buildProgressBanner(traceId, { title: "進捗タイムライン" });
+  if (!banner) return result;
+  return {
+    ...result,
+    content: [{ type: "text", text: banner }, ...result.content]
+  };
+}
 
 const AUTO_MEMORY_SKIP_TOOLS = new Set([
   "add_memory",
@@ -153,7 +181,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
             summarizeValue(result),
             "success"
           );
-          return result;
+          return attachProgressBanner(name, traceId, result);
         } catch (error) {
           const retryable = retryConfig.retryEnabled && (
             isRetryableError(error, patterns) || isRetryableByCode(error, retryableCodes)
