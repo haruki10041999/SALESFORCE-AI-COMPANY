@@ -2,6 +2,50 @@
 import { isRetryableByCode, isRetryableError } from "../errors/tool-error.js";
 import { startTrace, endTrace, failTrace } from "../trace/trace-context.js";
 import { recordMetric } from "../../tools/metrics.js";
+import { addMemory } from "../../../memory/project-memory.js";
+import { addRecord as addVectorRecord } from "../../../memory/vector-store.js";
+
+const AUTO_MEMORY_SKIP_TOOLS = new Set([
+  "add_memory",
+  "clear_memory",
+  "list_memory",
+  "search_memory",
+  "add_vector_record",
+  "query_vector_store",
+  "clear_vector_store"
+]);
+
+function isAutoMemoryEnabled(): boolean {
+  const value = (process.env.SF_AI_AUTO_MEMORY ?? "").toLowerCase();
+  return value === "1" || value === "true" || value === "on" || value === "yes";
+}
+
+function recordToolExecutionToMemory(
+  toolName: string,
+  traceId: string,
+  inputSummary: string,
+  outputSummary: string,
+  status: "success" | "error"
+): void {
+  if (!isAutoMemoryEnabled()) {
+    return;
+  }
+  if (AUTO_MEMORY_SKIP_TOOLS.has(toolName)) {
+    return;
+  }
+  try {
+    const ts = new Date().toISOString();
+    const text = `[${ts}] ${toolName} (${status}) trace=${traceId}\nINPUT: ${inputSummary}\nOUTPUT: ${outputSummary}`;
+    addMemory(text);
+    addVectorRecord({
+      id: `${traceId}-${toolName}`,
+      text,
+      tags: ["auto-memory", `tool:${toolName}`, `status:${status}`]
+    });
+  } catch {
+    // 自動記録の失敗はツール実行を阻害しない
+  }
+}
 
 type ToolResponse = { content: Array<{ type: string; text: string }> };
 
@@ -102,6 +146,13 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
             durationMs: Date.now() - startedAt.getTime(),
             status: "success"
           });
+          recordToolExecutionToMemory(
+            name,
+            traceId,
+            summarizeValue(input),
+            summarizeValue(result),
+            "success"
+          );
           return result;
         } catch (error) {
           const retryable = retryConfig.retryEnabled && (
@@ -125,6 +176,13 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
               durationMs: Date.now() - startedAt.getTime(),
               status: "error"
             });
+            recordToolExecutionToMemory(
+              name,
+              traceId,
+              summarizeValue(input),
+              summarizeValue(error, 500),
+              "error"
+            );
             throw error;
           }
 

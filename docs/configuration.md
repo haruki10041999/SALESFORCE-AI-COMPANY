@@ -59,6 +59,7 @@ LOG_LEVEL=debug SF_AI_DEBUG_VERBOSE_PROMPT=true npm run mcp:dev
 | `SF_AI_VECTOR_MAX_RECORDS` | メモリ/ディスク上に保持するベクターレコードの最大件数（LRU） | `5000` |
 | `SF_AI_TRACE_FILE` | トレース履歴の永続化先 JSONL ファイルパス | `outputs/events/trace-log.jsonl` |
 | `SF_AI_METRICS_FILE` | メトリクスサンプルの永続化先 JSONL ファイルパス | `outputs/events/metrics-samples.jsonl` |
+| `SF_AI_AUTO_MEMORY` | チャット/ツール実行のたびに input/output サマリを `memory.jsonl` と `vector-store.jsonl` へ自動追記する。`1`/`true`/`on`/`yes` で有効。memory/vector 系ツール自身は再帰防止のため除外 | `false` |
 | `LOG_LEVEL` | ログ出力レベル（`error` / `warn` / `info` / `debug`） | `info` |
 | `SF_AI_DEBUG_VERBOSE_PROMPT` | `LOG_LEVEL=debug` 時にプロンプト本文までログ出力するか | `false` |
 | `PROMPT_CACHE_MAX_ENTRIES` | メモリ上にキャッシュするプロンプトの最大件数 | `100` |

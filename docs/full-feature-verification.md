@@ -60,13 +60,117 @@ Claude Desktop を再起動。
 
 ### 0.3 VS Code GitHub Copilot Chat (Agent モード) 設定
 
-`.vscode/mcp.json` または VS Code の設定 (`mcp` セクション) に同等の定義を追加。
-`@workspace` チャットで `Agent` モードに切り替えて、ツール一覧に
-`mcp_salesforce-ai_*` 接頭辞のツールが並ぶこと。
+VS Code 1.99 以降の Copilot Chat は MCP サーバを直接呼び出せます。
+このリポジトリ専用に MCP を有効化する手順は以下のとおり。
 
-> このリポジトリには既に [`.github/copilot-instructions.md`](../.github/copilot-instructions.md)
-> が含まれており、Copilot Chat に対し `smart_chat` / `chat` / `orchestrate_chat` /
-> `parse_and_record_chat` 等の利用方針を指示している。
+#### 手順
+
+1. **VS Code を最新版に更新** (1.99 以上が必要)
+2. **GitHub Copilot Chat 拡張をインストール / 有効化**
+3. リポジトリ直下に **`.vscode/mcp.json`** を作成（後述）
+4. VS Code を再読み込み (`Ctrl+Shift+P` → `Developer: Reload Window`)
+5. **Copilot Chat を Agent モードに切替**
+   - サイドバー左の **チャットアイコン** (吹き出し型) をクリックして
+     Copilot Chat パネルを開く
+   - パネル下部の **入力欄の左下** にあるモードセレクタ
+     （初期表示は `Ask`）をクリック
+   - ドロップダウンから **`Agent`** を選択
+   - 補足: モードセレクタが見当たらない場合は VS Code が古い可能性あり。
+     `Help` → `Check for Updates` で 1.99+ に更新してください。
+6. **`salesforce-ai-company` のツール一覧を確認**
+   - 入力欄の **左下** にあるツールピッカー
+     （**🛠 アイコン**、ホバーすると `Configure Tools...` と表示）をクリック
+   - 開いたパネルにツリー状の一覧が出る。`salesforce-ai-company` という
+     ノードを展開すると 88 個のツール (`list_agents`, `chat`,
+     `smart_chat` ...) が並んでいるはず
+   - 各ツール左のチェックボックスで Copilot に使わせるツールを選別できる
+     （初期は全て ON でよい）
+   - パネル外をクリックして閉じる
+
+##### 🛠 アイコンが見つからない / 表示されない時
+
+🛠 アイコンは **Agent モードでのみ表示** されます。次の順で確認してください。
+
+1. **モードが `Agent` か確認**
+   入力欄左下のセレクタが `Ask` や `Edit` のままなら、🛠 は出ません。
+   一度 `Agent` を選び直す。
+2. **MCP サーバが起動しているか確認**
+   `Ctrl+Shift+P` → `MCP: List Servers` を実行。
+   - `salesforce-ai-company` が一覧に出ない → `.vscode/mcp.json` の
+     パス・JSON 構文を確認
+   - 出るが `Failed` 等の状態 → 同コマンドから `Show Output` を選び
+     エラーメッセージを確認 (例: `dist/mcp/server.js` が無い → `npm run build`)
+3. **手動でサーバを起動 / 再起動**
+   `Ctrl+Shift+P` → `MCP: Start Server` または `MCP: Restart Server`
+   → `salesforce-ai-company` を選択。成功すると右下に通知が出る。
+4. **`.vscode/mcp.json` の上に表示される `Start` ボタン**
+   ファイルを VS Code で開くと各サーバ定義の上に Codelens で
+   `Start | Stop | Restart | Show Output` が表示される。`Start` をクリック。
+5. **入力欄の幅が狭すぎてアイコンが隠れていないか**
+   Copilot Chat パネルの幅が狭いと右側のアイコン群に巻かれて隠れることがある。
+   パネルを広げて再確認。
+6. **拡張のバージョン確認**
+   `拡張` ビューで GitHub Copilot / GitHub Copilot Chat を最新に更新し、
+   `Developer: Reload Window`。
+
+ここまでで一覧に出れば、各ツールにチェックを入れて手順完了です。
+
+#### `.vscode/mcp.json` の例
+
+```jsonc
+{
+  "servers": {
+    "salesforce-ai-company": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/dist/mcp/server.js"
+      ]
+    }
+  }
+}
+```
+
+ビルドせず `tsx` で直接起動したい場合:
+
+```jsonc
+{
+  "servers": {
+    "salesforce-ai-company": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "tsx",
+        "${workspaceFolder}/mcp/server.ts"
+      ]
+    }
+  }
+}
+```
+
+#### 動作確認
+
+Copilot Chat (Agent モード) で次のように依頼:
+
+```
+list_agents を呼び出して
+```
+
+→ Copilot が `salesforce-ai-company` の `list_agents` ツール実行を提案し、
+承認すると agent 一覧が返ってくれば成功です。
+
+#### 補足
+
+- **ツール名の表示**: Copilot Chat の UI 上では先頭に
+  `mcp_salesforce-ai-company_` の接頭辞が付いて表示されます
+  （例: `mcp_salesforce-ai-company_list_agents`）。本ガイド内で
+  `list_agents` と書いている箇所は、Copilot Chat ではこの長い名前を選びます。
+- **承認ダイアログ**: 初回ツール呼び出し時に確認が出ます。同じツールを
+  繰り返し使う場合は「常に許可」を選ぶと操作が楽です。
+- **このリポジトリのデフォルト動作**: [`.github/copilot-instructions.md`](../.github/copilot-instructions.md)
+  に「一般依頼はまず `smart_chat`、明示指定があれば `chat`、エージェント間連携が
+  欲しい時は `orchestrate_chat` から始める」というルールが書かれており、
+  Copilot Chat はワークスペースを開くだけでこの方針を読み込みます。
 
 ---
 
@@ -319,6 +423,8 @@ Claude Desktop を再起動。
 | 症状 | 原因の候補 | リカバリ |
 |------|-----------|----------|
 | ツール一覧に `salesforce-ai-company` が出ない | ビルド未実施 / 設定パス違い | `npm run build` → クライアント再起動 |
+| Copilot Chat の 🛠 にサーバが現れない | `.vscode/mcp.json` が読めていない | `Ctrl+Shift+P` → `MCP: List Servers` で状態確認 → エラーがあれば `Show Output` でログ確認 → 設定修正後 `MCP: Restart Server` |
+| Agent モードのドロップダウンが無い | VS Code が古い | `Help` → `Check for Updates` で 1.99+ に更新 |
 | ツール件数が 88 未満 | 古い build | `npm run docs:manifest` で件数確認 → 再 build |
 | `chat` が空応答 | agents 未指定 / persona ファイル欠損 | `list_agents` で存在確認 |
 | `metrics_summary` の phaseBreakdown が空 | `chat` を経由していない / トレース未保存 | `chat` を 1 回実行してから再試行 |
