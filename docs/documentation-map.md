@@ -18,6 +18,7 @@
 - 出力構成: [outputs-structure.md](./outputs-structure.md)
 - 指標評価: [metrics-evaluation.md](./metrics-evaluation.md)
 - 検証手順: [verification-guide.md](./verification-guide.md)
+- 全機能動作確認: [full-feature-verification.md](./full-feature-verification.md)
 - 変更履歴: [CHANGELOG.md](./CHANGELOG.md)
 - 機能利用例: [feature-usage-guide.md](./feature-usage-guide.md)
 - リソース一覧: [resource-inventory.md](./resource-inventory.md)

@@ -1,10 +1,21 @@
 import { getActiveTraces, getCompletedTraces } from "../core/trace/trace-context.js";
 import { getPromptCacheMetrics } from "../core/context/chat-prompt-builder.js";
 
+export type ToolSlaThreshold = {
+  maxP95Ms?: number;
+  maxErrorRatePercent?: number;
+};
+
 export type MetricsSummaryInput = {
   limit?: number;
   maxP95Ms?: number;
   maxErrorRatePercent?: number;
+  /**
+   * ツール名・グロブをキーとする SLA 閉値設定。
+   * キーは tool 名、または "prefix*" 形式の prefix glob。
+   * 同一ツールに複数マッチした場合は exact > glob の順で適用される。
+   */
+  toolSlaThresholds?: Record<string, ToolSlaThreshold>;
 };
 
 export type MetricsSummaryResult = {
@@ -15,6 +26,16 @@ export type MetricsSummaryResult = {
   averageDurationMs: number;
   p95DurationMs: number;
   slowest: Array<{ traceId: string; toolName: string; durationMs: number; status: "success" | "error" }>;
+  /**
+   * Phase 別のデュレーション集計 (TASK-038)
+   * Phase API を使用した trace のみ集計対象。
+   */
+  phaseBreakdown?: Array<{
+    name: "input" | "plan" | "execute" | "render";
+    sampleCount: number;
+    averageDurationMs: number;
+    p95DurationMs: number;
+  }>;
   promptCache?: {
     hits: number;
     misses: number;
@@ -35,6 +56,17 @@ export type MetricsSummaryResult = {
     };
     alerts: Array<{ id: string; metric: "p95DurationMs" | "errorRatePercent"; message: string }>;
     pass: boolean;
+    /**
+     * ツール別 SLA 評価結果。`toolSlaThresholds` が与えられた場合のみ生成される。
+     */
+    perTool?: Array<{
+      toolName: string;
+      matchedPattern: string;
+      thresholds: { maxP95Ms: number; maxErrorRatePercent: number };
+      values: { p95DurationMs: number; errorRatePercent: number; sampleCount: number };
+      alerts: Array<{ id: string; metric: "p95DurationMs" | "errorRatePercent"; message: string }>;
+      pass: boolean;
+    }>;
   };
 };
 
@@ -107,6 +139,12 @@ export function summarizeMetrics(input: MetricsSummaryInput = {}): MetricsSummar
   const totalCacheOps = cacheMetrics.hits + cacheMetrics.misses;
   const hitRate = totalCacheOps === 0 ? 0 : Number((cacheMetrics.hits / totalCacheOps).toFixed(3));
 
+  // Per-tool SLA evaluation
+  const perToolSla = evaluatePerToolSla(completed, input.toolSlaThresholds);
+
+  // Phase breakdown (TASK-038)
+  const phaseBreakdown = aggregatePhases(completed);
+
   return {
     activeCount: active.length,
     completedCount,
@@ -115,6 +153,7 @@ export function summarizeMetrics(input: MetricsSummaryInput = {}): MetricsSummar
     averageDurationMs: avg,
     p95DurationMs: p95,
     slowest,
+    ...(phaseBreakdown.length > 0 ? { phaseBreakdown } : {}),
     slaEvaluation: {
       thresholds: {
         maxP95Ms,
@@ -125,7 +164,8 @@ export function summarizeMetrics(input: MetricsSummaryInput = {}): MetricsSummar
         errorRatePercent
       },
       alerts: slaAlerts,
-      pass: slaAlerts.length === 0
+      pass: slaAlerts.length === 0 && perToolSla.every((entry) => entry.pass),
+      ...(perToolSla.length > 0 ? { perTool: perToolSla } : {})
     },
     promptCache: {
       hits: cacheMetrics.hits,
@@ -137,4 +177,131 @@ export function summarizeMetrics(input: MetricsSummaryInput = {}): MetricsSummar
       maxSize: cacheMetrics.maxSize
     }
   };
+}
+
+function matchToolPattern(toolName: string, patterns: string[]): string | null {
+  // exact match preferred
+  if (patterns.includes(toolName)) return toolName;
+  let best: { pattern: string; length: number } | null = null;
+  for (const pattern of patterns) {
+    if (pattern.endsWith("*")) {
+      const prefix = pattern.slice(0, -1);
+      if (toolName.startsWith(prefix) && (!best || prefix.length > best.length)) {
+        best = { pattern, length: prefix.length };
+      }
+    }
+  }
+  return best?.pattern ?? null;
+}
+
+function evaluatePerToolSla(
+  completed: ReturnType<typeof getCompletedTraces>,
+  toolSlaThresholds: Record<string, ToolSlaThreshold> | undefined
+): NonNullable<NonNullable<MetricsSummaryResult["slaEvaluation"]>["perTool"]> {
+  if (!toolSlaThresholds || Object.keys(toolSlaThresholds).length === 0) return [];
+  const patterns = Object.keys(toolSlaThresholds);
+
+  // group traces by matched pattern
+  const grouped = new Map<string, { toolName: string; pattern: string; durations: number[]; errors: number; total: number }>();
+  for (const trace of completed) {
+    const matched = matchToolPattern(trace.toolName, patterns);
+    if (!matched) continue;
+    const key = `${trace.toolName}::${matched}`;
+    let bucket = grouped.get(key);
+    if (!bucket) {
+      bucket = { toolName: trace.toolName, pattern: matched, durations: [], errors: 0, total: 0 };
+      grouped.set(key, bucket);
+    }
+    bucket.total += 1;
+    if (trace.status === "error") bucket.errors += 1;
+    if (typeof trace.durationMs === "number" && Number.isFinite(trace.durationMs) && trace.durationMs >= 0) {
+      bucket.durations.push(trace.durationMs);
+    }
+  }
+
+  const results: NonNullable<NonNullable<MetricsSummaryResult["slaEvaluation"]>["perTool"]> = [];
+  for (const [, bucket] of grouped) {
+    const cfg = toolSlaThresholds[bucket.pattern];
+    const maxP95 = Number.isFinite(cfg.maxP95Ms) ? Math.max(1, Math.floor(cfg.maxP95Ms as number)) : 200;
+    const maxErr = Number.isFinite(cfg.maxErrorRatePercent)
+      ? Math.max(0, Math.min(100, Number(cfg.maxErrorRatePercent)))
+      : 5;
+    const sortedDurations = [...bucket.durations].sort((a, b) => a - b);
+    const p95Tool = Math.round(percentile(sortedDurations, 95));
+    const errRateTool = bucket.total === 0 ? 0 : Number(((bucket.errors / bucket.total) * 100).toFixed(2));
+
+    const alerts: Array<{ id: string; metric: "p95DurationMs" | "errorRatePercent"; message: string }> = [];
+    if (p95Tool > maxP95) {
+      alerts.push({
+        id: `sla-p95-${bucket.toolName}`,
+        metric: "p95DurationMs",
+        message: `${bucket.toolName}: p95DurationMs exceeded threshold (${p95Tool}ms > ${maxP95}ms)`
+      });
+    }
+    if (errRateTool > maxErr) {
+      alerts.push({
+        id: `sla-error-rate-${bucket.toolName}`,
+        metric: "errorRatePercent",
+        message: `${bucket.toolName}: errorRatePercent exceeded threshold (${errRateTool}% > ${maxErr}%)`
+      });
+    }
+
+    results.push({
+      toolName: bucket.toolName,
+      matchedPattern: bucket.pattern,
+      thresholds: { maxP95Ms: maxP95, maxErrorRatePercent: maxErr },
+      values: { p95DurationMs: p95Tool, errorRatePercent: errRateTool, sampleCount: bucket.total },
+      alerts,
+      pass: alerts.length === 0
+    });
+  }
+  return results;
+}
+
+/**
+ * Phase 別集計 (TASK-038)
+ *
+ * Phase API を利用している trace の phases[] を phase 名ごとにグループし、平均・p95 を返す。
+ * どの trace も phases を使っていなければ空配列。
+ */
+function aggregatePhases(
+  completed: ReturnType<typeof getCompletedTraces>
+): NonNullable<MetricsSummaryResult["phaseBreakdown"]> {
+  const buckets = new Map<"input" | "plan" | "execute" | "render", number[]>();
+  for (const trace of completed) {
+    const phases = (trace as unknown as { phases?: Array<{ name: string; durationMs?: number }> }).phases;
+    if (!Array.isArray(phases)) continue;
+    for (const phase of phases) {
+      if (
+        (phase.name === "input" || phase.name === "plan" || phase.name === "execute" || phase.name === "render") &&
+        typeof phase.durationMs === "number" &&
+        Number.isFinite(phase.durationMs) &&
+        phase.durationMs >= 0
+      ) {
+        let arr = buckets.get(phase.name);
+        if (!arr) {
+          arr = [];
+          buckets.set(phase.name, arr);
+        }
+        arr.push(phase.durationMs);
+      }
+    }
+  }
+
+  const result: NonNullable<MetricsSummaryResult["phaseBreakdown"]> = [];
+  const order: Array<"input" | "plan" | "execute" | "render"> = ["input", "plan", "execute", "render"];
+  for (const name of order) {
+    const arr = buckets.get(name);
+    if (!arr || arr.length === 0) continue;
+    const sorted = [...arr].sort((a, b) => a - b);
+    const avgMs = Math.round(sorted.reduce((s, v) => s + v, 0) / sorted.length);
+    const p95Ms = Math.round(percentile(sorted, 95));
+    result.push({
+      name,
+      sampleCount: sorted.length,
+      averageDurationMs: avgMs,
+      p95DurationMs: p95Ms
+    });
+  }
+  return result;
 }

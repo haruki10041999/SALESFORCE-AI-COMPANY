@@ -45,6 +45,22 @@ export interface GovernanceConfig {
       };
     };
   };
+  /**
+   * SLA 閾値設定
+   * - default: すべての tool に適用されるデフォルト閾値
+   * - tools: tool 名をキーとするトークンマッチ、グロブ、または "prefix*" パターンで上書きを定義
+   *   マッチた設定は default とマージされ、同名キーは tool-specific 設定が優先される
+   */
+  sla?: {
+    default?: {
+      maxP95Ms?: number;
+      maxErrorRatePercent?: number;
+    };
+    tools?: Record<string, {
+      maxP95Ms?: number;
+      maxErrorRatePercent?: number;
+    }>;
+  };
 }
 
 export interface GovernanceState {
@@ -101,6 +117,19 @@ const governanceStateFileSchema = z.object({
           maxToolsPerRun: z.number().int().positive().optional()
         }).optional()
       }).optional()
+    }).optional(),
+    sla: z.object({
+      default: z.object({
+        maxP95Ms: z.number().int().positive().optional(),
+        maxErrorRatePercent: z.number().min(0).max(100).optional()
+      }).optional(),
+      tools: z.record(
+        z.string(),
+        z.object({
+          maxP95Ms: z.number().int().positive().optional(),
+          maxErrorRatePercent: z.number().min(0).max(100).optional()
+        })
+      ).optional()
     }).optional()
   }).optional(),
   usage: governedResourceMapSchema.optional(),
@@ -180,6 +209,10 @@ export function buildDefaultGovernanceState(defaultProtectedTools: string[]): Go
           errorAggregateDetected: { autoDisableTool: true },
           governanceThresholdExceeded: { autoDisableRecommendedTools: false, maxToolsPerRun: 3 }
         }
+      },
+      sla: {
+        default: { maxP95Ms: 200, maxErrorRatePercent: 5 },
+        tools: {}
       }
     },
     usage: { skills: {}, tools: {}, presets: {} },
@@ -261,6 +294,16 @@ export async function loadGovernanceState(
                 ...defaults.config.eventAutomation.rules.governanceThresholdExceeded,
                 ...parsed.config?.eventAutomation?.rules?.governanceThresholdExceeded
               }
+            }
+          },
+          sla: {
+            default: {
+              ...defaults.config.sla?.default,
+              ...parsed.config?.sla?.default
+            },
+            tools: {
+              ...(defaults.config.sla?.tools ?? {}),
+              ...(parsed.config?.sla?.tools ?? {})
             }
           }
         },

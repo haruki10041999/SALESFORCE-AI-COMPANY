@@ -6,6 +6,12 @@
  *   score = nameMatch + tagMatch + descriptionMatch + usageScore - bugPenalty + recencyBonus
  */
 
+import {
+  rankBySemanticHybrid,
+  type SemanticRankInput,
+  type SemanticRankResult
+} from "./embedding-ranker.js";
+
 export type ResourceType = "skills" | "tools" | "presets";
 
 /**
@@ -83,6 +89,12 @@ export interface ScoringConfig {
   
   // ギャップ検知
   gapThreshold: number; // topScore < この値で gap判定
+
+  // ===== TASK-042: Embedding hybrid =====
+  /** "off" | "hybrid" の切替。デフォルトは "off" で既存挙動互換 */
+  embeddingMode?: "off" | "hybrid";
+  /** hybrid 時の token weight (0..1)。1=token-only / 0=embedding-only。デフォルト 0.6 */
+  embeddingAlpha?: number;
 }
 
 /**
@@ -100,6 +112,39 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
   dayWindow: 7,
   gapThreshold: 5
 };
+
+/**
+ * リソース種別ごとのデフォルトスコアリング設定
+ *
+ * - skills: 既存ベースライン（標準値）
+ * - tools: 名前マッチをやや弱め、バグペナルティを強化（信頼性重視）
+ * - presets: ユーザー命名のため exact match を強化、recency を弱める（安定運用重視）
+ */
+export const DEFAULT_SCORING_CONFIG_BY_TYPE: Record<ResourceType, ScoringConfig> = {
+  skills: { ...DEFAULT_SCORING_CONFIG },
+  tools: {
+    ...DEFAULT_SCORING_CONFIG,
+    exactNameMatchWeight: 26,
+    nameContainWeight: 10,
+    bugPenaltyWeight: 5,
+    recencyBonusWeight: 3
+  },
+  presets: {
+    ...DEFAULT_SCORING_CONFIG,
+    exactNameMatchWeight: 36,
+    nameContainWeight: 14,
+    recencyBonusWeight: 2,
+    dayWindow: 14,
+    gapThreshold: 4
+  }
+};
+
+/**
+ * 与えられたリソース種別に対する scoring config を返す
+ */
+export function getScoringConfigForType(resourceType: ResourceType): ScoringConfig {
+  return DEFAULT_SCORING_CONFIG_BY_TYPE[resourceType] ?? DEFAULT_SCORING_CONFIG;
+}
 
 /**
  * テキスト正規化
@@ -240,12 +285,16 @@ export function calculateScoreBreakdown(
 
 /**
  * リソース候補をスコアリングして選択
+ *
+ * synergyBonus を渡すと、各候補スコアに `bonus(name) * synergyWeight` を加算する
+ * (TASK-043 Agent×Skill Synergy 統合)。
  */
 export function selectResources(
   candidates: ResourceCandidate[],
   query: string,
   limit: number = 3,
-  config: ScoringConfig = DEFAULT_SCORING_CONFIG
+  config: ScoringConfig = DEFAULT_SCORING_CONFIG,
+  synergy?: { bonus: (name: string) => number; weight?: number }
 ): {
   selected: ResourceScoreDetail[];
   maxScore: number;
@@ -260,18 +309,63 @@ export function selectResources(
         name: candidate.name,
         score,
         breakdown,
-        disabled: candidate.disabled ?? false
+        disabled: candidate.disabled ?? false,
+        candidate
       };
     })
-    .filter((c) => c.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+    .filter((c) => c.score > 0);
 
-  const maxScore = scored[0]?.score ?? 0;
+  // ===== TASK-042: Embedding hybrid rescore =====
+  const useEmbedding = config.embeddingMode === "hybrid";
+  let finalScored: typeof scored;
+  if (useEmbedding && scored.length > 0) {
+    const inputs: SemanticRankInput[] = scored.map((s) => ({
+      name: s.name,
+      text: [
+        s.candidate.name,
+        s.candidate.description ?? "",
+        s.candidate.summary ?? "",
+        s.candidate.title ?? "",
+        ...(s.candidate.tags ?? [])
+      ].join(" "),
+      tokenScore: s.score
+    }));
+    const hybrid = rankBySemanticHybrid(query, inputs, {
+      alpha: config.embeddingAlpha
+    });
+    const hybridMap = new Map<string, SemanticRankResult>();
+    for (const h of hybrid) hybridMap.set(h.name, h);
+    finalScored = scored
+      .map((s) => {
+        const h = hybridMap.get(s.name);
+        return h
+          ? { ...s, score: h.hybridScore }
+          : s;
+      });
+  } else {
+    finalScored = scored;
+  }
+
+  // ===== TASK-043: Agent×Skill Synergy bonus =====
+  if (synergy) {
+    const weight = synergy.weight ?? 1;
+    finalScored = finalScored.map((s) => {
+      const bonus = synergy.bonus(s.name);
+      if (!Number.isFinite(bonus) || bonus <= 0) return s;
+      return { ...s, score: s.score + bonus * weight };
+    });
+  }
+
+  const ranked = finalScored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(({ candidate: _c, ...rest }) => rest);
+
+  const maxScore = ranked[0]?.score ?? 0;
   const isGap = maxScore < config.gapThreshold;
 
   return {
-    selected: scored,
+    selected: ranked,
     maxScore,
     isGap
   };
@@ -279,19 +373,22 @@ export function selectResources(
 
 /**
  * リソース選択の実行
+ *
+ * config を省略した場合、resourceType に応じた DEFAULT_SCORING_CONFIG_BY_TYPE が使用されます。
  */
 export function selectResourcesByType(
   resourceType: ResourceType,
   candidates: ResourceCandidate[],
   query: string,
   limit: number = 3,
-  config: ScoringConfig = DEFAULT_SCORING_CONFIG
+  config?: ScoringConfig
 ): ResourceSelectionResult {
+  const effectiveConfig = config ?? getScoringConfigForType(resourceType);
   const { selected, maxScore, isGap } = selectResources(
     candidates,
     query,
     limit,
-    config
+    effectiveConfig
   );
 
   return {
@@ -300,6 +397,6 @@ export function selectResourcesByType(
     detail: selected,
     maxScore,
     isGap,
-    threshold: config.gapThreshold
+    threshold: effectiveConfig.gapThreshold
   };
 }

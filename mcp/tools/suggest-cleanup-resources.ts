@@ -1,4 +1,5 @@
 import type { GovernedResourceType } from "../core/governance/governance-state.js";
+import { detectUsagePattern, shouldDeferCleanup, type UsagePattern } from "../core/resource/usage-pattern.js";
 
 export interface ResourceActivitySnapshot {
   lastUsedAt?: string;
@@ -30,6 +31,10 @@ export interface CleanupCandidate {
   daysSinceFirstSeen: number | null;
   reason: string;
   confidence: "low" | "medium" | "high";
+  /** TASK-039: 使用パターン */
+  usagePattern?: UsagePattern;
+  /** TASK-039: パターン判定の補足 */
+  patternRationale?: string;
 }
 
 export interface SuggestCleanupResourcesResult {
@@ -94,6 +99,19 @@ function buildCandidate(
     confidence = "medium";
   }
 
+  // TASK-039: usage pattern を付加し、burst / daily は confidence を押さえる
+  const patternResult = detectUsagePattern({
+    firstSeenAt: activity.firstSeenAt ?? null,
+    lastUsedAt: activity.lastUsedAt ?? null,
+    usageCount,
+    now
+  });
+  if (shouldDeferCleanup(patternResult.pattern) && confidence === "high") {
+    confidence = "medium";
+  } else if (shouldDeferCleanup(patternResult.pattern) && confidence === "medium") {
+    confidence = "low";
+  }
+
   return {
     resourceType,
     name,
@@ -104,7 +122,9 @@ function buildCandidate(
     daysSinceLastUse,
     daysSinceFirstSeen,
     reason,
-    confidence
+    confidence,
+    usagePattern: patternResult.pattern,
+    patternRationale: patternResult.rationale
   };
 }
 

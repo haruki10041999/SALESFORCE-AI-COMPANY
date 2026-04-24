@@ -92,6 +92,48 @@ test("loadGovernanceState preserves valid persisted values after schema validati
   assert.deepEqual(state.disabled.tools, ["old_tool"]);
 });
 
+test("loadGovernanceState preserves persisted SLA thresholds and merges with defaults", async () => {
+  const root = await mkdtemp(join(tmpdir(), "sf-ai-governance-sla-"));
+  const governanceFile = join(root, "resource-governance.json");
+
+  await writeFile(
+    governanceFile,
+    JSON.stringify({
+      config: {
+        sla: {
+          default: { maxP95Ms: 500 },
+          tools: {
+            deploy_org: { maxP95Ms: 1500, maxErrorRatePercent: 10 },
+            "analyze_*": { maxP95Ms: 200 }
+          }
+        }
+      }
+    }),
+    "utf-8"
+  );
+
+  const state = await loadGovernanceState(
+    governanceFile,
+    async (dir) => {
+      await mkdir(dir, { recursive: true });
+    },
+    ["apply_resource_actions"]
+  );
+
+  assert.equal(state.config.sla?.default?.maxP95Ms, 500);
+  // default merge: maxErrorRatePercent should still be from defaults
+  assert.equal(state.config.sla?.default?.maxErrorRatePercent, 5);
+  assert.equal(state.config.sla?.tools?.deploy_org?.maxP95Ms, 1500);
+  assert.equal(state.config.sla?.tools?.deploy_org?.maxErrorRatePercent, 10);
+  assert.equal(state.config.sla?.tools?.["analyze_*"]?.maxP95Ms, 200);
+
+  // default builder also produces the sla section
+  const defaults = buildDefaultGovernanceState(["apply_resource_actions"]);
+  assert.ok(defaults.config.sla);
+  assert.equal(defaults.config.sla?.default?.maxP95Ms, 200);
+  assert.equal(defaults.config.sla?.default?.maxErrorRatePercent, 5);
+});
+
 test("tool-error helpers normalize messages and retryability consistently", () => {
   const codedError = new Error("Timeout while calling upstream") as Error & { code?: string };
   codedError.code = "ETIMEDOUT";

@@ -11,7 +11,7 @@ import {
   getAgentTrustScoringEnabled,
   getAgentTrustThreshold
 } from "../core/config/runtime-config.js";
-import { endTrace, failTrace, startTrace } from "../core/trace/trace-context.js";
+import { endTrace, failTrace, startTrace, withPhase } from "../core/trace/trace-context.js";
 
 interface RegisterChatOrchestrationToolsDeps extends RegisterGovToolDeps {
   chatInputSchema: Record<string, unknown>;
@@ -134,65 +134,89 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     }) => {
       const selectedAgents = agents ?? ["product-manager", "architect", "qa-engineer"];
       const sessionId = generateSessionId();
-      const { enabled: enabledSkills, disabled: disabledSkills } = await filterDisabledSkills(skills ?? []);
-
-      await emitSystemEvent("session_start", {
-        sessionId,
-        topic,
-        agents: selectedAgents,
-        triggerRuleCount: (triggerRules ?? []).length,
-        requestedSkills: skills ?? [],
-        enabledSkills,
-        disabledSkills
+      // TASK-038: orchestrate_chat の phase 分解
+      const traceId = startTrace("orchestrate_chat", {
+        agent: selectedAgents[0],
+        skills,
+        topic
       });
+      try {
+        const { enabled: enabledSkills, disabled: disabledSkills } = await withPhase(
+          traceId,
+          "input",
+          () => filterDisabledSkills(skills ?? [])
+        );
 
-      const prompt = await buildChatPrompt(
-        topic,
-        selectedAgents,
-        persona,
-        enabledSkills,
-        filePaths ?? [],
-        turns ?? 6,
-        maxContextChars,
-        appendInstruction
-      );
+        await withPhase(traceId, "plan", async () => {
+          await emitSystemEvent("session_start", {
+            sessionId,
+            topic,
+            agents: selectedAgents,
+            triggerRuleCount: (triggerRules ?? []).length,
+            requestedSkills: skills ?? [],
+            enabledSkills,
+            disabledSkills
+          });
+        });
 
-      const session: OrchestrationSession = {
-        id: sessionId,
-        topic,
-        appendInstruction,
-        agents: selectedAgents,
-        persona,
-        skills: enabledSkills,
-        filePaths: filePaths ?? [],
-        turns: turns ?? 6,
-        triggerRules: triggerRules ?? [],
-        queue: [...selectedAgents],
-        history: [],
-        firedRules: [],
-        agentTrust: {}
-      };
-      orchestrationSessions.set(sessionId, session);
+        const prompt = await withPhase(traceId, "execute", () =>
+          buildChatPrompt(
+            topic,
+            selectedAgents,
+            persona,
+            enabledSkills,
+            filePaths ?? [],
+            turns ?? 6,
+            maxContextChars,
+            appendInstruction
+          )
+        );
 
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(
+        const response = await withPhase(traceId, "render", async () => {
+          const session: OrchestrationSession = {
+            id: sessionId,
+            topic,
+            appendInstruction,
+            agents: selectedAgents,
+            persona,
+            skills: enabledSkills,
+            filePaths: filePaths ?? [],
+            turns: turns ?? 6,
+            triggerRules: triggerRules ?? [],
+            queue: [...selectedAgents],
+            history: [],
+            firedRules: [],
+            agentTrust: {}
+          };
+          orchestrationSessions.set(sessionId, session);
+
+          return {
+            content: [
               {
-                sessionId,
-                mode: "pseudo-hook",
-                nextQueue: session.queue,
-                triggerRuleCount: session.triggerRules.length,
-                disabledSkills,
-                prompt
-              },
-              null,
-              2
-            )
-          }
-        ]
-      };
+                type: "text" as const,
+                text: JSON.stringify(
+                  {
+                    sessionId,
+                    mode: "pseudo-hook",
+                    nextQueue: session.queue,
+                    triggerRuleCount: session.triggerRules.length,
+                    disabledSkills,
+                    prompt
+                  },
+                  null,
+                  2
+                )
+              }
+            ]
+          };
+        });
+
+        endTrace(traceId, { agentCount: selectedAgents.length });
+        return response;
+      } catch (err) {
+        failTrace(traceId, err);
+        throw err;
+      }
     }
   );
 

@@ -1,5 +1,5 @@
 ﻿import { promises as fsPromises } from "fs";
-import { dirname, resolve } from "path";
+import { dirname, resolve, join } from "path";
 import { z } from "zod";
 import type { GovernanceState } from "../core/governance/governance-state.js";
 import type { SystemEventRecord, SystemEventLogStatus } from "../core/event/system-event-manager.js";
@@ -8,6 +8,15 @@ import { getActiveTraces, getCompletedTraces } from "../core/trace/trace-context
 import { getMetricsSummary } from "../tools/metrics.js";
 import { runAgentAbTest } from "../tools/agent-ab-test.js";
 import type { RegisterGovToolDeps } from "./types.js";
+import {
+  buildObservabilityDashboard,
+  type ObservabilityGovernanceFlagged
+} from "../core/observability/dashboard.js";
+import {
+  buildSynergyModel,
+  recommendCombo,
+  extractSynergyRecordsFromTraces
+} from "../core/resource/synergy-model.js";
 
 interface RegisterAnalyticsToolsDeps extends RegisterGovToolDeps {
   agentLog: AgentMessage[];
@@ -150,7 +159,9 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
         turns: z.number().int().min(1).max(30).optional(),
         maxContextChars: z.number().int().min(500).max(200000).optional(),
         appendInstruction: z.string().optional(),
-        reportOutputDir: z.string().optional()
+        reportOutputDir: z.string().optional(),
+        applyOutcomeToTrustStore: z.boolean().optional(),
+        trustStoreFilePath: z.string().optional()
       }
     },
     async ({
@@ -163,7 +174,9 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
       turns,
       maxContextChars,
       appendInstruction,
-      reportOutputDir
+      reportOutputDir,
+      applyOutcomeToTrustStore,
+      trustStoreFilePath
     }: {
       topic: string;
       agentA: string;
@@ -175,6 +188,8 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
       maxContextChars?: number;
       appendInstruction?: string;
       reportOutputDir?: string;
+      applyOutcomeToTrustStore?: boolean;
+      trustStoreFilePath?: string;
     }) => {
       const result = await runAgentAbTest(
         {
@@ -187,7 +202,9 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
           turns,
           maxContextChars,
           appendInstruction,
-          reportOutputDir
+          reportOutputDir,
+          applyOutcomeToTrustStore,
+          trustStoreFilePath
         },
         {
           runChatTool,
@@ -513,6 +530,180 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
       }
 
       return { content: [{ type: "text", text: content }] };
+    }
+  );
+
+  // TASK-044: Unified Observability Dashboard
+  govTool(
+    "observability_dashboard",
+    {
+      title: "Observability Dashboard",
+      description:
+        "trace + system_event + governance_state を join した HTML/Markdown ダッシュボードを生成し、outputs/dashboards/observability.* に保存します。",
+      inputSchema: {
+        eventLimit: z.number().int().min(50).max(5000).optional(),
+        traceLimit: z.number().int().min(10).max(500).optional(),
+        correlationWindowMs: z.number().int().min(100).max(60000).optional(),
+        format: z.enum(["html", "markdown", "json"]).optional(),
+        write: z.boolean().optional()
+      }
+    },
+    async ({
+      eventLimit,
+      traceLimit,
+      correlationWindowMs,
+      format,
+      write
+    }: {
+      eventLimit?: number;
+      traceLimit?: number;
+      correlationWindowMs?: number;
+      format?: "html" | "markdown" | "json";
+      write?: boolean;
+    }) => {
+      const traces = [...getCompletedTraces(traceLimit ?? 100), ...getActiveTraces()].map((t) => ({
+        traceId: t.traceId,
+        toolName: t.toolName,
+        startedAt: t.startedAt,
+        endedAt: t.endedAt,
+        durationMs: t.durationMs,
+        status: t.status,
+        errorMessage: t.errorMessage,
+        metadata: t.metadata
+      }));
+      const events = (await loadSystemEvents(eventLimit ?? 1000)).map((e) => ({
+        id: e.id,
+        event: e.event,
+        timestamp: e.timestamp,
+        payload: e.payload
+      }));
+
+      const state = await loadGovernanceState();
+      const flagged: ObservabilityGovernanceFlagged[] = [];
+      const types: Array<"skills" | "tools" | "presets"> = ["skills", "tools", "presets"];
+      for (const t of types) {
+        for (const name of state.disabled?.[t] ?? []) {
+          flagged.push({ resourceType: t, name, reason: "disabled" });
+        }
+        const bugThreshold = state.config?.thresholds?.bugSignalToFlag ?? 5;
+        const bugMap = state.bugSignals?.[t] ?? {};
+        for (const [name, count] of Object.entries(bugMap)) {
+          if (typeof count === "number" && count >= bugThreshold) {
+            flagged.push({ resourceType: t, name, reason: `bugSignals=${count}` });
+          }
+        }
+      }
+
+      const report = buildObservabilityDashboard({
+        traces,
+        events,
+        governanceFlagged: flagged,
+        correlationWindowMs,
+        recentLimit: traceLimit ?? 50
+      });
+
+      const dashboardsDir = join(outputsDir, "dashboards");
+      const shouldWrite = write !== false;
+      if (shouldWrite) {
+        await ensureDir(dashboardsDir);
+        await fsPromises.writeFile(join(dashboardsDir, "observability.html"), report.html, "utf-8");
+        await fsPromises.writeFile(join(dashboardsDir, "observability.md"), report.markdown, "utf-8");
+        await fsPromises.writeFile(
+          join(dashboardsDir, "observability.json"),
+          JSON.stringify({ summary: report.summary, correlations: report.correlations, governanceFlagged: report.governanceFlagged }, null, 2),
+          "utf-8"
+        );
+      }
+
+      const fmt = format ?? "json";
+      const text =
+        fmt === "html"
+          ? report.html
+          : fmt === "markdown"
+          ? report.markdown
+          : JSON.stringify(
+              {
+                summary: report.summary,
+                correlations: report.correlations,
+                governanceFlagged: report.governanceFlagged,
+                writtenTo: shouldWrite ? dashboardsDir : null
+              },
+              null,
+              2
+            );
+
+      return { content: [{ type: "text", text }] };
+    }
+  );
+
+  // TASK-043: Agent×Skill Synergy Recommendation
+  govTool(
+    "synergy_recommend_combo",
+    {
+      title: "Agent×Skill Synergy 推薦",
+      description:
+        "過去 trace から (agent, skill) 共起・成功率を学習し、与えられた候補集合から相性 top-N の組合せを提案します。",
+      inputSchema: {
+        agents: z.array(z.string()).min(1).max(50).optional(),
+        skills: z.array(z.string()).min(1).max(100).optional(),
+        traceLimit: z.number().int().min(10).max(1000).optional(),
+        limit: z.number().int().min(1).max(20).optional(),
+        minScore: z.number().min(0).max(1).optional()
+      }
+    },
+    async ({
+      agents,
+      skills,
+      traceLimit,
+      limit,
+      minScore
+    }: {
+      agents?: string[];
+      skills?: string[];
+      traceLimit?: number;
+      limit?: number;
+      minScore?: number;
+    }) => {
+      const traces = getCompletedTraces(traceLimit ?? 200).map((t) => ({
+        status: t.status,
+        endedAt: t.endedAt,
+        metadata: t.metadata
+      }));
+
+      const records = extractSynergyRecordsFromTraces(traces);
+      const model = buildSynergyModel(records);
+
+      // 与えられた候補が無ければ model 内全 pair を使う
+      const candidateAgents = agents && agents.length > 0
+        ? agents
+        : Array.from(new Set([...model.pairs.values()].map((p) => p.agent)));
+      const candidateSkills = skills && skills.length > 0
+        ? skills
+        : Array.from(new Set([...model.pairs.values()].map((p) => p.skill)));
+
+      const combos = recommendCombo(model, {
+        agents: candidateAgents,
+        skills: candidateSkills,
+        limit: limit ?? 5,
+        minScore: minScore ?? 0
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                trainedFromTraces: records.length,
+                pairsLearned: model.pairs.size,
+                combos
+              },
+              null,
+              2
+            )
+          }
+        ]
+      };
     }
   );
 }

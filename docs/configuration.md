@@ -63,6 +63,7 @@ LOG_LEVEL=debug SF_AI_DEBUG_VERBOSE_PROMPT=true npm run mcp:dev
 | `SF_AI_DEBUG_VERBOSE_PROMPT` | `LOG_LEVEL=debug` 時にプロンプト本文までログ出力するか | `false` |
 | `PROMPT_CACHE_MAX_ENTRIES` | メモリ上にキャッシュするプロンプトの最大件数 | `100` |
 | `PROMPT_CACHE_TTL_SECONDS` | キャッシュエントリの有効期間（秒） | `600` |
+| `PROMPT_CACHE_FILE` | プロンプトキャッシュを JSONL に永続化する先（未指定なら永続化しない / TASK-046） | 未設定 |
 | `AI_PROMPT_CACHE_MAX_ENTRIES` | `PROMPT_CACHE_MAX_ENTRIES` の新名称（優先して参照） | `100` |
 | `AI_PROMPT_CACHE_TTL_SECONDS` | `PROMPT_CACHE_TTL_SECONDS` の新名称（優先して参照） | `600` |
 | `AI_LOW_RELEVANCE_THRESHOLD` | 低関連度判定しきい値（`LOW_RELEVANCE_SCORE_THRESHOLD` 互換） | `6` |

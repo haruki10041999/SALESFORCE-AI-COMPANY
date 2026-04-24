@@ -60,7 +60,13 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
         feedback: z.array(z.object({
           resourceType: z.enum(["skills", "tools", "presets"]),
           name: z.string(),
-          decision: z.enum(["accepted", "rejected"]),
+          decision: z.enum([
+            "accepted",
+            "rejected",
+            "reject_inaccurate",
+            "reject_unnecessary",
+            "reject_duplicate"
+          ]),
           topic: z.string().optional(),
           note: z.string().optional(),
           recordedAt: z.string().optional()
@@ -75,7 +81,12 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
       feedback: Array<{
         resourceType: "skills" | "tools" | "presets";
         name: string;
-        decision: "accepted" | "rejected";
+        decision:
+          | "accepted"
+          | "rejected"
+          | "reject_inaccurate"
+          | "reject_unnecessary"
+          | "reject_duplicate";
         topic?: string;
         note?: string;
         recordedAt?: string;
@@ -103,7 +114,7 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
         .map((entry) => ({
           query: entry.topic!.trim(),
           skill: entry.name,
-          decision: entry.decision,
+          decision: (entry.decision === "accepted" ? "accepted" : "rejected") as "accepted" | "rejected",
           recordedAt: entry.recordedAt
         }));
       if (querySkillEntries.length > 0) {

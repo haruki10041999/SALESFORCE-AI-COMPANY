@@ -93,9 +93,43 @@ node --import tsx --test tests/new-tools.test.ts
 - `npm test` で fail 0
 - `CHANGELOG.md` 更新済み
 - 必要なドキュメント更新済み（設定・運用・機能仕様）
+- 全機能の動作確認は [full-feature-verification.md](./full-feature-verification.md) を参照
+
+## 追加検証カテゴリ (2026-04 Phase 2-4)
+
+### Property-based test (TASK-048)
+
+```bash
+npm test -- tests/property-based.test.ts
+```
+
+`fast-check` を用いた scoring / learning / trust モジュールの不変条件テスト。
+
+### Phase 計測の確認 (TASK-038)
+
+`chat` / `orchestrate_chat` 実行後に `metrics_summary` の `phaseBreakdown` を確認し
+input / plan / execute / render の duration が記録されていること。
+
+### Synergy 推奨 (TASK-043)
+
+```bash
+# trace 蓄積後
+node --import tsx --test tests/core-modules.test.ts
+```
+
+加えて MCP ツール `synergy_recommend_combo` を呼び出し JSON 結果を確認。
+
+### Benchmark nightly (TASK-050)
+
+```bash
+npm run benchmark:run -- --output outputs/benchmark/local.json
+```
+
+ローカル動作確認。CI は `.github/workflows/benchmark-nightly.yml` が毎日実行。
 
 ## 関連ドキュメント
 
 - `operations-guide.md`
 - `developer-guide.md`
 - `documentation-map.md`
+- `full-feature-verification.md`

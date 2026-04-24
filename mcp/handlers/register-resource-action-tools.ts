@@ -8,6 +8,20 @@ import type { SystemEventRecord } from "../core/event/system-event-manager.js";
 import type { HandlersStatistics } from "./statistics-manager.js";
 import { buildResourceActivityIndex } from "./statistics-manager.js";
 import { suggestCleanupResources } from "../tools/suggest-cleanup-resources.js";
+import { evaluateCascadeDeletion, renderCascadeImpactMarkdown, type CascadeMode } from "../core/resource/cascading-delete.js";
+import {
+  loadCleanupSchedules,
+  saveCleanupSchedules,
+  createCleanupSchedule,
+  updateCleanupSchedule,
+  deleteCleanupSchedule,
+  setCleanupScheduleStatus,
+  getDueSchedules,
+  parseCronExpression,
+  getDefaultSchedulesFilePath,
+  type CleanupScheduleAction,
+  type CleanupScheduleStatus
+} from "../core/resource/cleanup-scheduler.js";
 
 type GovernanceActionType = "create" | "delete" | "disable" | "enable";
 
@@ -107,6 +121,7 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
       description: "リソース操作の変更を適用します。",
       inputSchema: {
         dryRun: z.boolean().optional(),
+        cascadeMode: z.enum(["force", "prompt", "block"]).optional(),
         actions: z.array(z.object({
           resourceType: z.enum(["skills", "tools", "presets"]),
           action: z.enum(["create", "delete", "disable", "enable"]),
@@ -129,7 +144,7 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
         })).min(1).max(50)
       }
     },
-    async ({ actions, dryRun }: {
+    async ({ actions, dryRun, cascadeMode }: {
       actions: Array<{
         resourceType: GovernedResourceType;
         action: GovernanceActionType;
@@ -139,8 +154,10 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
         toolConfig?: { agents?: string[]; skills?: string[]; persona?: string };
       }>;
       dryRun?: boolean;
+      cascadeMode?: CascadeMode;
     }) => {
       const effectiveDryRun = dryRun ?? false;
+      const effectiveCascadeMode: CascadeMode = cascadeMode ?? "block";
       const state = await loadGovernanceState();
       await ensureDir(presetsDir);
       await ensureDir(join(root, "skills"));
@@ -161,6 +178,44 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
         if (action === "delete" && checkDailyLimitExceeded(recentOps, "delete", dailyDeleteLimit)) {
           results.push({ action, resourceType, name, result: "daily_limit_exceeded (delete: " + dailyDeleteLimit + "/day)" });
           continue;
+        }
+
+        // Cascading dependency safe-delete check (TASK-037)
+        if (action === "delete" || action === "disable") {
+          const impact = await evaluateCascadeDeletion({
+            resourceType,
+            name,
+            presetsDir,
+            mode: effectiveCascadeMode
+          });
+          if (impact.downstream.length > 0) {
+            try {
+              await emitEvent({
+                type: "cascade_impact_detected",
+                timestamp: new Date().toISOString(),
+                payload: {
+                  resourceType,
+                  name,
+                  action,
+                  mode: effectiveCascadeMode,
+                  blocked: impact.blocked,
+                  downstreamCount: impact.downstream.length,
+                  downstream: impact.downstream.map((d) => ({ type: d.type, name: d.name }))
+                }
+              });
+            } catch {
+              // ignore emit failure
+            }
+            if (impact.blocked) {
+              results.push({
+                action,
+                resourceType,
+                name,
+                result: `blocked_by_cascade: ${impact.message}\n\n${renderCascadeImpactMarkdown(impact)}`
+              });
+              continue;
+            }
+          }
         }
 
         if (action === "disable") {
@@ -574,6 +629,163 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
           }
         ]
       };
+    }
+  );
+
+  // TASK-041: Cleanup Scheduler tool
+  govTool(
+    "governance_auto_cleanup_schedule",
+    {
+      title: "自動クリーンアップスケジューラ",
+      description:
+        "cron 表現で suggest_cleanup_resources の自動実行を管理します。dry-run/apply モード、pause/resume、due チェックに対応。",
+      inputSchema: {
+        operation: z.enum([
+          "list",
+          "create",
+          "update",
+          "delete",
+          "pause",
+          "resume",
+          "due",
+          "validate-cron"
+        ]),
+        id: z.string().optional(),
+        name: z.string().optional(),
+        cron: z.string().optional(),
+        action: z.enum(["dry-run", "apply"]).optional(),
+        daysUnused: z.number().int().min(1).max(365).optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+        requireApproval: z.boolean().optional(),
+        status: z.enum(["active", "paused"]).optional(),
+        when: z.string().optional()
+      }
+    },
+    async ({
+      operation,
+      id,
+      name,
+      cron,
+      action,
+      daysUnused,
+      limit,
+      requireApproval,
+      status,
+      when
+    }: {
+      operation:
+        | "list"
+        | "create"
+        | "update"
+        | "delete"
+        | "pause"
+        | "resume"
+        | "due"
+        | "validate-cron";
+      id?: string;
+      name?: string;
+      cron?: string;
+      action?: CleanupScheduleAction;
+      daysUnused?: number;
+      limit?: number;
+      requireApproval?: boolean;
+      status?: CleanupScheduleStatus;
+      when?: string;
+    }) => {
+      const filePath = getDefaultSchedulesFilePath(root);
+
+      if (operation === "validate-cron") {
+        if (!cron) {
+          return { content: [{ type: "text", text: JSON.stringify({ valid: false, error: "cron is required" }, null, 2) }] };
+        }
+        const parsed = parseCronExpression(cron);
+        return {
+          content: [{ type: "text", text: JSON.stringify({ valid: parsed !== null, cron }, null, 2) }]
+        };
+      }
+
+      const current = await loadCleanupSchedules(filePath);
+
+      if (operation === "list") {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ filePath, schedules: current.schedules }, null, 2) }]
+        };
+      }
+
+      if (operation === "due") {
+        const evalDate = when ? new Date(when) : new Date();
+        const due = getDueSchedules(current, evalDate);
+        return {
+          content: [{ type: "text", text: JSON.stringify({ evaluatedAt: evalDate.toISOString(), due }, null, 2) }]
+        };
+      }
+
+      if (operation === "create") {
+        if (!name || !cron) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "name and cron are required" }, null, 2) }] };
+        }
+        try {
+          const result = createCleanupSchedule(current, {
+            name,
+            cron,
+            action,
+            daysUnused,
+            limit,
+            requireApproval,
+            status
+          });
+          await saveCleanupSchedules(filePath, result.file);
+          return { content: [{ type: "text", text: JSON.stringify({ created: result.schedule }, null, 2) }] };
+        } catch (err) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: (err as Error).message }, null, 2) }] };
+        }
+      }
+
+      if (operation === "update") {
+        if (!id) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "id is required" }, null, 2) }] };
+        }
+        try {
+          const result = updateCleanupSchedule(current, id, {
+            name,
+            cron,
+            action,
+            daysUnused,
+            limit,
+            requireApproval,
+            status
+          });
+          await saveCleanupSchedules(filePath, result.file);
+          return { content: [{ type: "text", text: JSON.stringify({ updated: result.schedule }, null, 2) }] };
+        } catch (err) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: (err as Error).message }, null, 2) }] };
+        }
+      }
+
+      if (operation === "delete") {
+        if (!id) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "id is required" }, null, 2) }] };
+        }
+        const result = deleteCleanupSchedule(current, id);
+        await saveCleanupSchedules(filePath, result.file);
+        return { content: [{ type: "text", text: JSON.stringify({ deleted: result.deleted, id }, null, 2) }] };
+      }
+
+      if (operation === "pause" || operation === "resume") {
+        if (!id) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: "id is required" }, null, 2) }] };
+        }
+        try {
+          const newStatus: CleanupScheduleStatus = operation === "pause" ? "paused" : "active";
+          const result = setCleanupScheduleStatus(current, id, newStatus);
+          await saveCleanupSchedules(filePath, result.file);
+          return { content: [{ type: "text", text: JSON.stringify({ updated: result.schedule }, null, 2) }] };
+        } catch (err) {
+          return { content: [{ type: "text", text: JSON.stringify({ error: (err as Error).message }, null, 2) }] };
+        }
+      }
+
+      return { content: [{ type: "text", text: JSON.stringify({ error: "unknown operation" }, null, 2) }] };
     }
   );
 }

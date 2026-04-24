@@ -9,7 +9,8 @@ import {
   clearBuildChatPromptCache,
   invalidateBuildChatPromptCache,
   getPromptCacheMetrics,
-  resetPromptCacheMetrics
+  resetPromptCacheMetrics,
+  createPromptCacheKey
 } from "../mcp/core/context/chat-prompt-builder.js";
 
 type MdMap = Record<string, string>;
@@ -491,6 +492,101 @@ test("prompt cache metrics track hits, misses, and expirations", async () => {
     }
   } finally {
     clearBuildChatPromptCache();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("createPromptCacheKey is order-independent for arrays and produces stable hash", () => {
+  const baseInput = {
+    topic: "design review",
+    agentNames: ["architect", "qa-engineer"],
+    personaName: "captain",
+    skillNames: ["apex-pattern", "lwc-best-practice"],
+    filePaths: ["src/a.ts", "src/b.ts"],
+    turns: 2,
+    maxContextChars: 5000,
+    appendInstruction: "be concise",
+    includeProjectContext: true
+  };
+
+  const reorderedInput = {
+    topic: "design review",
+    agentNames: ["qa-engineer", "architect"],
+    personaName: "captain",
+    skillNames: ["lwc-best-practice", "apex-pattern"],
+    filePaths: ["src/b.ts", "src/a.ts"],
+    turns: 2,
+    maxContextChars: 5000,
+    appendInstruction: "be concise",
+    includeProjectContext: true
+  };
+
+  const root = "/workspace";
+  const key1 = createPromptCacheKey(baseInput, root);
+  const key2 = createPromptCacheKey(reorderedInput, root);
+  assert.equal(key1, key2, "reordered arrays must produce identical cache keys");
+
+  // sha256 hex output is 64 chars
+  assert.match(key1, /^[a-f0-9]{64}$/, "cache key should be a sha256 hex string");
+
+  // Different content must produce different key
+  const differentInput = { ...baseInput, topic: "other topic" };
+  const key3 = createPromptCacheKey(differentInput, root);
+  assert.notEqual(key1, key3, "different content must produce different keys");
+});
+
+test("buildChatPromptFromContext injects persona-specific style hints (TASK-040)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "chat-prompt-persona-style-"));
+  try {
+    const promptEngineDir = join(root, "prompt-engine");
+    mkdirSync(promptEngineDir, { recursive: true });
+    writeFileSync(join(promptEngineDir, "discussion-framework.md"), "Discussion", "utf-8");
+
+    const deps = buildDeps(
+      root,
+      {
+        "agents/architect": "Architect Agent",
+        "personas/samurai": "Samurai Persona",
+        "personas/diplomat": "Diplomat Persona"
+      },
+      []
+    );
+
+    const samuraiPrompt = await buildChatPromptFromContext({
+      topic: "design discussion",
+      agentNames: ["architect"],
+      personaName: "samurai",
+      skillNames: [],
+      filePaths: [],
+      turns: 1,
+      includeProjectContext: false
+    }, deps);
+
+    const diplomatPrompt = await buildChatPromptFromContext({
+      topic: "design discussion",
+      agentNames: ["architect"],
+      personaName: "diplomat",
+      skillNames: [],
+      filePaths: [],
+      turns: 1,
+      includeProjectContext: false
+    }, deps);
+
+    // Both prompts should include the persona style section header
+    assert.ok(samuraiPrompt.includes("## ペルソナスタイル指示"),
+      "samurai prompt should include persona style section");
+    assert.ok(diplomatPrompt.includes("## ペルソナスタイル指示"),
+      "diplomat prompt should include persona style section");
+
+    // Each persona produces different style content
+    assert.ok(samuraiPrompt.includes("tone: strict"),
+      "samurai prompt should mention strict tone");
+    assert.ok(diplomatPrompt.includes("tone: warm"),
+      "diplomat prompt should mention warm tone");
+
+    assert.notEqual(samuraiPrompt, diplomatPrompt,
+      "swapping persona should produce different prompts");
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });

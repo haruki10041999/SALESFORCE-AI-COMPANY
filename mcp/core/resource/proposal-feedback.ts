@@ -2,7 +2,33 @@ import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname } from "node:path";
 
 export type FeedbackResourceType = "skills" | "tools" | "presets";
-export type FeedbackDecision = "accepted" | "rejected";
+export type FeedbackDecision =
+  | "accepted"
+  | "rejected"
+  | "reject_inaccurate"
+  | "reject_unnecessary"
+  | "reject_duplicate";
+export type RejectReason = "reject_inaccurate" | "reject_unnecessary" | "reject_duplicate";
+
+const REJECT_REASONS: ReadonlyArray<RejectReason> = [
+  "reject_inaccurate",
+  "reject_unnecessary",
+  "reject_duplicate"
+];
+
+function isRejectReason(value: string): value is RejectReason {
+  return (REJECT_REASONS as ReadonlyArray<string>).includes(value);
+}
+
+function isRejected(decision: FeedbackDecision): boolean {
+  return decision === "rejected" || isRejectReason(decision);
+}
+
+function normalizeRejectReason(decision: FeedbackDecision): RejectReason | null {
+  if (decision === "rejected") return "reject_unnecessary";
+  if (isRejectReason(decision)) return decision;
+  return null;
+}
 
 export type ProposalFeedbackEntry = {
   resourceType: FeedbackResourceType;
@@ -13,6 +39,8 @@ export type ProposalFeedbackEntry = {
   recordedAt: string;
 };
 
+export type RejectReasonBreakdown = Record<RejectReason, number>;
+
 export type ProposalFeedbackStats = {
   resourceType: FeedbackResourceType;
   name: string;
@@ -21,6 +49,7 @@ export type ProposalFeedbackStats = {
   total: number;
   acceptRate: number;
   adjustment: number;
+  rejectReasons: RejectReasonBreakdown;
 };
 
 export type ProposalFeedbackModel = {
@@ -30,6 +59,7 @@ export type ProposalFeedbackModel = {
     accepted: number;
     rejected: number;
     total: number;
+    rejectReasons: RejectReasonBreakdown;
   };
   typeAdjustments: Record<FeedbackResourceType, number>;
   resources: ProposalFeedbackStats[];
@@ -71,7 +101,7 @@ export async function loadProposalFeedbackLog(logFilePath: string): Promise<Prop
         if (
           (parsed.resourceType === "skills" || parsed.resourceType === "tools" || parsed.resourceType === "presets") &&
           typeof parsed.name === "string" &&
-          (parsed.decision === "accepted" || parsed.decision === "rejected")
+          (parsed.decision === "accepted" || isRejected(parsed.decision))
         ) {
           return parsed;
         }
@@ -87,21 +117,32 @@ export function buildProposalFeedbackModel(
   entries: ProposalFeedbackEntry[],
   minSamples: number
 ): ProposalFeedbackModel {
-  const byResource = new Map<string, { resourceType: FeedbackResourceType; name: string; accepted: number; rejected: number }>();
+  const byResource = new Map<
+    string,
+    { resourceType: FeedbackResourceType; name: string; accepted: number; rejected: number; rejectReasons: RejectReasonBreakdown }
+  >();
   const typeCounter: Record<FeedbackResourceType, { accepted: number; rejected: number }> = {
     skills: { accepted: 0, rejected: 0 },
     tools: { accepted: 0, rejected: 0 },
     presets: { accepted: 0, rejected: 0 }
   };
+  const totalsRejectReasons: RejectReasonBreakdown = {
+    reject_inaccurate: 0,
+    reject_unnecessary: 0,
+    reject_duplicate: 0
+  };
 
   for (const entry of entries) {
     const key = `${entry.resourceType}:${entry.name}`;
-    const current = byResource.get(key) ?? {
-      resourceType: entry.resourceType,
-      name: entry.name,
-      accepted: 0,
-      rejected: 0
-    };
+    const current =
+      byResource.get(key) ??
+      ({
+        resourceType: entry.resourceType,
+        name: entry.name,
+        accepted: 0,
+        rejected: 0,
+        rejectReasons: { reject_inaccurate: 0, reject_unnecessary: 0, reject_duplicate: 0 }
+      } as { resourceType: FeedbackResourceType; name: string; accepted: number; rejected: number; rejectReasons: RejectReasonBreakdown });
 
     if (entry.decision === "accepted") {
       current.accepted += 1;
@@ -109,6 +150,11 @@ export function buildProposalFeedbackModel(
     } else {
       current.rejected += 1;
       typeCounter[entry.resourceType].rejected += 1;
+      const reason = normalizeRejectReason(entry.decision);
+      if (reason) {
+        current.rejectReasons[reason] += 1;
+        totalsRejectReasons[reason] += 1;
+      }
     }
 
     byResource.set(key, current);
@@ -124,15 +170,17 @@ export function buildProposalFeedbackModel(
         rejected: row.rejected,
         total,
         acceptRate: total > 0 ? row.accepted / total : 0,
-        adjustment: total >= minSamples ? toAdjustment(row.accepted, row.rejected) : 0
+        adjustment: total >= minSamples ? toAdjustment(row.accepted, row.rejected) : 0,
+        rejectReasons: row.rejectReasons
       };
     })
     .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
 
   const totals = {
     accepted: entries.filter((entry) => entry.decision === "accepted").length,
-    rejected: entries.filter((entry) => entry.decision === "rejected").length,
-    total: entries.length
+    rejected: entries.filter((entry) => isRejected(entry.decision)).length,
+    total: entries.length,
+    rejectReasons: totalsRejectReasons
   };
 
   const typeAdjustments: Record<FeedbackResourceType, number> = {

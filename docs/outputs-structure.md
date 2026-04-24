@@ -18,6 +18,9 @@
 | `outputs/backups/` | 世代バックアップ | 復元したいとき |
 | `outputs/audit/` | 操作の監査ログ | 誰が何をしたか確認するとき |
 | `outputs/tool-proposals/` | 提案学習ログ | 推薦精度の分析をするとき |
+| `outputs/benchmark/` | nightly benchmark の結果 (TASK-050) | grade 推移や regress を確認するとき |
+| `outputs/dashboards/` | observability ダッシュボード (TASK-044) | 横断的な健全性を可視化したいとき |
+| `outputs/reports/` | 各種スクリプトのレポート出力 | benchmark 単発実行や coverage gap などを確認したいとき |
 
 ### `outputs/history/` の日別運用
 

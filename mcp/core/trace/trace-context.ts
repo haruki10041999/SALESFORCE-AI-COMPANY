@@ -28,6 +28,22 @@ export interface TraceEntry {
   status: "running" | "success" | "error";
   errorMessage?: string;
   metadata: Record<string, unknown>;
+  /**
+   * Phase 分解タイミング (TASK-038)
+   * ツール実行を input/plan/execute/render の 4 フェーズで計測できる
+   */
+  phases?: TracePhaseEntry[];
+}
+
+export type TracePhaseName = "input" | "plan" | "execute" | "render";
+
+export interface TracePhaseEntry {
+  name: TracePhaseName;
+  startedAt: string;
+  endedAt?: string;
+  durationMs?: number;
+  status: "running" | "success" | "error";
+  errorMessage?: string;
 }
 
 export type ReasoningStage = "think" | "do" | "check";
@@ -78,7 +94,8 @@ function loadTracesFromDisk(): void {
             errorMessage: parsed.errorMessage,
             metadata: typeof parsed.metadata === "object" && parsed.metadata !== null
               ? (parsed.metadata as Record<string, unknown>)
-              : {}
+              : {},
+            phases: Array.isArray(parsed.phases) ? (parsed.phases as TracePhaseEntry[]) : undefined
           });
         }
       } catch {
@@ -126,6 +143,16 @@ export function startTrace(
 export function endTrace(traceId: string, meta?: Record<string, unknown>): void {
   const entry = activeTraces.get(traceId);
   if (!entry) return;
+  // close any still-running phase implicitly (TASK-038)
+  if (entry.phases) {
+    for (const phase of entry.phases) {
+      if (phase.status === "running") {
+        phase.endedAt = new Date().toISOString();
+        phase.durationMs = Date.now() - new Date(phase.startedAt).getTime();
+        phase.status = "success";
+      }
+    }
+  }
   entry.endedAt = new Date().toISOString();
   entry.durationMs = Date.now() - new Date(entry.startedAt).getTime();
   entry.status = "success";
@@ -139,6 +166,17 @@ export function endTrace(traceId: string, meta?: Record<string, unknown>): void 
 export function failTrace(traceId: string, error: unknown): void {
   const entry = activeTraces.get(traceId);
   if (!entry) return;
+  // close any still-running phase implicitly with the same error (TASK-038)
+  if (entry.phases) {
+    for (const phase of entry.phases) {
+      if (phase.status === "running") {
+        phase.endedAt = new Date().toISOString();
+        phase.durationMs = Date.now() - new Date(phase.startedAt).getTime();
+        phase.status = "error";
+        phase.errorMessage = error instanceof Error ? error.message : String(error);
+      }
+    }
+  }
   entry.endedAt = new Date().toISOString();
   entry.durationMs = Date.now() - new Date(entry.startedAt).getTime();
   entry.status = "error";
@@ -171,6 +209,75 @@ export function getActiveTraces(): TraceEntry[] {
 /** 特定 traceId のエントリを返す（完了済みも含む） */
 export function findTrace(traceId: string): TraceEntry | undefined {
   return activeTraces.get(traceId) ?? completedTraces.find((t) => t.traceId === traceId);
+}
+
+/**
+ * Phase を開始する (TASK-038)
+ *
+ * trace が active であり、同名 phase が未完了の際は何もしない。
+ * 互換性：phase 未使用の trace は従来通り動作する。
+ */
+export function startPhase(traceId: string, name: TracePhaseName): void {
+  const entry = activeTraces.get(traceId);
+  if (!entry) return;
+  if (!entry.phases) entry.phases = [];
+  // close any previously running phase implicitly
+  const lastRunning = entry.phases.find((p) => p.status === "running");
+  if (lastRunning && lastRunning.name !== name) {
+    lastRunning.endedAt = new Date().toISOString();
+    lastRunning.durationMs = Date.now() - new Date(lastRunning.startedAt).getTime();
+    lastRunning.status = "success";
+  }
+  if (lastRunning && lastRunning.name === name && lastRunning.status === "running") {
+    return;
+  }
+  entry.phases.push({
+    name,
+    startedAt: new Date().toISOString(),
+    status: "running"
+  });
+}
+
+/**
+ * Phase を終了する (TASK-038)
+ */
+export function endPhase(traceId: string, name: TracePhaseName, error?: unknown): void {
+  const entry = activeTraces.get(traceId);
+  if (!entry || !entry.phases) return;
+  // close the most recent running phase with this name
+  for (let i = entry.phases.length - 1; i >= 0; i--) {
+    const phase = entry.phases[i];
+    if (phase.name === name && phase.status === "running") {
+      phase.endedAt = new Date().toISOString();
+      phase.durationMs = Date.now() - new Date(phase.startedAt).getTime();
+      if (error !== undefined) {
+        phase.status = "error";
+        phase.errorMessage = error instanceof Error ? error.message : String(error);
+      } else {
+        phase.status = "success";
+      }
+      return;
+    }
+  }
+}
+
+/**
+ * 任意の Phase を async 処理と一緒に計測するヘルパー (TASK-038)
+ */
+export async function withPhase<T>(
+  traceId: string,
+  name: TracePhaseName,
+  operation: () => Promise<T> | T
+): Promise<T> {
+  startPhase(traceId, name);
+  try {
+    const result = await operation();
+    endPhase(traceId, name);
+    return result;
+  } catch (error) {
+    endPhase(traceId, name, error);
+    throw error;
+  }
 }
 
 function normalizeReasoningSteps(value: unknown): ReasoningStep[] {

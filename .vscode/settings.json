@@ -51,6 +51,10 @@
         "/^node --import tsx --test tests/core-modules\\.test\\.ts tests/server-tools\\.integration\\.test\\.ts --test-name-pattern \"Server Split Modules\\|server exposes expected core tool registrations\"$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^npm test 2>&1 \\| Out-File test-output\\.log; Select-String -Path test-output\\.log -Pattern \"AssertionError\\|Error:\" \\| Select-Object -First 30$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }

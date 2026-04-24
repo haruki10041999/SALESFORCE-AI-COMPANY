@@ -1,6 +1,7 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { promises as fsPromises } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { getCompletedTraces } from "../mcp/core/trace/trace-context.js";
@@ -438,6 +439,40 @@ test("agent_ab_test compares two agents and writes comparison report", async () 
   assert.ok(existsSync(markdownPath));
 });
 
+test("agent_ab_test applies winner/loser outcomes to trust store when requested", async () => {
+  const trustStorePath = join(serverTestOutputsDir, "agent-trust-histories.json");
+  if (existsSync(trustStorePath)) {
+    await fsPromises.rm(trustStorePath);
+  }
+  const payload = parseFirstJson<{
+    winner: { overall: string };
+    runs: { agentA: { agent: string }; agentB: { agent: string } };
+    trustStoreApplied?: {
+      filePath: string;
+      winnerAgent: string;
+      loserAgent: string;
+      histories: Record<string, { accepted: number; rejected: number }>;
+    };
+  }>(await callTool("agent_ab_test", {
+    topic: "Apex governor limit deep dive",
+    agentA: "architect",
+    agentB: "qa-engineer",
+    skills: ["architecture/salesforce-architecture", "testing/apex-test"],
+    turns: 3,
+    applyOutcomeToTrustStore: true,
+    trustStoreFilePath: trustStorePath
+  }));
+
+  assert.ok(payload.trustStoreApplied, "trustStoreApplied payload should be present");
+  assert.equal(payload.trustStoreApplied?.filePath, trustStorePath);
+  assert.equal(payload.trustStoreApplied?.winnerAgent, payload.winner.overall);
+  const winnerHistory = payload.trustStoreApplied?.histories[payload.winner.overall];
+  const loserHistory = payload.trustStoreApplied?.histories[payload.trustStoreApplied?.loserAgent ?? ""];
+  assert.ok(winnerHistory && winnerHistory.accepted >= 1, "winner accepted count should be incremented");
+  assert.ok(loserHistory && loserHistory.rejected >= 1, "loser rejected count should be incremented");
+  assert.ok(existsSync(trustStorePath), "trust store file should be created");
+});
+
 test("proposal_feedback_learn updates query-skill incremental model with versioned output", async () => {
   const payload = parseFirstJson<{
     saved: boolean;
@@ -475,6 +510,46 @@ test("proposal_feedback_learn updates query-skill incremental model with version
     : resolve(process.cwd(), payload.querySkillModelFile);
   assert.ok(existsSync(querySkillLogPath));
   assert.ok(existsSync(querySkillModelPath));
+});
+
+test("proposal_feedback_learn captures structured rejection reasons", async () => {
+  const payload = parseFirstJson<{
+    saved: boolean;
+    totals: {
+      accepted: number;
+      rejected: number;
+      total: number;
+      rejectReasons: Record<"reject_inaccurate" | "reject_unnecessary" | "reject_duplicate", number>;
+    };
+    topLearnedResources: Array<{
+      resourceType: string;
+      name: string;
+      rejected: number;
+      rejectReasons: Record<"reject_inaccurate" | "reject_unnecessary" | "reject_duplicate", number>;
+    }>;
+  }>(await callTool("proposal_feedback_learn", {
+    feedback: [
+      { resourceType: "skills", name: "apex/apex-trigger-handler", decision: "reject_inaccurate", topic: "trigger framework" },
+      { resourceType: "skills", name: "apex/apex-trigger-handler", decision: "reject_duplicate", topic: "trigger framework" },
+      { resourceType: "skills", name: "apex/apex-trigger-handler", decision: "rejected", topic: "trigger framework" },
+      { resourceType: "skills", name: "apex/apex-trigger-handler", decision: "accepted", topic: "trigger framework" }
+    ],
+    minSamples: 1
+  }));
+
+  assert.equal(payload.saved, true);
+  assert.ok(payload.totals.rejected >= 3, "rejected total should aggregate all reject variants");
+  assert.ok(payload.totals.rejectReasons.reject_inaccurate >= 1, "reject_inaccurate should be tracked");
+  assert.ok(payload.totals.rejectReasons.reject_duplicate >= 1, "reject_duplicate should be tracked");
+  assert.ok(payload.totals.rejectReasons.reject_unnecessary >= 1, "legacy 'rejected' should map to reject_unnecessary");
+
+  const targetResource = payload.topLearnedResources.find(
+    (row) => row.resourceType === "skills" && row.name === "apex/apex-trigger-handler"
+  );
+  assert.ok(targetResource, "target resource summary should be present");
+  assert.ok(targetResource!.rejectReasons.reject_inaccurate >= 1);
+  assert.ok(targetResource!.rejectReasons.reject_duplicate >= 1);
+  assert.ok(targetResource!.rejectReasons.reject_unnecessary >= 1);
 });
 
 test("metrics_summary returns trace-based summary fields", async () => {

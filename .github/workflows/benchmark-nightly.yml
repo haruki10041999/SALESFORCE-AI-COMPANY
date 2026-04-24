@@ -1,0 +1,74 @@
+name: Benchmark Nightly
+
+on:
+  schedule:
+    - cron: "30 19 * * *"
+  workflow_dispatch:
+    inputs:
+      minGrade:
+        description: "alert と判定する下限 grade (A/B/C/D)。これより低いと job を失敗にする"
+        required: false
+        default: "B"
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      MIN_GRADE: ${{ github.event.inputs.minGrade || 'B' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prepare output directory
+        run: mkdir -p outputs/benchmark
+
+      - name: Compute output path
+        id: paths
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          STAMP=$(date -u +%Y-%m-%dT%H-%M-%SZ)
+          echo "outputFile=outputs/benchmark/${STAMP}.json" >> "$GITHUB_OUTPUT"
+          echo "latestFile=outputs/benchmark/latest.json" >> "$GITHUB_OUTPUT"
+          echo "date=${DATE}" >> "$GITHUB_OUTPUT"
+
+      - name: Run benchmark suite
+        run: npm run benchmark:run -- --output "${{ steps.paths.outputs.outputFile }}"
+
+      - name: Update latest snapshot
+        run: cp "${{ steps.paths.outputs.outputFile }}" "${{ steps.paths.outputs.latestFile }}"
+
+      - name: Evaluate grade and alert
+        id: evaluate
+        run: |
+          GRADE=$(node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync(process.argv[1],'utf-8'));process.stdout.write(String(j.result?.grade ?? ''));" "${{ steps.paths.outputs.outputFile }}")
+          SCORE=$(node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync(process.argv[1],'utf-8'));process.stdout.write(String(j.result?.overallScore ?? ''));" "${{ steps.paths.outputs.outputFile }}")
+          echo "grade=${GRADE}" >> "$GITHUB_OUTPUT"
+          echo "score=${SCORE}" >> "$GITHUB_OUTPUT"
+          echo "Benchmark grade=${GRADE} score=${SCORE} (min=${MIN_GRADE})"
+          rank() { case "$1" in A) echo 4;; B) echo 3;; C) echo 2;; D) echo 1;; *) echo 0;; esac; }
+          ACTUAL=$(rank "${GRADE}")
+          MIN=$(rank "${MIN_GRADE}")
+          if [ "${ACTUAL}" -lt "${MIN}" ]; then
+            echo "::error::Benchmark grade ${GRADE} fell below minimum ${MIN_GRADE}"
+            exit 1
+          fi
+
+      - name: Upload benchmark artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ steps.paths.outputs.date }}
+          path: outputs/benchmark/
+          retention-days: 30

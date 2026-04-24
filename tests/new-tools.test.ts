@@ -261,3 +261,76 @@ test("summarizeMetrics slaEvaluation passes on exact thresholds and alerts only 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("summarizeMetrics evaluates per-tool SLA thresholds with prefix glob and exact priority", () => {
+  const root = mkdtempSync(join(tmpdir(), "sf-ai-metrics-per-tool-sla-"));
+  const filePath = join(root, "trace-log.jsonl");
+
+  try {
+    const traces = [
+      {
+        traceId: "t1",
+        toolName: "deploy_org",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        endedAt: "2026-01-01T00:00:00.500Z",
+        durationMs: 500,
+        status: "success",
+        metadata: {}
+      },
+      {
+        traceId: "t2",
+        toolName: "deploy_org",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        endedAt: "2026-01-01T00:00:00.700Z",
+        durationMs: 700,
+        status: "error",
+        errorMessage: "boom",
+        metadata: {}
+      },
+      {
+        traceId: "t3",
+        toolName: "analyze_repo",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        endedAt: "2026-01-01T00:00:00.050Z",
+        durationMs: 50,
+        status: "success",
+        metadata: {}
+      }
+    ];
+    writeFileSync(filePath, `${traces.map((row) => JSON.stringify(row)).join("\n")}\n`, "utf-8");
+    configureTraceStorageForTest(filePath);
+
+    const result = summarizeMetrics({
+      limit: 50,
+      maxP95Ms: 10000,
+      maxErrorRatePercent: 100,
+      toolSlaThresholds: {
+        deploy_org: { maxP95Ms: 600, maxErrorRatePercent: 20 },
+        "analyze_*": { maxP95Ms: 100, maxErrorRatePercent: 1 }
+      }
+    });
+
+    const perTool = result.slaEvaluation?.perTool ?? [];
+    assert.equal(perTool.length, 2);
+
+    const deployEntry = perTool.find((row) => row.toolName === "deploy_org");
+    assert.ok(deployEntry, "deploy_org SLA entry should exist");
+    assert.equal(deployEntry?.matchedPattern, "deploy_org");
+    assert.equal(deployEntry?.values.sampleCount, 2);
+    assert.equal(deployEntry?.pass, false);
+    assert.ok(deployEntry?.alerts.some((a) => a.metric === "p95DurationMs"));
+    assert.ok(deployEntry?.alerts.some((a) => a.metric === "errorRatePercent"));
+
+    const analyzeEntry = perTool.find((row) => row.toolName === "analyze_repo");
+    assert.ok(analyzeEntry, "analyze_repo SLA entry should exist");
+    assert.equal(analyzeEntry?.matchedPattern, "analyze_*");
+    assert.equal(analyzeEntry?.pass, true);
+    assert.equal(analyzeEntry?.alerts.length, 0);
+
+    // overall pass should reflect per-tool failures
+    assert.equal(result.slaEvaluation?.pass, false);
+  } finally {
+    clearTraceStorageForTest();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

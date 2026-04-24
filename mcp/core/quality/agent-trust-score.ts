@@ -72,16 +72,19 @@ export function evaluateAgentTrust(params: {
   history: AgentTrustHistory;
   feedbackSignal?: number;
   threshold: number;
+  /** TASK-043: agent×skill synergy 0..1。提供されると trust score に最大 +0.15 加算 */
+  synergyBonus?: number;
 }): AgentTrustEvaluation {
   const adoptionRate = computeAdoptionRate(params.history);
   const feedbackScore = computeFeedbackScore(params.feedbackSignal ?? 0);
   const contextMatch = computeContextMatchScore(params.topic, params.message);
 
-  const score = clamp(
-    adoptionRate * 0.4 + feedbackScore * 0.3 + contextMatch * 0.3,
-    0,
-    1
-  );
+  const baseScore = adoptionRate * 0.4 + feedbackScore * 0.3 + contextMatch * 0.3;
+  // synergy は補助的な加点。0..0.15 の範囲でブレンド
+  const synergyContribution = params.synergyBonus !== undefined
+    ? clamp(params.synergyBonus, 0, 1) * 0.15
+    : 0;
+  const score = clamp(baseScore + synergyContribution, 0, 1);
 
   const reasons = [
     `adoptionRate=${adoptionRate.toFixed(2)}`,
@@ -89,6 +92,9 @@ export function evaluateAgentTrust(params: {
     `contextMatch=${contextMatch.toFixed(2)}`,
     `threshold=${params.threshold.toFixed(2)}`
   ];
+  if (params.synergyBonus !== undefined) {
+    reasons.push(`synergyBonus=${params.synergyBonus.toFixed(2)}`);
+  }
 
   return {
     score,

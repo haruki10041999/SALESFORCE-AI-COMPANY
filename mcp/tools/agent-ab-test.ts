@@ -1,5 +1,6 @@
 import { promises as fsPromises } from "node:fs";
 import { join, resolve } from "node:path";
+import { applyAgentOutcomes, type AgentTrustHistoriesFile } from "../core/quality/agent-trust-store.js";
 
 type PromptMetrics = {
   estimatedTokens: number;
@@ -35,6 +36,8 @@ export type AgentAbTestInput = {
   maxContextChars?: number;
   appendInstruction?: string;
   reportOutputDir?: string;
+  applyOutcomeToTrustStore?: boolean;
+  trustStoreFilePath?: string;
 };
 
 export type AgentAbRunResult = {
@@ -62,6 +65,12 @@ export type AgentAbTestResult = {
   reportJsonPath: string;
   reportMarkdownPath: string;
   summary: string;
+  trustStoreApplied?: {
+    filePath: string;
+    winnerAgent: string;
+    loserAgent: string;
+    histories: AgentTrustHistoriesFile["histories"];
+  };
 };
 
 function clipText(value: string, maxChars: number): string {
@@ -190,5 +199,47 @@ export async function runAgentAbTest(
   await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
   await fsPromises.writeFile(reportMarkdownPath, buildMarkdown(result), "utf-8");
 
+  if (input.applyOutcomeToTrustStore && overall && agentA.agent !== agentB.agent) {
+    const trustStorePath = input.trustStoreFilePath
+      ? resolve(input.trustStoreFilePath)
+      : join(resolve(deps.outputsDir), "agent-trust-histories.json");
+    const loserAgent = overall === agentA.agent ? agentB.agent : agentA.agent;
+    const updated = await applyAgentOutcomes(trustStorePath, [
+      { agent: overall, outcome: "accepted" },
+      { agent: loserAgent, outcome: "rejected" }
+    ]);
+    result.trustStoreApplied = {
+      filePath: trustStorePath,
+      winnerAgent: overall,
+      loserAgent,
+      histories: updated.histories
+    };
+  }
+
   return result;
+}
+
+/**
+ * TASK-031 仕様準拠の API 名エイリアス。
+ * winner / loser を直接指定して trust store に outcome を反映する。
+ *
+ * @param trustStorePath - 永続化先 JSON
+ * @param winner - 採用された agent 名
+ * @param loser - 採用されなかった agent 名
+ * @param magnitude - 反映の重み (現状未使用、将来の調整用)
+ */
+export async function applyAbTestOutcome(
+  trustStorePath: string,
+  winner: string,
+  loser: string,
+  _magnitude: number = 1
+): Promise<{ histories: AgentTrustHistoriesFile["histories"] }> {
+  if (!winner || !loser || winner === loser) {
+    throw new Error("winner and loser must be distinct non-empty strings");
+  }
+  const updated = await applyAgentOutcomes(trustStorePath, [
+    { agent: winner, outcome: "accepted" },
+    { agent: loser, outcome: "rejected" }
+  ]);
+  return { histories: updated.histories };
 }

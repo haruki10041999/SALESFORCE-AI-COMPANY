@@ -1,6 +1,15 @@
 import { existsSync, readFileSync, promises as fsPromises } from "fs";
 import { join, relative } from "path";
+import { createHash } from "crypto";
 import { getPromptCacheMaxEntries, getPromptCacheTtlSeconds } from "../config/runtime-config.js";
+import { renderPersonaStyleSection } from "./persona-style-registry.js";
+import {
+  loadPromptCacheFromDisk,
+  appendPromptCacheEntry,
+  clearPromptCacheFile,
+  rewritePromptCacheFile,
+  type PersistedCacheEntry
+} from "./prompt-cache-persistence.js";
 
 interface BuildChatPromptDeps {
   root: string;
@@ -36,7 +45,58 @@ function getPromptCacheConfig(): { maxEntries: number; ttlMs: number } {
   };
 }
 
-const promptCache = new Map<string, { prompt: string; createdAt: number }>();
+const promptCache = new Map<string, { prompt: string; createdAt: number; input: BuildChatPromptInput }>();
+
+// ============================================================================
+// TASK-046: Prompt Cache Persistence
+// ============================================================================
+
+/**
+ * 永続化先ファイルパス。env `PROMPT_CACHE_FILE` で有効化される。
+ * 未設定や空文字列なら永続化は無効 (従来振る舞い)。
+ */
+function getPromptCacheFilePath(): string | null {
+  const value = process.env.PROMPT_CACHE_FILE;
+  if (!value || value.trim().length === 0) return null;
+  return value.trim();
+}
+
+let hydrated = false;
+
+/**
+ * プロセス起動後 1 回だけ disk から cache をロードする。
+ * テストやセットアップ以外は getCachedPrompt / setCachedPrompt から自動呼ばれる。
+ */
+function hydratePromptCacheIfNeeded(): void {
+  if (hydrated) return;
+  hydrated = true;
+  const file = getPromptCacheFilePath();
+  if (!file) return;
+  const { ttlMs } = getPromptCacheConfig();
+  try {
+    const persisted = loadPromptCacheFromDisk<BuildChatPromptInput>(file, { ttlMs });
+    for (const [key, entry] of persisted) {
+      promptCache.set(key, { prompt: entry.prompt, createdAt: entry.createdAt, input: entry.input });
+    }
+  } catch {
+    // hydration 失敗は cache 不使用と同価 (fallback)
+  }
+}
+
+/**
+ * テスト用: hydration フラグをリセットして再ロードさせる。
+ */
+export function resetPromptCacheHydrationForTest(): void {
+  hydrated = false;
+  promptCache.clear();
+}
+
+/**
+ * テスト用: 現在の in-memory cache サイズを返す。
+ */
+export function getPromptCacheSizeForTest(): number {
+  return promptCache.size;
+}
 
 // Cache metrics for monitoring
 export interface PromptCacheMetrics {
@@ -73,11 +133,48 @@ export function resetPromptCacheMetrics(): void {
   };
 }
 
-function createPromptCacheKey(input: BuildChatPromptInput, root: string): string {
-  return JSON.stringify({ root, ...input });
+/**
+ * 任意の値を JSON シリアライズする際に、オブジェクトのキーを再帰的にソートして
+ * プロパティ順に依存しない安定文字列を生成する
+ */
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return "[" + value.map((item) => stableStringify(item)).join(",") + "]";
+  }
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const keys = Object.keys(obj).sort();
+    return (
+      "{" +
+      keys
+        .map((key) => JSON.stringify(key) + ":" + stableStringify(obj[key]))
+        .join(",") +
+      "}"
+    );
+  }
+  return JSON.stringify(value);
+}
+
+export function createPromptCacheKey(input: BuildChatPromptInput, root: string): string {
+  // 配列フィールドはセマンティクス上順序非依存とみなし、正規化のためソートする
+  const normalized: Record<string, unknown> = {
+    root,
+    topic: input.topic,
+    agentNames: [...input.agentNames].sort(),
+    personaName: input.personaName,
+    skillNames: [...input.skillNames].sort(),
+    filePaths: [...input.filePaths].sort(),
+    turns: input.turns,
+    maxContextChars: input.maxContextChars,
+    appendInstruction: input.appendInstruction,
+    includeProjectContext: input.includeProjectContext
+  };
+  const canonical = stableStringify(normalized);
+  return createHash("sha256").update(canonical).digest("hex");
 }
 
 function getCachedPrompt(cacheKey: string): string | null {
+  hydratePromptCacheIfNeeded();
   const cached = promptCache.get(cacheKey);
   if (!cached) {
     cacheMetrics.misses++;
@@ -94,7 +191,8 @@ function getCachedPrompt(cacheKey: string): string | null {
   return cached.prompt;
 }
 
-function setCachedPrompt(cacheKey: string, prompt: string): void {
+function setCachedPrompt(cacheKey: string, prompt: string, input: BuildChatPromptInput): void {
+  hydratePromptCacheIfNeeded();
   const { maxEntries } = getPromptCacheConfig();
   if (promptCache.size >= maxEntries) {
     const oldestKey = promptCache.keys().next().value;
@@ -103,11 +201,48 @@ function setCachedPrompt(cacheKey: string, prompt: string): void {
       cacheMetrics.evictions++;
     }
   }
-  promptCache.set(cacheKey, { prompt, createdAt: Date.now() });
+  const createdAt = Date.now();
+  promptCache.set(cacheKey, { prompt, createdAt, input });
+
+  // TASK-046: 永続化
+  const file = getPromptCacheFilePath();
+  if (file) {
+    try {
+      appendPromptCacheEntry<BuildChatPromptInput>(file, { key: cacheKey, prompt, createdAt, input });
+    } catch {
+      // 失敗しても in-memory は生きているので黙って fallback
+    }
+  }
 }
 
 export function clearBuildChatPromptCache(): void {
   promptCache.clear();
+  const file = getPromptCacheFilePath();
+  if (file) {
+    try {
+      clearPromptCacheFile(file);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/**
+ * コンパクション: メモリ上の有効 entry をファイルに書き戻す。
+ * append 運用で肥大化したときに手動呼び出しを想定。
+ */
+export function compactPromptCacheFile(): void {
+  const file = getPromptCacheFilePath();
+  if (!file) return;
+  const entries: PersistedCacheEntry<BuildChatPromptInput>[] = [];
+  for (const [key, value] of promptCache) {
+    entries.push({ key, prompt: value.prompt, createdAt: value.createdAt, input: value.input });
+  }
+  try {
+    rewritePromptCacheFile<BuildChatPromptInput>(file, entries);
+  } catch {
+    // ignore
+  }
 }
 
 /**
@@ -120,40 +255,32 @@ export function clearBuildChatPromptCache(): void {
 export function invalidateBuildChatPromptCache(pattern: Partial<BuildChatPromptInput>): void {
   const keysToDelete: string[] = [];
   for (const [key, value] of promptCache.entries()) {
-    try {
-      const cached = JSON.parse(key) as { root: string } & BuildChatPromptInput;
-      // Check if any pattern field matches
-      let matches = true;
-      for (const [patternKey, patternValue] of Object.entries(pattern)) {
-        if (patternKey === "agentNames" && Array.isArray(patternValue)) {
-          // Invalidate if ANY of the pattern agents are in the cached key
-          const hasAny = patternValue.some((agent: string) => 
-            (cached.agentNames || []).includes(agent)
-          );
-          if (!hasAny) matches = false;
-        } else if (patternKey === "skillNames" && Array.isArray(patternValue)) {
-          // Invalidate if ANY of the pattern skills are in the cached key
-          const hasAny = patternValue.some((skill: string) => 
-            (cached.skillNames || []).includes(skill)
-          );
-          if (!hasAny) matches = false;
-        } else if (patternKey === "personaName" && patternValue === cached.personaName) {
-          matches = true;
-        } else if (patternKey === "topic" && patternValue === cached.topic) {
-          matches = true;
-        } else if (patternKey === "filePaths" && Array.isArray(patternValue)) {
-          // Invalidate if ANY of the pattern paths are in the cached key
-          const hasAny = patternValue.some((path: string) => 
-            (cached.filePaths || []).includes(path)
-          );
-          if (!hasAny) matches = false;
-        }
+    const cached = value.input;
+    let matches = true;
+    for (const [patternKey, patternValue] of Object.entries(pattern)) {
+      if (patternKey === "agentNames" && Array.isArray(patternValue)) {
+        const hasAny = patternValue.some((agent: string) =>
+          (cached.agentNames || []).includes(agent)
+        );
+        if (!hasAny) matches = false;
+      } else if (patternKey === "skillNames" && Array.isArray(patternValue)) {
+        const hasAny = patternValue.some((skill: string) =>
+          (cached.skillNames || []).includes(skill)
+        );
+        if (!hasAny) matches = false;
+      } else if (patternKey === "personaName" && patternValue === cached.personaName) {
+        matches = true;
+      } else if (patternKey === "topic" && patternValue === cached.topic) {
+        matches = true;
+      } else if (patternKey === "filePaths" && Array.isArray(patternValue)) {
+        const hasAny = patternValue.some((path: string) =>
+          (cached.filePaths || []).includes(path)
+        );
+        if (!hasAny) matches = false;
       }
-      if (matches) {
-        keysToDelete.push(key);
-      }
-    } catch {
-      // Skip invalid cache keys
+    }
+    if (matches) {
+      keysToDelete.push(key);
     }
   }
   for (const key of keysToDelete) {
@@ -271,6 +398,11 @@ export async function buildChatPromptFromContext(
     sections.push(`## ペルソナ\n\n${personaContent}`);
   }
 
+  // TASK-040: persona-aware prompt style hints
+  if (personaName) {
+    sections.push(renderPersonaStyleSection(personaName));
+  }
+
   const discussionFrameworkPath = join(root, "prompt-engine", "discussion-framework.md");
   if (existsSync(discussionFrameworkPath)) {
     const raw = readFileSync(discussionFrameworkPath, "utf-8");
@@ -309,6 +441,6 @@ export async function buildChatPromptFromContext(
   sections.push(`## タスク\n\nトピック: 「${topic}」\n\n${turnInstruction}\n\nルール:\n- 関連コードがある場合は根拠として参照する\n- 各エージェントの専門性と適用スキルに基づいて回答する\n- 不明点は推測を避け、必要な前提を明示する\n- 重要な設計判断や懸念点を簡潔に示す\n- ペルソナがある場合はその文体で回答する\n- 発言形式は必ず「**agent-name**: 発言内容」を使う（誰の発言か判別できる形にする）${extraInstruction}`);
 
   const prompt = sections.join("\n\n---\n\n");
-  setCachedPrompt(cacheKey, prompt);
+  setCachedPrompt(cacheKey, prompt, input);
   return prompt;
 }
