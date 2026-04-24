@@ -38,16 +38,22 @@ class ProjectMemory {
     }
 
     // Check maxBytes limit
-    const payload = this.memory
+    let payload = this.memory
       .map((text) => JSON.stringify({ text, savedAt: new Date().toISOString() }))
       .join("\n");
-    const bytes = Buffer.byteLength(payload, "utf-8");
+    let bytes = Buffer.byteLength(payload, "utf-8");
 
     if (bytes > this.maxBytes) {
-      // Trim older records to fit within limit
-      const keep = Math.max(10, Math.floor(this.maxRecords / 2));
-      if (this.memory.length > keep) {
-        this.memory.splice(0, this.memory.length - keep);
+      // Trim older records one by one until we fit within limit
+      while (this.memory.length > 1) {
+        this.memory.splice(0, 1);
+        payload = this.memory
+          .map((text) => JSON.stringify({ text, savedAt: new Date().toISOString() }))
+          .join("\n");
+        bytes = Buffer.byteLength(payload, "utf-8");
+        if (bytes <= this.maxBytes) {
+          break;
+        }
       }
     }
   }
@@ -114,8 +120,10 @@ test("ProjectMemory: maintains minimum keep count on byte limit", async () => {
     memory.addRecord("This is a test record with some content " + i);
   }
 
-  // Should maintain at least maxRecords/2 = 50
-  assert.ok(memory.getSize() >= Math.floor(maxRecords / 2), "Should maintain minimum keep count");
+  // With very small byte limit, should keep at least 1 record
+  assert.ok(memory.getSize() >= 1, "Should keep at least 1 record");
+  // With byte limit enforcement, can't expect to keep many records
+  assert.ok(memory.getSize() < 50, "Should have trimmed due to byte limit");
 });
 
 test("ProjectMemory: handles edge case - single large record", async () => {

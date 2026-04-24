@@ -6,6 +6,7 @@ import type { SystemEventRecord, SystemEventLogStatus } from "../core/event/syst
 import type { AgentMessage, ChatSession, HandlersDashboardState, ExportStatistics } from "../core/types/index.js";
 import { getActiveTraces, getCompletedTraces } from "../core/trace/trace-context.js";
 import { getMetricsSummary } from "../tools/metrics.js";
+import { runAgentAbTest } from "../tools/agent-ab-test.js";
 import type { RegisterGovToolDeps } from "./types.js";
 
 interface RegisterAnalyticsToolsDeps extends RegisterGovToolDeps {
@@ -19,6 +20,26 @@ interface RegisterAnalyticsToolsDeps extends RegisterGovToolDeps {
   exportStatisticsAsCsv: (stats: ExportStatistics) => string;
   exportStatisticsAsJson: (stats: ExportStatistics) => string;
   ensureDir: (dir: string) => Promise<void>;
+  runChatTool: (input: {
+    topic: string;
+    filePaths?: string[];
+    agents?: string[];
+    persona?: string;
+    skills?: string[];
+    turns?: number;
+    maxContextChars?: number;
+    appendInstruction?: string;
+  }) => Promise<{ content: Array<{ type: string; text: string }> }>;
+  evaluatePromptMetrics: (prompt: string, skills?: string[], triggerKeywords?: string[]) => {
+    estimatedTokens: number;
+    containsProjectContext: boolean;
+    containsAgentsSection: boolean;
+    containsSkillsSection: boolean;
+    containsTaskSection: boolean;
+    skillCoverageRate: number;
+    triggerMatchRate: number;
+  };
+  outputsDir: string;
 }
 
 export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
@@ -33,7 +54,10 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
     handlersState,
     exportStatisticsAsCsv,
     exportStatisticsAsJson,
-    ensureDir
+    ensureDir,
+    runChatTool,
+    evaluatePromptMetrics,
+    outputsDir
   } = deps;
 
   function aggregateToolAfterExecuteEvents(events: SystemEventRecord[]): {
@@ -110,6 +134,73 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
     }
     return [...duplicates].sort();
   }
+
+  govTool(
+    "agent_ab_test",
+    {
+      title: "エージェントA/B比較",
+      description: "同一トピックで2エージェントのチャット出力品質と実行時間を比較します。",
+      inputSchema: {
+        topic: z.string(),
+        agentA: z.string(),
+        agentB: z.string(),
+        filePaths: z.array(z.string()).optional(),
+        persona: z.string().optional(),
+        skills: z.array(z.string()).optional(),
+        turns: z.number().int().min(1).max(30).optional(),
+        maxContextChars: z.number().int().min(500).max(200000).optional(),
+        appendInstruction: z.string().optional(),
+        reportOutputDir: z.string().optional()
+      }
+    },
+    async ({
+      topic,
+      agentA,
+      agentB,
+      filePaths,
+      persona,
+      skills,
+      turns,
+      maxContextChars,
+      appendInstruction,
+      reportOutputDir
+    }: {
+      topic: string;
+      agentA: string;
+      agentB: string;
+      filePaths?: string[];
+      persona?: string;
+      skills?: string[];
+      turns?: number;
+      maxContextChars?: number;
+      appendInstruction?: string;
+      reportOutputDir?: string;
+    }) => {
+      const result = await runAgentAbTest(
+        {
+          topic,
+          agentA,
+          agentB,
+          filePaths,
+          persona,
+          skills,
+          turns,
+          maxContextChars,
+          appendInstruction,
+          reportOutputDir
+        },
+        {
+          runChatTool,
+          evaluatePromptMetrics,
+          outputsDir
+        }
+      );
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
 
   govTool(
     "health_check",

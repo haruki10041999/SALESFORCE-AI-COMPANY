@@ -9,6 +9,10 @@ import { summarizeDeploymentImpact } from "../mcp/tools/deployment-impact-summar
 import { checkPrReadiness } from "../mcp/tools/pr-readiness-check.js";
 import { scanSecurityDelta } from "../mcp/tools/security-delta-scan.js";
 import { estimateChangedCoverage } from "../mcp/tools/coverage-estimate.js";
+import { analyzeTestCoverageGap } from "../mcp/tools/analyze-test-coverage-gap.js";
+import { runDeploymentVerification } from "../mcp/tools/run-deployment-verification.js";
+import { suggestFlowTestCases } from "../mcp/tools/suggest-flow-test-cases.js";
+import { recommendPermissionSets } from "../mcp/tools/recommend-permission-sets.js";
 import { buildMetadataDependencyGraph } from "../mcp/tools/metadata-dependency-graph.js";
 
 function git(cwd: string, args: string[]): string {
@@ -531,6 +535,431 @@ test("estimateChangedCoverage throws for invalid targetOrg", () => {
     );
   } finally {
     fixture.cleanup();
+  }
+});
+
+test("estimateChangedCoverage includes Apex trigger files in mappings", () => {
+  const repoPath = mkdtempSync(join(tmpdir(), "sf-ai-company-trigger-coverage-"));
+  try {
+    git(repoPath, ["init"]);
+    git(repoPath, ["config", "user.email", "test@example.com"]);
+    git(repoPath, ["config", "user.name", "test-user"]);
+    git(repoPath, ["checkout", "-b", "main"]);
+
+    writeText(
+      join(repoPath, "force-app", "main", "default", "triggers", "AccountAudit.trigger"),
+      "trigger AccountAudit on Account (before insert) {}\n"
+    );
+    writeText(
+      join(repoPath, "force-app", "main", "default", "classes", "AccountAuditTest.cls"),
+      "@IsTest private class AccountAuditTest { @IsTest static void testRun() {} }\n"
+    );
+    git(repoPath, ["add", "."]);
+    git(repoPath, ["commit", "-m", "base trigger"]);
+
+    git(repoPath, ["checkout", "-b", "feature/trigger-change"]);
+    writeText(
+      join(repoPath, "force-app", "main", "default", "triggers", "AccountAudit.trigger"),
+      "trigger AccountAudit on Account (before insert, before update) {}\n"
+    );
+    git(repoPath, ["add", "."]);
+    git(repoPath, ["commit", "-m", "update trigger"]);
+
+    const result = estimateChangedCoverage({
+      repoPath,
+      baseBranch: "main",
+      workingBranch: "feature/trigger-change"
+    });
+
+    assert.ok(result.changedSourceFiles.some((path) => path.endsWith("AccountAudit.trigger")));
+    const mapping = result.mappings.find((item) => item.sourcePath.endsWith("AccountAudit.trigger"));
+    assert.ok(mapping);
+    assert.ok(mapping?.candidates.some((candidate) => candidate.testName === "AccountAuditTest"));
+  } finally {
+    rmSync(repoPath, { recursive: true, force: true });
+  }
+});
+
+test("analyzeTestCoverageGap reports gaps and writes JSON/Markdown outputs", async () => {
+  const fixture = setupRepoWithDeletionAndNoTests();
+  const reportDir = mkdtempSync(join(tmpdir(), "sf-ai-coverage-gap-report-"));
+  try {
+    const result = await analyzeTestCoverageGap({
+      repoPath: fixture.repoPath,
+      baseBranch: fixture.baseBranch,
+      workingBranch: fixture.workingBranch,
+      reportOutputDir: reportDir,
+      maxItems: 50
+    });
+
+    assert.equal(result.hasCoverageGap, true);
+    assert.ok(result.gapCount >= 1);
+    assert.ok(result.ciGate.pass === false);
+    assert.ok(result.reportJsonPath.includes("coverage-gap-"));
+    assert.ok(result.reportMarkdownPath.includes("coverage-gap-"));
+  } finally {
+    fixture.cleanup();
+    rmSync(reportDir, { recursive: true, force: true });
+  }
+});
+
+test("runDeploymentVerification decides rollback when smoke failures exceed threshold", async () => {
+  const reportDir = mkdtempSync(join(tmpdir(), "sf-ai-deploy-verify-report-"));
+  try {
+    const result = await runDeploymentVerification({
+      targetOrg: "qa-org",
+      dryRun: false,
+      deploymentSucceeded: true,
+      smokeClassNames: ["OrderServiceTest"],
+      smokeResult: {
+        totalTests: 20,
+        failedTests: 6,
+        passedTests: 14,
+        criticalFailures: 0
+      },
+      failureRateThresholdPercent: 20,
+      reportOutputDir: reportDir
+    });
+
+    assert.equal(result.mode, "live");
+    assert.equal(result.decision.recommendedAction, "rollback");
+    assert.equal(result.decision.shouldRollback, true);
+    assert.ok(result.smokeTestCommand.includes("sf apex run test"));
+    assert.ok(result.reportJsonPath.includes("deployment-verification-"));
+    assert.ok(result.reportMarkdownPath.includes("deployment-verification-"));
+  } finally {
+    rmSync(reportDir, { recursive: true, force: true });
+  }
+});
+
+test("suggestFlowTestCases extracts uncovered decision paths and builds triggering samples", async () => {
+  const repoPath = mkdtempSync(join(tmpdir(), "sf-ai-flow-cases-"));
+  const reportDir = mkdtempSync(join(tmpdir(), "sf-ai-flow-cases-report-"));
+  try {
+    const flowPath = join(repoPath, "force-app", "main", "default", "flows", "OrderFlow.flow-meta.xml");
+    writeText(
+      flowPath,
+      [
+        "<Flow>",
+        "  <label>OrderFlow</label>",
+        "  <decisions>",
+        "    <name>StatusDecision</name>",
+        "    <rules>",
+        "      <name>ApprovedPath</name>",
+        "      <conditionLogic>and</conditionLogic>",
+        "      <conditions>",
+        "        <leftValueReference>record.Status__c</leftValueReference>",
+        "        <operator>EqualTo</operator>",
+        "        <rightValue><stringValue>Approved</stringValue></rightValue>",
+        "      </conditions>",
+        "    </rules>",
+        "    <rules>",
+        "      <name>HighAmountPath</name>",
+        "      <conditionLogic>and</conditionLogic>",
+        "      <conditions>",
+        "        <leftValueReference>record.Amount__c</leftValueReference>",
+        "        <operator>GreaterThanOrEqualTo</operator>",
+        "        <rightValue><numberValue>1000</numberValue></rightValue>",
+        "      </conditions>",
+        "    </rules>",
+        "  </decisions>",
+        "</Flow>"
+      ].join("\n")
+    );
+
+    const result = await suggestFlowTestCases({
+      filePath: flowPath,
+      coveredPaths: ["StatusDecision.ApprovedPath"],
+      reportOutputDir: reportDir,
+      maxCases: 10
+    });
+
+    assert.equal(result.flowName, "OrderFlow");
+    assert.ok(result.totalPathCount >= 2);
+    assert.ok(result.uncoveredPaths.includes("StatusDecision.HighAmountPath"));
+    const caseRow = result.suggestedCases.find((row) => row.pathId === "StatusDecision.HighAmountPath");
+    assert.ok(caseRow);
+    assert.equal(caseRow?.simulation?.shouldTrigger, true);
+    assert.ok(result.reportJsonPath.includes("flow-test-cases-"));
+    assert.ok(result.reportMarkdownPath.includes("flow-test-cases-"));
+  } finally {
+    rmSync(repoPath, { recursive: true, force: true });
+    rmSync(reportDir, { recursive: true, force: true });
+  }
+});
+
+test("suggestFlowTestCases includes default path and simulates null/notBlank conditions", async () => {
+  const repoPath = mkdtempSync(join(tmpdir(), "sf-ai-flow-cases-edge-"));
+  const reportDir = mkdtempSync(join(tmpdir(), "sf-ai-flow-cases-edge-report-"));
+  try {
+    const flowPath = join(repoPath, "force-app", "main", "default", "flows", "EdgeFlow.flow-meta.xml");
+    writeText(
+      flowPath,
+      [
+        "<Flow>",
+        "  <label>EdgeFlow</label>",
+        "  <decisions>",
+        "    <name>EligibilityDecision</name>",
+        "    <rules>",
+        "      <name>IsBlankPath</name>",
+        "      <conditionLogic>and</conditionLogic>",
+        "      <conditions>",
+        "        <leftValueReference>{!$Record.Tier__c}</leftValueReference>",
+        "        <operator>IsNull</operator>",
+        "      </conditions>",
+        "    </rules>",
+        "    <rules>",
+        "      <name>HasPhonePath</name>",
+        "      <conditionLogic>and</conditionLogic>",
+        "      <conditions>",
+        "        <leftValueReference>record.Phone</leftValueReference>",
+        "        <operator>NotBlank</operator>",
+        "      </conditions>",
+        "    </rules>",
+        "    <defaultConnectorLabel>Default Outcome</defaultConnectorLabel>",
+        "  </decisions>",
+        "</Flow>"
+      ].join("\n")
+    );
+
+    const result = await suggestFlowTestCases({
+      filePath: flowPath,
+      coveredPaths: ["EligibilityDecision.IsBlankPath", "EligibilityDecision.HasPhonePath"],
+      includeDefaultPaths: true,
+      reportOutputDir: reportDir,
+      maxCases: 20
+    });
+
+    assert.ok(result.uncoveredPaths.includes("EligibilityDecision.Default"));
+    const defaultRow = result.suggestedCases.find((row) => row.pathId === "EligibilityDecision.Default");
+    assert.ok(defaultRow);
+    assert.equal(defaultRow?.isDefaultPath, true);
+    assert.ok((defaultRow?.reason ?? "").includes("default path coverage is missing"));
+
+    const simulated = await suggestFlowTestCases({
+      filePath: flowPath,
+      coveredPaths: [],
+      includeDefaultPaths: false,
+      reportOutputDir: reportDir,
+      maxCases: 20
+    });
+
+    const isBlankCase = simulated.suggestedCases.find((row) => row.pathId === "EligibilityDecision.IsBlankPath");
+    const notBlankCase = simulated.suggestedCases.find((row) => row.pathId === "EligibilityDecision.HasPhonePath");
+    assert.ok(isBlankCase?.sampleRecord?.record && typeof isBlankCase.sampleRecord.record === "object");
+    assert.ok(notBlankCase?.sampleRecord?.record && typeof notBlankCase.sampleRecord.record === "object");
+    assert.equal(isBlankCase?.simulation?.shouldTrigger, true);
+    assert.equal(notBlankCase?.simulation?.shouldTrigger, true);
+  } finally {
+    rmSync(repoPath, { recursive: true, force: true });
+    rmSync(reportDir, { recursive: true, force: true });
+  }
+});
+
+test("suggestFlowTestCases parses OR decision logic into any-condition tree", async () => {
+  const repoPath = mkdtempSync(join(tmpdir(), "sf-ai-flow-cases-or-"));
+  const reportDir = mkdtempSync(join(tmpdir(), "sf-ai-flow-cases-or-report-"));
+  try {
+    const flowPath = join(repoPath, "force-app", "main", "default", "flows", "OrLogicFlow.flow-meta.xml");
+    writeText(
+      flowPath,
+      [
+        "<Flow>",
+        "  <label>OrLogicFlow</label>",
+        "  <decisions>",
+        "    <name>RoutingDecision</name>",
+        "    <rules>",
+        "      <name>EscalatePath</name>",
+        "      <conditionLogic>or</conditionLogic>",
+        "      <conditions>",
+        "        <leftValueReference>record.Priority__c</leftValueReference>",
+        "        <operator>EqualTo</operator>",
+        "        <rightValue><stringValue>High</stringValue></rightValue>",
+        "      </conditions>",
+        "      <conditions>",
+        "        <leftValueReference>record.Amount__c</leftValueReference>",
+        "        <operator>GreaterThan</operator>",
+        "        <rightValue><numberValue>50000</numberValue></rightValue>",
+        "      </conditions>",
+        "    </rules>",
+        "  </decisions>",
+        "</Flow>"
+      ].join("\n")
+    );
+
+    const result = await suggestFlowTestCases({
+      filePath: flowPath,
+      coveredPaths: [],
+      reportOutputDir: reportDir,
+      maxCases: 10
+    });
+
+    const row = result.suggestedCases.find((item) => item.pathId === "RoutingDecision.EscalatePath");
+    assert.ok(row);
+    assert.equal(row?.conditionTree?.op, "any");
+    assert.equal(row?.simulation?.shouldTrigger, true);
+    assert.ok((row?.simulation?.trace.length ?? 0) >= 3);
+    assert.ok(row?.sampleRecord?.record && typeof row.sampleRecord.record === "object");
+  } finally {
+    rmSync(repoPath, { recursive: true, force: true });
+    rmSync(reportDir, { recursive: true, force: true });
+  }
+});
+
+test("recommendPermissionSets ranks least-privilege candidate by usage coverage", async () => {
+  const repoPath = mkdtempSync(join(tmpdir(), "sf-ai-perm-reco-"));
+  const reportDir = mkdtempSync(join(tmpdir(), "sf-ai-perm-reco-report-"));
+  try {
+    const candidateA = join(repoPath, "CandidateA.permissionset-meta.xml");
+    const candidateB = join(repoPath, "CandidateB.permissionset-meta.xml");
+
+    writeText(
+      candidateA,
+      [
+        "<PermissionSet>",
+        "  <objectPermissions>",
+        "    <object>Account</object>",
+        "    <allowRead>true</allowRead>",
+        "    <allowCreate>false</allowCreate>",
+        "    <allowEdit>false</allowEdit>",
+        "    <allowDelete>false</allowDelete>",
+        "    <viewAllRecords>false</viewAllRecords>",
+        "    <modifyAllRecords>false</modifyAllRecords>",
+        "  </objectPermissions>",
+        "  <fieldPermissions>",
+        "    <field>Account.Name</field>",
+        "    <readable>true</readable>",
+        "    <editable>false</editable>",
+        "  </fieldPermissions>",
+        "  <classAccesses>",
+        "    <apexClass>OrderService</apexClass>",
+        "    <enabled>true</enabled>",
+        "  </classAccesses>",
+        "</PermissionSet>"
+      ].join("\n")
+    );
+
+    writeText(
+      candidateB,
+      [
+        "<PermissionSet>",
+        "  <objectPermissions>",
+        "    <object>Account</object>",
+        "    <allowRead>true</allowRead>",
+        "    <allowCreate>true</allowCreate>",
+        "    <allowEdit>true</allowEdit>",
+        "    <allowDelete>true</allowDelete>",
+        "    <viewAllRecords>true</viewAllRecords>",
+        "    <modifyAllRecords>true</modifyAllRecords>",
+        "  </objectPermissions>",
+        "  <fieldPermissions>",
+        "    <field>Account.Name</field>",
+        "    <readable>true</readable>",
+        "    <editable>true</editable>",
+        "  </fieldPermissions>",
+        "  <fieldPermissions>",
+        "    <field>Account.Phone</field>",
+        "    <readable>true</readable>",
+        "    <editable>true</editable>",
+        "  </fieldPermissions>",
+        "  <classAccesses>",
+        "    <apexClass>OrderService</apexClass>",
+        "    <enabled>true</enabled>",
+        "  </classAccesses>",
+        "</PermissionSet>"
+      ].join("\n")
+    );
+
+    const result = await recommendPermissionSets({
+      permissionSetFiles: [candidateA, candidateB],
+      usage: {
+        objects: ["Account"],
+        fields: ["Account.Name"],
+        apexClasses: ["OrderService"]
+      },
+      maxRecommendations: 2,
+      reportOutputDir: reportDir
+    });
+
+    assert.equal(result.recommendationCount, 2);
+    assert.equal(result.recommendations[0]?.permissionSetFile, candidateA);
+    assert.ok(result.reportJsonPath.includes("permission-set-recommendations-"));
+    assert.ok(result.reportMarkdownPath.includes("permission-set-recommendations-"));
+  } finally {
+    rmSync(repoPath, { recursive: true, force: true });
+    rmSync(reportDir, { recursive: true, force: true });
+  }
+});
+
+test("recommendPermissionSets treats field editable as required for edit access", async () => {
+  const repoPath = mkdtempSync(join(tmpdir(), "sf-ai-perm-reco-edit-"));
+  const reportDir = mkdtempSync(join(tmpdir(), "sf-ai-perm-reco-edit-report-"));
+  try {
+    const readonlyCandidate = join(repoPath, "ReadonlyCandidate.permissionset-meta.xml");
+    const editableCandidate = join(repoPath, "EditableCandidate.permissionset-meta.xml");
+
+    writeText(
+      readonlyCandidate,
+      [
+        "<PermissionSet>",
+        "  <objectPermissions>",
+        "    <object>Account</object>",
+        "    <allowRead>true</allowRead>",
+        "    <allowCreate>true</allowCreate>",
+        "    <allowEdit>true</allowEdit>",
+        "    <allowDelete>false</allowDelete>",
+        "    <viewAllRecords>false</viewAllRecords>",
+        "    <modifyAllRecords>false</modifyAllRecords>",
+        "  </objectPermissions>",
+        "  <fieldPermissions>",
+        "    <field>Account.Name</field>",
+        "    <readable>true</readable>",
+        "    <editable>false</editable>",
+        "  </fieldPermissions>",
+        "</PermissionSet>"
+      ].join("\n")
+    );
+
+    writeText(
+      editableCandidate,
+      [
+        "<PermissionSet>",
+        "  <objectPermissions>",
+        "    <object>Account</object>",
+        "    <allowRead>true</allowRead>",
+        "    <allowCreate>true</allowCreate>",
+        "    <allowEdit>true</allowEdit>",
+        "    <allowDelete>false</allowDelete>",
+        "    <viewAllRecords>false</viewAllRecords>",
+        "    <modifyAllRecords>false</modifyAllRecords>",
+        "  </objectPermissions>",
+        "  <fieldPermissions>",
+        "    <field>Account.Name</field>",
+        "    <readable>true</readable>",
+        "    <editable>true</editable>",
+        "  </fieldPermissions>",
+        "</PermissionSet>"
+      ].join("\n")
+    );
+
+    const result = await recommendPermissionSets({
+      permissionSetFiles: [readonlyCandidate, editableCandidate],
+      usage: {
+        objects: ["Account"],
+        fields: ["Account.Name"]
+      },
+      objectAccessLevel: "edit",
+      maxRecommendations: 2,
+      reportOutputDir: reportDir
+    });
+
+    assert.equal(result.recommendationCount, 2);
+    assert.equal(result.recommendations[0]?.permissionSetFile, editableCandidate);
+    assert.ok(result.recommendations[0]?.missing.fields.length === 0);
+    assert.ok(result.recommendations[1]?.missing.fields.includes("Account.Name"));
+  } finally {
+    rmSync(repoPath, { recursive: true, force: true });
+    rmSync(reportDir, { recursive: true, force: true });
   }
 });
 

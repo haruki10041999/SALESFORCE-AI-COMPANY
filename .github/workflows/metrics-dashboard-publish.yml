@@ -14,6 +14,12 @@ on:
   schedule:
     - cron: "0 1 * * *"
   workflow_dispatch:
+    inputs:
+      fail_on_alert:
+        description: "Fail workflow when SLA alerts are detected"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -28,6 +34,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      METRICS_FAIL_ON_ALERT: ${{ (github.event_name == 'workflow_dispatch' && inputs.fail_on_alert) || vars.METRICS_FAIL_ON_ALERT || 'false' }}
 
     steps:
       - name: Checkout
@@ -50,12 +58,27 @@ jobs:
           fi
 
       - name: Generate metrics dashboard
-        run: npm run metrics:dashboard -- --snapshot docs/metrics-snapshot.json
+        run: |
+          EXTRA_ARGS=""
+          if [ "${METRICS_FAIL_ON_ALERT}" = "true" ]; then
+            EXTRA_ARGS="--fail-on-alert"
+          fi
+          npm run metrics:dashboard -- --snapshot docs/metrics-snapshot.json --max-p95-ms 200 --max-error-rate 5 --min-governance-rate 98 ${EXTRA_ARGS}
 
       - name: Prepare pages artifact
         run: |
           mkdir -p site
           cp outputs/reports/metrics-dashboard.html site/index.html
+
+      - name: Publish SLA alert summary
+        run: |
+          if [ -f outputs/reports/metrics-alerts.md ]; then
+            echo "## Metrics SLA Alerts" >> "$GITHUB_STEP_SUMMARY"
+            cat outputs/reports/metrics-alerts.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Metrics SLA Alerts" >> "$GITHUB_STEP_SUMMARY"
+            echo "- metrics-alerts.md not found" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -75,3 +98,4 @@ jobs:
           echo "- URL: ${{ steps.deployment.outputs.page_url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Source: outputs/reports/metrics-dashboard.html" >> "$GITHUB_STEP_SUMMARY"
           echo "- Metrics input: docs/metrics-snapshot.json (committed snapshot)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Fail on alert mode: ${METRICS_FAIL_ON_ALERT}" >> "$GITHUB_STEP_SUMMARY"

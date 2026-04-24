@@ -48,6 +48,9 @@ import {
   assessRiskLevel,
   isOverCapacity
 } from "../mcp/core/governance/governance-manager.js";
+import { registerServerTools } from "../mcp/tool-registry.js";
+import { startMcpTransport } from "../mcp/transport.js";
+import { runWithLifecycle } from "../mcp/lifecycle.js";
 
 // ============================================================
 // Resource Selector Tests
@@ -235,4 +238,10 @@ test("Governance Manager - Capacity Check", () => {
   });
 
   assert.ok(isOver, "Should be over capacity");
+});
+
+test("Server Split Modules - Exported entry points are callable", () => {
+  assert.equal(typeof registerServerTools, "function");
+  assert.equal(typeof startMcpTransport, "function");
+  assert.equal(typeof runWithLifecycle, "function");
 });

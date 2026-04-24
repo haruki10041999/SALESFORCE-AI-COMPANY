@@ -41,6 +41,11 @@ function classNameFromPath(path: string): string | null {
   return match?.[1] ?? null;
 }
 
+function triggerNameFromPath(path: string): string | null {
+  const match = path.match(/\/triggers\/([^/]+)\.trigger$/i);
+  return match?.[1] ?? null;
+}
+
 function listApexTestFiles(repoPath: string, workingBranch: string): string[] {
   const output = runGit(repoPath, [
     "ls-tree",
@@ -104,7 +109,7 @@ export function estimateChangedCoverage(input: CoverageEstimateInput): CoverageE
   const changedFiles = getDiffFiles(repoPath, comparison).filter((f) => f.status !== "D");
   const changedSourceFiles = changedFiles
     .map((f) => f.path)
-    .filter((p) => (/\/classes\/.*\.cls$|\/lwc\//i.test(p)) && !/\/classes\/.*Test(s)?\.cls$/i.test(p));
+    .filter((p) => (/\/classes\/.*\.cls$|\/triggers\/.*\.trigger$|\/lwc\//i.test(p)) && !/\/classes\/.*Test(s)?\.cls$/i.test(p));
 
   const apexTestFiles = listApexTestFiles(repoPath, workingBranch);
   const apexTestNames = apexTestFiles
@@ -161,6 +166,56 @@ export function estimateChangedCoverage(input: CoverageEstimateInput): CoverageE
       mappings.push({
         sourcePath,
         sourceName: className,
+        sourceType: "apex",
+        coverageHint: hintFromCandidates(deduped),
+        candidates: deduped.slice(0, 5)
+      });
+      continue;
+    }
+
+    if (/\/triggers\/.*\.trigger$/i.test(sourcePath)) {
+      const triggerName = triggerNameFromPath(sourcePath);
+      if (!triggerName) continue;
+
+      const canonical = [`${triggerName}Test`, `${triggerName}Tests`];
+      const candidates: CoverageCandidate[] = [];
+
+      for (const testName of apexTestNames) {
+        if (canonical.includes(testName)) {
+          candidates.push({
+            testName,
+            confidence: "high",
+            reason: `${triggerName} の標準命名テスト`
+          });
+          continue;
+        }
+
+        if (testName.startsWith(triggerName)) {
+          candidates.push({
+            testName,
+            confidence: "medium",
+            reason: `${triggerName} 接頭辞に一致`
+          });
+          continue;
+        }
+
+        const matchedPath = apexTestFiles.find((path) => path.endsWith(`/${testName}.cls`));
+        if (matchedPath) {
+          const content = fileContentAtRef(repoPath, workingBranch, matchedPath);
+          if (new RegExp(`\\b${triggerName}\\b`).test(content)) {
+            candidates.push({
+              testName,
+              confidence: "medium",
+              reason: `${triggerName} 参照をテスト本文で検出`
+            });
+          }
+        }
+      }
+
+      const deduped = unique(candidates.map((c) => JSON.stringify(c))).map((s) => JSON.parse(s) as CoverageCandidate);
+      mappings.push({
+        sourcePath,
+        sourceName: triggerName,
         sourceType: "apex",
         coverageHint: hintFromCandidates(deduped),
         candidates: deduped.slice(0, 5)

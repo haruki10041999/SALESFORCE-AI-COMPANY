@@ -24,6 +24,27 @@ function normalizeToolName(toolFile: string): string {
   return basename(toolFile, ".ts");
 }
 
+function toCamelCase(value: string): string {
+  return value
+    .split(/[-_]/)
+    .filter((part) => part.length > 0)
+    .map((part, index) => (index === 0 ? part : part[0].toUpperCase() + part.slice(1)))
+    .join("");
+}
+
+function toPascalCase(value: string): string {
+  const camel = toCamelCase(value);
+  return camel.length > 0 ? camel[0].toUpperCase() + camel.slice(1) : camel;
+}
+
+function buildToolAliases(toolName: string): string[] {
+  const kebab = toolName;
+  const snake = toolName.replace(/-/g, "_");
+  const camel = toCamelCase(toolName);
+  const pascal = toPascalCase(toolName);
+  return [...new Set([kebab, snake, camel, pascal])];
+}
+
 function toMarkdownTable(rows: Array<{ tool: string; tests: string[] }>): string {
   const lines: string[] = [];
   lines.push("| Tool | Test Files | Coverage |");
@@ -45,9 +66,10 @@ function main(): void {
 
   const rows = toolFiles.map((toolFile) => {
     const toolName = normalizeToolName(toolFile);
+    const aliases = buildToolAliases(toolName);
     const matchedTests = testFiles.filter((testFile) => {
       const content = read(join(TESTS_DIR, testFile));
-      return content.includes(toolName);
+      return aliases.some((alias) => content.includes(alias));
     });
 
     return {

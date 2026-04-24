@@ -19,11 +19,13 @@
     "metrics:dashboard": "node scripts/metrics-dashboard.js",
     "history:archive": "tsx scripts/archive-history.ts",
     "test:matrix": "tsx scripts/test-matrix.ts",
+    "test:selective": "tsx scripts/run-selective-tests.ts",
     "logs:remask": "tsx scripts/mask-existing-logs.ts",
     "outputs:cleanup": "tsx scripts/cleanup-outputs.ts",
     "outputs:version": "tsx scripts/outputs-version.ts",
     "scaffold": "tsx scripts/scaffold.ts",
     "docs:manifest": "tsx scripts/generate-tool-manifest.ts",
+    "tools:compat": "tsx scripts/check-tool-compatibility.ts",
     "init": "node scripts/init-config.js",
     "doctor": "node scripts/doctor.js"
   },

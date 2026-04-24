@@ -3,6 +3,8 @@ import { getPromptCacheMetrics } from "../core/context/chat-prompt-builder.js";
 
 export type MetricsSummaryInput = {
   limit?: number;
+  maxP95Ms?: number;
+  maxErrorRatePercent?: number;
 };
 
 export type MetricsSummaryResult = {
@@ -22,6 +24,18 @@ export type MetricsSummaryResult = {
     size: number;
     maxSize: number;
   };
+  slaEvaluation?: {
+    thresholds: {
+      maxP95Ms: number;
+      maxErrorRatePercent: number;
+    };
+    values: {
+      p95DurationMs: number;
+      errorRatePercent: number;
+    };
+    alerts: Array<{ id: string; metric: "p95DurationMs" | "errorRatePercent"; message: string }>;
+    pass: boolean;
+  };
 };
 
 function percentile(sorted: number[], p: number): number {
@@ -34,6 +48,11 @@ export function summarizeMetrics(input: MetricsSummaryInput = {}): MetricsSummar
   const limit = Number.isFinite(input.limit) && (input.limit ?? 0) > 0
     ? Math.min(1000, Math.floor(input.limit as number))
     : 200;
+
+  const maxP95Ms = Number.isFinite(input.maxP95Ms) ? Math.max(1, Math.floor(input.maxP95Ms as number)) : 200;
+  const maxErrorRatePercent = Number.isFinite(input.maxErrorRatePercent)
+    ? Math.max(0, Math.min(100, Number(input.maxErrorRatePercent)))
+    : 5;
 
   const completed = getCompletedTraces(limit);
   const active = getActiveTraces();
@@ -65,6 +84,23 @@ export function summarizeMetrics(input: MetricsSummaryInput = {}): MetricsSummar
   const completedCount = completed.length;
   const successRate = completedCount === 0 ? 0 : Number((success / completedCount).toFixed(3));
   const errorRate = completedCount === 0 ? 0 : Number((errors / completedCount).toFixed(3));
+  const errorRatePercent = Number((errorRate * 100).toFixed(2));
+
+  const slaAlerts: Array<{ id: string; metric: "p95DurationMs" | "errorRatePercent"; message: string }> = [];
+  if (p95 > maxP95Ms) {
+    slaAlerts.push({
+      id: "sla-p95",
+      metric: "p95DurationMs",
+      message: `p95DurationMs exceeded threshold (${p95}ms > ${maxP95Ms}ms)`
+    });
+  }
+  if (errorRatePercent > maxErrorRatePercent) {
+    slaAlerts.push({
+      id: "sla-error-rate",
+      metric: "errorRatePercent",
+      message: `errorRatePercent exceeded threshold (${errorRatePercent}% > ${maxErrorRatePercent}%)`
+    });
+  }
 
   // Get prompt cache metrics
   const cacheMetrics = getPromptCacheMetrics();
@@ -79,6 +115,18 @@ export function summarizeMetrics(input: MetricsSummaryInput = {}): MetricsSummar
     averageDurationMs: avg,
     p95DurationMs: p95,
     slowest,
+    slaEvaluation: {
+      thresholds: {
+        maxP95Ms,
+        maxErrorRatePercent
+      },
+      values: {
+        p95DurationMs: p95,
+        errorRatePercent
+      },
+      alerts: slaAlerts,
+      pass: slaAlerts.length === 0
+    },
     promptCache: {
       hits: cacheMetrics.hits,
       misses: cacheMetrics.misses,

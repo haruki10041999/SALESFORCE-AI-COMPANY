@@ -1,0 +1,56 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^node --import tsx --test tests/server-tools\\.integration\\.test\\.ts tests/suggest-cleanup-resources\\.test\\.ts$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/advanced-tools\\.test\\.ts tests/server-tools\\.integration\\.test\\.ts$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx scripts/scaffold\\.ts --non-interactive tool wizard-smoke --description \"smoke check\" --agents architect,qa-engineer --skills apex/apex-best-practices$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/server-tools\\.integration\\.test\\.ts$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/skill-rating\\.test\\.ts tests/server-tools\\.integration\\.test\\.ts$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/advanced-tools\\.test\\.ts tests/server-tools\\.integration\\.test\\.ts --test-name-pattern \"suggestFlowTestCases\\|suggest_flow_test_cases\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/advanced-tools\\.test\\.ts tests/server-tools\\.integration\\.test\\.ts --test-name-pattern \"recommendPermissionSets\\|recommend_permission_sets\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/advanced-tools\\.test\\.ts --test-name-pattern \"suggestFlowTestCases\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/new-tools\\.test\\.ts --test-name-pattern \"summarizeMetrics\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/server-tools\\.integration\\.test\\.ts --test-name-pattern \"suggest_flow_test_cases\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/server-tools\\.integration\\.test\\.ts --test-name-pattern \"agent_ab_test\\|server exposes expected core tool registrations\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/query-skill-incremental\\.test\\.ts tests/server-tools\\.integration\\.test\\.ts --test-name-pattern \"query-skill\\|proposal_feedback_learn\\|server exposes expected core tool registrations\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/core-modules\\.test\\.ts tests/server-tools\\.integration\\.test\\.ts --test-name-pattern \"Server Split Modules\\|server exposes expected core tool registrations\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

@@ -208,6 +208,77 @@ deployment_plan_generate:
 
 ---
 
+## run_deployment_verification
+
+### 概要
+
+デプロイ後のスモークテスト結果を評価し、`rollback` / `continue` / `monitor` を判定します。
+判定内容は JSON / Markdown レポートとして `outputs/reports/` に出力できます。
+
+`dryRun: true` ではコマンドと判定ロジックのみを確認し、`dryRun: false` では実測の `smokeResult` を入力して本番判定を行います。
+
+### 入力パラメータ
+
+| パラメータ | 型 | 必須 | デフォルト | 説明 |
+|---|---|---|---|---|
+| `targetOrg` | string | ✓ | — | 検証対象 org |
+| `dryRun` | boolean | — | `true` | `false` の場合は実測結果に基づく判定 |
+| `deploymentSucceeded` | boolean | — | `true` | デプロイ結果フラグ |
+| `smokeClassNames` | string[] | — | — | スモークテスト対象クラス |
+| `smokeSuiteName` | string | — | — | スモークテスト対象スイート |
+| `wait` | number | — | `30` | テストコマンドの待機時間（分） |
+| `outputDir` | string | — | — | テスト出力先 |
+| `smokeResult.totalTests` | number | — | — | 実行総テスト数 |
+| `smokeResult.failedTests` | number | — | — | 失敗テスト数 |
+| `smokeResult.passedTests` | number | — | 推定 | 成功テスト数 |
+| `smokeResult.skippedTests` | number | — | `0` | スキップ数 |
+| `smokeResult.criticalFailures` | number | — | `0` | 重大障害件数 |
+| `failureRateThresholdPercent` | number | — | `5` | ロールバック判定の失敗率閾値 |
+| `criticalFailureThreshold` | number | — | `1` | 重大障害のロールバック閾値 |
+| `reportOutputDir` | string | — | `outputs/reports` | レポート出力先 |
+
+### 判定ルール（要点）
+
+- `deploymentSucceeded: false` の場合は即 `rollback`
+- `dryRun: false` かつ `criticalFailures >= criticalFailureThreshold` で `rollback`
+- `dryRun: false` かつ `failureRatePercent > failureRateThresholdPercent` で `rollback`
+- 失敗 0 件なら `continue`
+- それ以外は `monitor`
+
+### 入力例
+
+```text
+run_deployment_verification:
+  targetOrg: "production"
+  dryRun: false
+  deploymentSucceeded: true
+  smokeClassNames: ["OrderServiceTest", "InvoiceServiceTest"]
+  smokeResult:
+    totalTests: 40
+    passedTests: 38
+    failedTests: 2
+    criticalFailures: 0
+  failureRateThresholdPercent: 5
+```
+
+### 出力例（抜粋）
+
+```json
+{
+  "mode": "live",
+  "targetOrg": "production",
+  "decision": {
+    "recommendedAction": "monitor",
+    "shouldRollback": false,
+    "reason": "smoke tests have partial failures (5.00%), below rollback threshold"
+  },
+  "reportJsonPath": "D:/Projects/mult-agent-ai/salesforce-ai-company/outputs/reports/deployment-verification-2026-04-24T11-00-00-000Z.json",
+  "reportMarkdownPath": "D:/Projects/mult-agent-ai/salesforce-ai-company/outputs/reports/deployment-verification-2026-04-24T11-00-00-000Z.md"
+}
+```
+
+---
+
 ## 推奨ワークフロー
 
 ### リリース前デプロイ準備フロー
@@ -219,6 +290,7 @@ deployment_plan_generate:
 4. changed_tests_suggest       # 実行すべきテストを特定
 5. deploy_org (dryRun: true)   # 検証コマンドを生成して手動実行
 6. run_tests                   # テストコマンドを生成して手動実行
+7. run_deployment_verification # 実測結果から rollback/continue/monitor を判定
 ```
 
 ---

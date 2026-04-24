@@ -15,6 +15,9 @@
 - `docs/metrics-evaluation.md` を追加し、各評価指標の算出式・しきい値・運用基準を明確化。
 - `.github/workflows/metrics-dashboard-publish.yml` を追加し、GitHub Pages へダッシュボードを定期公開。
 - `docs/developer-guide.md` に MCP SDK 更新ランブック（依存更新、型差分確認、互換性確認、統合テスト、ドキュメント反映）を追加。
+- `mcp/tool-registry.ts` を追加し、ツール登録責務を分離。
+- `mcp/transport.ts` を追加し、stdio 接続責務を明示化。
+- `mcp/lifecycle.ts` を追加し、起動・終了・エラーハンドリング責務を分離。
 
 ### Changed
 
@@ -25,6 +28,7 @@
 - `mcp/tools/changed-tests-suggest.ts` と `mcp/tools/coverage-estimate.ts` に targetOrg の共通検証を適用。
 - `docs/outputs-structure.md` に outputs の運用ルールと cleanup 手順を追記。
 - `scripts/metrics-dashboard.js` に指標評価方法の表示を追加し、metrics ファイル未存在時の空ダッシュボード生成に対応。
+- `mcp/server.ts` をリファクタし、登録・接続・起動責務を新規モジュールへ委譲（TASK-006 完了）。
 
 ### Fixed
 

@@ -11,8 +11,12 @@ import { generateDeploymentPlan } from "../tools/deployment-plan-generator.js";
 import { runBenchmarkSuite } from "../tools/benchmark-suite.js";
 import { compareOrgMetadata } from "../tools/org-metadata-diff.js";
 import { simulateFlowCondition } from "../tools/flow-condition-simulator.js";
+import { suggestFlowTestCases } from "../tools/suggest-flow-test-cases.js";
 import { diffPermissionSet } from "../tools/permission-set-diff.js";
+import { recommendPermissionSets } from "../tools/recommend-permission-sets.js";
 import { buildApexDependencyGraph } from "../tools/apex-dependency-graph.js";
+import { analyzeTestCoverageGap } from "../tools/analyze-test-coverage-gap.js";
+import { runDeploymentVerification } from "../tools/run-deployment-verification.js";
 import type { GovTool } from "@mcp/tool-types.js";
 
 export function registerCoreAnalysisTools(govTool: GovTool): void {
@@ -121,6 +125,81 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
       const command = buildTestCommand({ targetOrg, classNames, suiteName, wait, outputDir });
       return {
         content: [{ type: "text", text: command }]
+      };
+    }
+  );
+
+  govTool(
+    "run_deployment_verification",
+    {
+      title: "デプロイ検証判定",
+      description: "デプロイ後スモークテスト結果を評価し、rollback/continue/monitor を判定してレポート出力します。",
+      inputSchema: {
+        targetOrg: z.string(),
+        dryRun: z.boolean().optional(),
+        deploymentSucceeded: z.boolean().optional(),
+        smokeClassNames: z.array(z.string()).optional(),
+        smokeSuiteName: z.string().optional(),
+        wait: z.number().int().min(1).max(180).optional(),
+        outputDir: z.string().optional(),
+        smokeResult: z.object({
+          totalTests: z.number().int().min(0),
+          passedTests: z.number().int().min(0).optional(),
+          failedTests: z.number().int().min(0),
+          skippedTests: z.number().int().min(0).optional(),
+          criticalFailures: z.number().int().min(0).optional()
+        }).optional(),
+        failureRateThresholdPercent: z.number().min(0).max(100).optional(),
+        criticalFailureThreshold: z.number().int().min(0).max(1000).optional(),
+        reportOutputDir: z.string().optional()
+      }
+    },
+    async ({
+      targetOrg,
+      dryRun,
+      deploymentSucceeded,
+      smokeClassNames,
+      smokeSuiteName,
+      wait,
+      outputDir,
+      smokeResult,
+      failureRateThresholdPercent,
+      criticalFailureThreshold,
+      reportOutputDir
+    }: {
+      targetOrg: string;
+      dryRun?: boolean;
+      deploymentSucceeded?: boolean;
+      smokeClassNames?: string[];
+      smokeSuiteName?: string;
+      wait?: number;
+      outputDir?: string;
+      smokeResult?: {
+        totalTests: number;
+        passedTests?: number;
+        failedTests: number;
+        skippedTests?: number;
+        criticalFailures?: number;
+      };
+      failureRateThresholdPercent?: number;
+      criticalFailureThreshold?: number;
+      reportOutputDir?: string;
+    }) => {
+      const result = await runDeploymentVerification({
+        targetOrg,
+        dryRun,
+        deploymentSucceeded,
+        smokeClassNames,
+        smokeSuiteName,
+        wait,
+        outputDir,
+        smokeResult,
+        failureRateThresholdPercent,
+        criticalFailureThreshold,
+        reportOutputDir
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
       };
     }
   );
@@ -299,6 +378,39 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
   );
 
   govTool(
+    "suggest_flow_test_cases",
+    {
+      title: "Flowテストケース提案",
+      description: "Flow の decision rule から未到達パスを抽出し、条件組合せのテストケースを提案します。",
+      inputSchema: {
+        filePath: z.string(),
+        coveredPaths: z.array(z.string()).optional(),
+        maxCases: z.number().int().min(1).max(200).optional(),
+        reportOutputDir: z.string().optional(),
+        includeDefaultPaths: z.boolean().optional()
+      }
+    },
+    async ({ filePath, coveredPaths, maxCases, reportOutputDir, includeDefaultPaths }: {
+      filePath: string;
+      coveredPaths?: string[];
+      maxCases?: number;
+      reportOutputDir?: string;
+      includeDefaultPaths?: boolean;
+    }) => {
+      const result = await suggestFlowTestCases({
+        filePath,
+        coveredPaths,
+        maxCases,
+        reportOutputDir,
+        includeDefaultPaths
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
     "permission_set_diff",
     {
       title: "Permission Set差分検出",
@@ -324,6 +436,110 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
         sampleLimit
       });
 
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "recommend_permission_sets",
+    {
+      title: "Permission Set推奨",
+      description: "最近の利用権限シグナル(Object/Field/Apex)に基づき、最小権限セット候補を推奨します。",
+      inputSchema: {
+        permissionSetFiles: z.array(z.string()).min(1).max(100),
+        usage: z.object({
+          objects: z.array(z.string()).optional(),
+          fields: z.array(z.string()).optional(),
+          apexClasses: z.array(z.string()).optional(),
+          systemPermissions: z.array(z.string()).optional()
+        }).optional(),
+        usageLogFile: z.string().optional(),
+        currentPermissionSetFile: z.string().optional(),
+        objectAccessLevel: z.enum(["read", "edit", "create", "delete"]).optional(),
+        maxRecommendations: z.number().int().min(1).max(50).optional(),
+        reportOutputDir: z.string().optional()
+      }
+    },
+    async ({
+      permissionSetFiles,
+      usage,
+      usageLogFile,
+      currentPermissionSetFile,
+      objectAccessLevel,
+      maxRecommendations,
+      reportOutputDir
+    }: {
+      permissionSetFiles: string[];
+      usage?: {
+        objects?: string[];
+        fields?: string[];
+        apexClasses?: string[];
+        systemPermissions?: string[];
+      };
+      usageLogFile?: string;
+      currentPermissionSetFile?: string;
+      objectAccessLevel?: "read" | "edit" | "create" | "delete";
+      maxRecommendations?: number;
+      reportOutputDir?: string;
+    }) => {
+      const result = await recommendPermissionSets({
+        permissionSetFiles,
+        usage,
+        usageLogFile,
+        currentPermissionSetFile,
+        objectAccessLevel,
+        maxRecommendations,
+        reportOutputDir
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "analyze_test_coverage_gap",
+    {
+      title: "テストカバレッジギャップ解析",
+      description: "変更Apexクラス/トリガーに対し対応テスト不足を検出し、JSON/Markdownレポートを出力します。",
+      inputSchema: {
+        repoPath: z.string(),
+        baseBranch: z.string().optional(),
+        integrationBranch: z.string().optional(),
+        workingBranch: z.string(),
+        targetOrg: z.string().optional(),
+        reportOutputDir: z.string().optional(),
+        maxItems: z.number().int().min(1).max(500).optional()
+      }
+    },
+    async ({
+      repoPath,
+      baseBranch,
+      integrationBranch,
+      workingBranch,
+      targetOrg,
+      reportOutputDir,
+      maxItems
+    }: {
+      repoPath: string;
+      baseBranch?: string;
+      integrationBranch?: string;
+      workingBranch: string;
+      targetOrg?: string;
+      reportOutputDir?: string;
+      maxItems?: number;
+    }) => {
+      const result = await analyzeTestCoverageGap({
+        repoPath,
+        baseBranch,
+        integrationBranch,
+        workingBranch,
+        targetOrg,
+        reportOutputDir,
+        maxItems
+      });
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
       };

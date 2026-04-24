@@ -1,4 +1,6 @@
 ﻿import { z } from "zod";
+import { join, resolve } from "node:path";
+import { buildResourceDependencyGraph, type ResourceDependencyGraphResult } from "../tools/resource-dependency-graph.js";
 import type { RegisterGovToolDeps } from "./types.js";
 
 type ListMdFiles = (dir: string) => { name: string; summary: string }[];
@@ -7,10 +9,15 @@ type GetMdFile = (dir: string, name: string) => string;
 interface RegisterResourceCatalogToolsDeps extends RegisterGovToolDeps {
   listMdFiles: ListMdFiles;
   getMdFile: GetMdFile;
+  rootDir: string;
+  presetsDir: string;
 }
 
 export function registerResourceCatalogTools(deps: RegisterResourceCatalogToolsDeps): void {
-  const { govTool, listMdFiles, getMdFile } = deps;
+  const { govTool, listMdFiles, getMdFile, rootDir, presetsDir } = deps;
+  const outputsDir = process.env.SF_AI_OUTPUTS_DIR
+    ? resolve(process.env.SF_AI_OUTPUTS_DIR)
+    : join(rootDir, "outputs");
 
   govTool(
     "list_agents",
@@ -74,6 +81,51 @@ export function registerResourceCatalogTools(deps: RegisterResourceCatalogToolsD
     async () => {
       const personas = listMdFiles("personas");
       return { content: [{ type: "text", text: JSON.stringify(personas, null, 2) }] };
+    }
+  );
+
+  govTool(
+    "resource_dependency_graph",
+    {
+      title: "リソース依存ネットワーク可視化",
+      description: "スキル/エージェント/ペルソナ/プリセット間の依存関係を抽出し、Mermaid と影響範囲を返します。",
+      inputSchema: {
+        includeTypes: z.array(z.enum(["skills", "agents", "personas", "presets"])).optional(),
+        includeIsolated: z.boolean().optional(),
+        impactTarget: z.object({
+          type: z.enum(["skills", "agents", "personas", "presets"]),
+          name: z.string()
+        }).optional(),
+        maxImpacts: z.number().int().min(1).max(500).optional(),
+        reportOutputDir: z.string().optional()
+      }
+    },
+    async ({
+      includeTypes,
+      includeIsolated,
+      impactTarget,
+      maxImpacts,
+      reportOutputDir
+    }: {
+      includeTypes?: Array<"skills" | "agents" | "personas" | "presets">;
+      includeIsolated?: boolean;
+      impactTarget?: { type: "skills" | "agents" | "personas" | "presets"; name: string };
+      maxImpacts?: number;
+      reportOutputDir?: string;
+    }) => {
+      const result: ResourceDependencyGraphResult = await buildResourceDependencyGraph({
+        rootDir,
+        presetsDir,
+        outputsDir,
+        includeTypes,
+        includeIsolated,
+        impactTarget,
+        maxImpacts,
+        reportOutputDir
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
     }
   );
 }

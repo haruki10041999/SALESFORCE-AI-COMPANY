@@ -164,9 +164,16 @@
 新しいエージェント・スキル・ペルソナを追加する場合：
 
 ```bash
+npm run scaffold --
 npm run scaffold -- agent <name>
 npm run scaffold -- skill <category>/<name>
+npm run scaffold -- tool <name> --description "..." --agents architect,qa-engineer
+npm run scaffold -- --non-interactive agent <name>
 ```
+
+- 引数なしの `npm run scaffold --` は対話型 Wizard を開始します。
+- `--non-interactive` を付けると、既存の引数指定モードで動作します。
+- `tool` は `outputs/custom-tools/*.json` を生成します。
 
 詳細は [developer-guide.md](developer-guide.md) を参照してください。
 

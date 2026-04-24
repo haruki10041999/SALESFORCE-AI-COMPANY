@@ -3,6 +3,9 @@ import { SafeFilePathSchema, runSchemaValidation } from "../core/quality/resourc
 
 export type ApexFileAnalysis = {
   path: string;
+  entityName: string;
+  sourceKind: "class" | "trigger" | "unknown";
+  probableTestNames: string[];
   hasTriggerPatternHints: boolean;
   hasSoqlInLoopRisk: boolean;
   hasDmlInLoopRisk: boolean;
@@ -31,9 +34,15 @@ export function analyzeApex(filePath: string): ApexFileAnalysis {
   const hasDynamicSoqlConcat = dynamicCallArgs.some((arg) => arg.includes("+"));
   const hasStringFormatDynamicSoql = dynamicCallArgs.some((arg) => /String\.format\s*\(/i.test(arg));
   const hasEscapeSingleQuotes = /String\.escapeSingleQuotes\s*\(/i.test(src);
+  const entityName = filePath.split(/[\\/]/).pop()?.replace(/\.(cls|trigger)$/i, "") ?? "unknown";
+  const sourceKind = /\.trigger$/i.test(filePath) ? "trigger" : /\.cls$/i.test(filePath) ? "class" : "unknown";
+  const probableTestNames = [`${entityName}Test`, `${entityName}Tests`];
 
   return {
     path: filePath,
+    entityName,
+    sourceKind,
+    probableTestNames,
     hasTriggerPatternHints: /trigger\s+\w+\s+on\s+\w+/i.test(src) || /handler/i.test(src),
     hasSoqlInLoopRisk: hasLoop && hasInlineSoql,
     hasDmlInLoopRisk: hasLoop && hasDml,

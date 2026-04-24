@@ -1,11 +1,23 @@
 ﻿import { z } from "zod";
 import { join, resolve } from "node:path";
+import { promises as fsPromises } from "node:fs";
 import type { GovernanceState } from "../core/governance/governance-state.js";
 import {
   applyProposalFeedbackScore,
   loadProposalFeedbackModel,
   type FeedbackResourceType
 } from "../core/resource/proposal-feedback.js";
+import {
+  applyQuerySkillIncrementalScore,
+  loadQuerySkillIncrementalModel
+} from "../core/resource/query-skill-incremental.js";
+import {
+  appendSkillRatings,
+  buildSkillRatingModel,
+  loadSkillRatings,
+  renderSkillRatingMarkdown,
+  saveSkillRatingModel
+} from "../core/resource/skill-rating.js";
 import type { RegisterGovToolDeps, ToolMetadata } from "./types.js";
 
 interface RegisterResourceSearchToolsDeps extends RegisterGovToolDeps {
@@ -34,6 +46,10 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
     ? resolve(process.env.SF_AI_OUTPUTS_DIR)
     : resolve("outputs");
   const proposalFeedbackModelFile = join(outputsDir, "tool-proposals", "proposal-feedback-model.json");
+  const querySkillModelFile = join(outputsDir, "tool-proposals", "query-skill-model.json");
+  const skillRatingLogFile = join(outputsDir, "reports", "skill-rating.jsonl");
+  const skillRatingModelFile = join(outputsDir, "reports", "skill-rating.json");
+  const skillRatingReportFile = join(outputsDir, "reports", "skill-rating.md");
 
   function withFeedbackScore(
     baseScore: number,
@@ -43,6 +59,127 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
   ): number {
     return applyProposalFeedbackScore(baseScore, resourceType, name, model);
   }
+
+  govTool(
+    "record_skill_rating",
+    {
+      title: "スキル満足度レーティング記録",
+      description: "スキル利用後の満足度(1〜5)を記録し、平均評価とトレンドレポートを更新します。",
+      inputSchema: {
+        ratings: z.array(z.object({
+          skill: z.string(),
+          rating: z.number().int().min(1).max(5),
+          topic: z.string().optional(),
+          note: z.string().optional(),
+          recordedAt: z.string().optional()
+        })).min(1).max(200),
+        recentWindow: z.number().int().min(1).max(30).optional(),
+        lowRatingThreshold: z.number().min(1).max(5).optional(),
+        trendDropThreshold: z.number().min(0).max(5).optional()
+      }
+    },
+    async ({ ratings, recentWindow, lowRatingThreshold, trendDropThreshold }: {
+      ratings: Array<{
+        skill: string;
+        rating: number;
+        topic?: string;
+        note?: string;
+        recordedAt?: string;
+      }>;
+      recentWindow?: number;
+      lowRatingThreshold?: number;
+      trendDropThreshold?: number;
+    }) => {
+      const now = new Date().toISOString();
+      const normalizedEntries = ratings.map((row) => ({
+        skill: row.skill.trim(),
+        rating: row.rating,
+        topic: row.topic,
+        note: row.note,
+        recordedAt: row.recordedAt ?? now
+      }));
+
+      await appendSkillRatings(skillRatingLogFile, normalizedEntries);
+      const allEntries = await loadSkillRatings(skillRatingLogFile);
+      const model = buildSkillRatingModel(
+        allEntries,
+        recentWindow ?? 5,
+        lowRatingThreshold ?? 3,
+        trendDropThreshold ?? 0.5
+      );
+      await saveSkillRatingModel(skillRatingModelFile, model);
+      const markdown = renderSkillRatingMarkdown(model);
+      await fsPromises.mkdir(join(outputsDir, "reports"), { recursive: true });
+      await fsPromises.writeFile(skillRatingReportFile, markdown, "utf-8");
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              saved: true,
+              newRatingCount: normalizedEntries.length,
+              totalRatingCount: model.totals.count,
+              averageRating: model.totals.averageRating,
+              flaggedForRefactor: model.skills.filter((row) => row.flaggedForRefactor).map((row) => row.skill),
+              logFile: skillRatingLogFile,
+              reportJsonPath: skillRatingModelFile,
+              reportMarkdownPath: skillRatingReportFile
+            }, null, 2)
+          }
+        ]
+      };
+    }
+  );
+
+  govTool(
+    "get_skill_rating_report",
+    {
+      title: "スキル満足度レポート取得",
+      description: "記録済みレーティングから評価レポートを再生成して返します。",
+      inputSchema: {
+        recentWindow: z.number().int().min(1).max(30).optional(),
+        lowRatingThreshold: z.number().min(1).max(5).optional(),
+        trendDropThreshold: z.number().min(0).max(5).optional(),
+        maxSkills: z.number().int().min(1).max(200).optional()
+      }
+    },
+    async ({ recentWindow, lowRatingThreshold, trendDropThreshold, maxSkills }: {
+      recentWindow?: number;
+      lowRatingThreshold?: number;
+      trendDropThreshold?: number;
+      maxSkills?: number;
+    }) => {
+      const allEntries = await loadSkillRatings(skillRatingLogFile);
+      const model = buildSkillRatingModel(
+        allEntries,
+        recentWindow ?? 5,
+        lowRatingThreshold ?? 3,
+        trendDropThreshold ?? 0.5
+      );
+      await saveSkillRatingModel(skillRatingModelFile, model);
+      const markdown = renderSkillRatingMarkdown(model);
+      await fsPromises.mkdir(join(outputsDir, "reports"), { recursive: true });
+      await fsPromises.writeFile(skillRatingReportFile, markdown, "utf-8");
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              updatedAt: model.updatedAt,
+              totalRatingCount: model.totals.count,
+              averageRating: model.totals.averageRating,
+              flaggedForRefactor: model.skills.filter((row) => row.flaggedForRefactor).map((row) => row.skill),
+              skills: model.skills.slice(0, maxSkills ?? 50),
+              reportJsonPath: skillRatingModelFile,
+              reportMarkdownPath: skillRatingReportFile
+            }, null, 2)
+          }
+        ]
+      };
+    }
+  );
 
   govTool(
     "search_resources",
@@ -67,13 +204,19 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
       const showDisabled = includeDisabled !== false;
       const state = await loadGovernanceState();
       const feedbackModel = await loadProposalFeedbackModel(proposalFeedbackModelFile);
+      const querySkillModel = await loadQuerySkillIncrementalModel(querySkillModelFile);
 
       const skillRows = types.includes("skills")
         ? listMdFiles("skills")
           .map((s) => ({
             name: s.name,
             summary: s.summary,
-            score: withFeedbackScore(scoreByQuery(query, s.name, s.summary), "skills", s.name, feedbackModel),
+            score: applyQuerySkillIncrementalScore(
+              withFeedbackScore(scoreByQuery(query, s.name, s.summary), "skills", s.name, feedbackModel),
+              query,
+              s.name,
+              querySkillModel
+            ),
             disabled: state.disabled.skills.includes(s.name)
           }))
           .filter((x) => x.score > 0 && (showDisabled || !x.disabled))
@@ -170,11 +313,17 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
       const limit = limitPerType ?? 3;
       const state = await loadGovernanceState();
       const feedbackModel = await loadProposalFeedbackModel(proposalFeedbackModelFile);
+      const querySkillModel = await loadQuerySkillIncrementalModel(querySkillModelFile);
 
       const rankedSkills = listMdFiles("skills")
         .map((s) => ({
           name: s.name,
-          score: withFeedbackScore(scoreByQuery(topic, s.name, s.summary), "skills", s.name, feedbackModel),
+          score: applyQuerySkillIncrementalScore(
+            withFeedbackScore(scoreByQuery(topic, s.name, s.summary), "skills", s.name, feedbackModel),
+            topic,
+            s.name,
+            querySkillModel
+          ),
           disabled: state.disabled.skills.includes(s.name)
         }))
         .filter((x) => x.score > 0 && !x.disabled)
@@ -271,6 +420,7 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
       const limit = limitPerType ?? 3;
       const state = await loadGovernanceState();
       const feedbackModel = await loadProposalFeedbackModel(proposalFeedbackModelFile);
+      const querySkillModel = await loadQuerySkillIncrementalModel(querySkillModelFile);
 
       const agents = listMdFiles("agents")
         .map((agent) => ({
@@ -286,7 +436,12 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
         .map((skill) => ({
           name: skill.name,
           summary: skill.summary,
-          score: withFeedbackScore(scoreByQuery(goal, skill.name, skill.summary), "skills", skill.name, feedbackModel),
+          score: applyQuerySkillIncrementalScore(
+            withFeedbackScore(scoreByQuery(goal, skill.name, skill.summary), "skills", skill.name, feedbackModel),
+            goal,
+            skill.name,
+            querySkillModel
+          ),
           disabled: state.disabled.skills.includes(skill.name)
         }))
         .filter((row) => row.score > 0 && !row.disabled)

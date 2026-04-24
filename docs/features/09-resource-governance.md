@@ -353,6 +353,55 @@ apply_resource_actions:
 
 ---
 
+## suggest_cleanup_resources
+
+### 概要
+
+30 日以上未使用のスキル / プリセット / カスタムツールを dry-run で抽出し、
+削除候補レポートを返します。
+
+このツールは変更を適用せず、`outputs/reports/` に JSON / Markdown の提案レポートのみ出力します。
+
+### 入力パラメータ
+
+| パラメータ | 型 | デフォルト | 説明 |
+|---|---|---|---|
+| `daysUnused` | number | `30` | 未使用とみなす日数（1〜365） |
+| `limit` | number | `50` | 候補の最大返却件数（1〜200） |
+| `resourceTypes` | string[] | `["skills","tools","presets"]` | 対象リソース種別 |
+| `eventLimit` | number | `2000` | 参照する実行イベント件数上限（50〜5000） |
+
+### 入力例
+
+```text
+suggest_cleanup_resources:
+  daysUnused: 30
+  limit: 30
+  resourceTypes: ["skills", "tools", "presets"]
+```
+
+### 出力例（抜粋）
+
+```json
+{
+  "dryRun": true,
+  "thresholdDays": 30,
+  "candidateCount": 3,
+  "candidates": [
+    {
+      "resourceType": "tools",
+      "name": "legacy_custom_tool",
+      "reason": "last used 46 days ago",
+      "confidence": "high"
+    }
+  ],
+  "reportJson": "outputs/reports/cleanup-suggestions-2026-04-24T10-00-00-000Z.json",
+  "reportMarkdown": "outputs/reports/cleanup-suggestions-2026-04-24T10-00-00-000Z.md"
+}
+```
+
+---
+
 ## ガバナンス関連の環境変数
 
 | 変数名 | デフォルト | 説明 |

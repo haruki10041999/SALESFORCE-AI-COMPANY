@@ -19,6 +19,7 @@ interface ToolMetadata {
   title: string;
   description: string;
   inputSchemaKeys?: string[];
+  inputSchemaTypes?: Record<string, string>;
   tags?: string[];
 }
 
@@ -82,19 +83,43 @@ function extractToolsFromFile(filePath: string, fileName: string): ToolMetadata[
       const descMatch = configContent.match(/description\s*:\s*["']([^"']+)["']/);
       const description = descMatch ? descMatch[1] : "No description";
 
-      // Extract inputSchema keys more carefully
-      // Pattern: "key": z.xxx or key: z.xxx
+      // Extract inputSchema keys and rough type signatures
       const schemaMatch = configContent.match(/inputSchema\s*:\s*\{([^}]*?)\}/s);
       const inputSchemaKeys: string[] = [];
+      const inputSchemaTypes: Record<string, string> = {};
+
+      const normalizeType = (expr: string): string => {
+        const value = expr.replace(/,$/, "").trim();
+        const optional = /\.optional\s*\(/.test(value) || /\.optional\s*$/.test(value);
+        let base = "unknown";
+        if (value.includes("z.string")) base = "string";
+        else if (value.includes("z.number")) base = "number";
+        else if (value.includes("z.boolean")) base = "boolean";
+        else if (value.includes("z.array")) base = "array";
+        else if (value.includes("z.object")) base = "object";
+        else if (value.includes("z.enum")) base = "enum";
+        else if (value.includes("z.record")) base = "record";
+        else if (value.includes("z.any")) base = "any";
+        return optional ? `${base}?` : base;
+      };
       
       if (schemaMatch) {
         const schemaContent = schemaMatch[1];
-        // Extract all key names before : (quoted or unquoted)
-        const keyMatches = schemaContent.matchAll(/["']?([a-zA-Z_][a-zA-Z0-9_]*?)["']?\s*:/g);
-        for (const keyMatch of keyMatches) {
-          const key = keyMatch[1].trim();
-          if (key && !key.startsWith("z") && key !== "") {
+        const schemaLines = schemaContent
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0 && !line.startsWith("//"));
+
+        for (const line of schemaLines) {
+          const lineMatch = line.match(/^["']?([a-zA-Z_][a-zA-Z0-9_]*)["']?\s*:\s*(.+)$/);
+          if (!lineMatch) {
+            continue;
+          }
+          const key = lineMatch[1].trim();
+          const expr = lineMatch[2].trim();
+          if (key && !key.startsWith("z")) {
             inputSchemaKeys.push(key);
+            inputSchemaTypes[key] = normalizeType(expr);
           }
         }
       }
@@ -114,6 +139,7 @@ function extractToolsFromFile(filePath: string, fileName: string): ToolMetadata[
         title,
         description,
         inputSchemaKeys,
+        inputSchemaTypes,
         tags
       });
     }

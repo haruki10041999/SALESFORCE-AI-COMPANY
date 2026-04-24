@@ -1,8 +1,8 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { getCompletedTraces } from "../mcp/core/trace/trace-context.js";
 import { execFileSync } from "node:child_process";
 
@@ -40,8 +40,12 @@ test("server exposes expected core tool registrations", () => {
   for (const required of [
     "deploy_org",
     "run_tests",
+    "run_deployment_verification",
+    "suggest_flow_test_cases",
+    "resource_dependency_graph",
     "flow_analyze",
     "permission_set_analyze",
+    "recommend_permission_sets",
     "metrics_summary",
     "deployment_plan_generate",
     "benchmark_suite",
@@ -52,6 +56,7 @@ test("server exposes expected core tool registrations", () => {
     "deployment_impact_summary",
     "changed_tests_suggest",
     "coverage_estimate",
+    "analyze_test_coverage_gap",
     "metadata_dependency_graph",
     "save_orchestration_session",
     "restore_orchestration_session",
@@ -66,6 +71,9 @@ test("server exposes expected core tool registrations", () => {
     "search_memory",
     "list_memory",
     "clear_memory",
+    "record_skill_rating",
+    "get_skill_rating_report",
+    "agent_ab_test",
     "recommend_first_steps",
     "add_vector_record",
     "search_vector",
@@ -75,6 +83,7 @@ test("server exposes expected core tool registrations", () => {
     "get_event_automation_config",
     "update_event_automation_config",
     "simulate_governance_change",
+    "suggest_cleanup_resources",
     "record_reasoning_step",
     "get_trace_reasoning",
   ]) {
@@ -97,6 +106,375 @@ test("run_tests returns Apex test command text", async () => {
 
   assert.ok(text.includes("sf apex run test"));
   assert.ok(text.includes("--target-org qa-org"));
+});
+
+test("run_deployment_verification returns structured decision and report paths", async () => {
+  const payload = parseFirstJson<{
+    mode: "dry-run" | "live";
+    targetOrg: string;
+    smokeTestCommand: string;
+    decision: { recommendedAction: "rollback" | "continue" | "monitor"; shouldRollback: boolean };
+    reportJsonPath: string;
+    reportMarkdownPath: string;
+  }>(await callTool("run_deployment_verification", {
+    targetOrg: "qa-org",
+    dryRun: false,
+    deploymentSucceeded: true,
+    smokeClassNames: ["OrderServiceTest"],
+    smokeResult: {
+      totalTests: 10,
+      failedTests: 3,
+      passedTests: 7,
+      criticalFailures: 0
+    },
+    failureRateThresholdPercent: 20
+  }));
+
+  assert.equal(payload.mode, "live");
+  assert.equal(payload.targetOrg, "qa-org");
+  assert.ok(payload.smokeTestCommand.includes("sf apex run test"));
+  assert.ok(["rollback", "continue", "monitor"].includes(payload.decision.recommendedAction));
+  assert.equal(typeof payload.decision.shouldRollback, "boolean");
+  assert.ok(payload.reportJsonPath.length > 0);
+  assert.ok(payload.reportMarkdownPath.length > 0);
+});
+
+test("suggest_flow_test_cases returns uncovered path suggestions with report outputs", async () => {
+  const flowDir = mkdtempSync(join(tmpdir(), "sf-ai-flow-cases-int-"));
+  try {
+    const flowPath = join(flowDir, "SampleFlow.flow-meta.xml");
+    writeFileSync(
+      flowPath,
+      [
+        "<Flow>",
+        "  <label>SampleFlow</label>",
+        "  <decisions>",
+        "    <name>EligibilityDecision</name>",
+        "    <rules>",
+        "      <name>GoldTier</name>",
+        "      <conditionLogic>and</conditionLogic>",
+        "      <conditions>",
+        "        <leftValueReference>record.Tier__c</leftValueReference>",
+        "        <operator>EqualTo</operator>",
+        "        <rightValue><stringValue>Gold</stringValue></rightValue>",
+        "      </conditions>",
+        "    </rules>",
+        "    <rules>",
+        "      <name>LargeDeal</name>",
+        "      <conditionLogic>and</conditionLogic>",
+        "      <conditions>",
+        "        <leftValueReference>record.Amount__c</leftValueReference>",
+        "        <operator>GreaterThan</operator>",
+        "        <rightValue><numberValue>50000</numberValue></rightValue>",
+        "      </conditions>",
+        "    </rules>",
+        "  </decisions>",
+        "</Flow>"
+      ].join("\n"),
+      "utf-8"
+    );
+
+    const payload = parseFirstJson<{
+      flowName: string;
+      totalPathCount: number;
+      uncoveredPathCount: number;
+      uncoveredPaths: string[];
+      suggestedCases: Array<{ pathId: string; simulation?: { shouldTrigger: boolean } }>;
+      reportJsonPath: string;
+      reportMarkdownPath: string;
+    }>(await callTool("suggest_flow_test_cases", {
+      filePath: flowPath,
+      coveredPaths: ["EligibilityDecision.GoldTier"],
+      maxCases: 20
+    }));
+
+    assert.equal(payload.flowName, "SampleFlow");
+    assert.ok(payload.totalPathCount >= 2);
+    assert.ok(payload.uncoveredPathCount >= 1);
+    assert.ok(payload.uncoveredPaths.includes("EligibilityDecision.LargeDeal"));
+    const suggested = payload.suggestedCases.find((row) => row.pathId === "EligibilityDecision.LargeDeal");
+    assert.ok(suggested);
+    assert.equal(suggested?.simulation?.shouldTrigger, true);
+
+    const jsonPath = isAbsolute(payload.reportJsonPath) ? payload.reportJsonPath : resolve(process.cwd(), payload.reportJsonPath);
+    const mdPath = isAbsolute(payload.reportMarkdownPath) ? payload.reportMarkdownPath : resolve(process.cwd(), payload.reportMarkdownPath);
+    assert.ok(existsSync(jsonPath));
+    assert.ok(existsSync(mdPath));
+  } finally {
+    rmSync(flowDir, { recursive: true, force: true });
+  }
+});
+
+test("recommend_permission_sets returns ranked permission set candidates", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "sf-ai-perm-reco-int-"));
+  try {
+    const candidateA = join(tempDir, "CandidateA.permissionset-meta.xml");
+    const candidateB = join(tempDir, "CandidateB.permissionset-meta.xml");
+
+    writeFileSync(
+      candidateA,
+      [
+        "<PermissionSet>",
+        "  <objectPermissions>",
+        "    <object>Account</object>",
+        "    <allowRead>true</allowRead>",
+        "    <allowCreate>false</allowCreate>",
+        "    <allowEdit>false</allowEdit>",
+        "    <allowDelete>false</allowDelete>",
+        "    <viewAllRecords>false</viewAllRecords>",
+        "    <modifyAllRecords>false</modifyAllRecords>",
+        "  </objectPermissions>",
+        "  <fieldPermissions>",
+        "    <field>Account.Name</field>",
+        "    <readable>true</readable>",
+        "    <editable>false</editable>",
+        "  </fieldPermissions>",
+        "</PermissionSet>"
+      ].join("\n"),
+      "utf-8"
+    );
+
+    writeFileSync(
+      candidateB,
+      [
+        "<PermissionSet>",
+        "  <objectPermissions>",
+        "    <object>Account</object>",
+        "    <allowRead>true</allowRead>",
+        "    <allowCreate>true</allowCreate>",
+        "    <allowEdit>true</allowEdit>",
+        "    <allowDelete>true</allowDelete>",
+        "    <viewAllRecords>true</viewAllRecords>",
+        "    <modifyAllRecords>true</modifyAllRecords>",
+        "  </objectPermissions>",
+        "  <fieldPermissions>",
+        "    <field>Account.Name</field>",
+        "    <readable>true</readable>",
+        "    <editable>true</editable>",
+        "  </fieldPermissions>",
+        "  <fieldPermissions>",
+        "    <field>Account.Phone</field>",
+        "    <readable>true</readable>",
+        "    <editable>true</editable>",
+        "  </fieldPermissions>",
+        "</PermissionSet>"
+      ].join("\n"),
+      "utf-8"
+    );
+
+    const payload = parseFirstJson<{
+      recommendationCount: number;
+      recommendations: Array<{ permissionSetFile: string; score: number }>;
+      reportJsonPath: string;
+      reportMarkdownPath: string;
+    }>(await callTool("recommend_permission_sets", {
+      permissionSetFiles: [candidateA, candidateB],
+      usage: {
+        objects: ["Account"],
+        fields: ["Account.Name"]
+      },
+      maxRecommendations: 2
+    }));
+
+    assert.equal(payload.recommendationCount, 2);
+    assert.equal(payload.recommendations[0]?.permissionSetFile, candidateA);
+    assert.ok(typeof payload.recommendations[0]?.score === "number");
+    const jsonPath = isAbsolute(payload.reportJsonPath) ? payload.reportJsonPath : resolve(process.cwd(), payload.reportJsonPath);
+    const mdPath = isAbsolute(payload.reportMarkdownPath) ? payload.reportMarkdownPath : resolve(process.cwd(), payload.reportMarkdownPath);
+    assert.ok(existsSync(jsonPath));
+    assert.ok(existsSync(mdPath));
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("resource_dependency_graph returns network graph and impact result", async () => {
+  const presetDir = join(serverTestOutputsDir, "presets");
+  mkdirSync(presetDir, { recursive: true });
+  const presetPath = join(presetDir, "resource-graph-test.json");
+  writeFileSync(
+    presetPath,
+    JSON.stringify(
+      {
+        name: "ResourceGraphTestPreset",
+        description: "Resource graph integration test preset",
+        topic: "resource graph",
+        agents: ["architect"],
+        skills: ["architecture/salesforce-architecture"],
+        persona: "engineer"
+      },
+      null,
+      2
+    ),
+    "utf-8"
+  );
+
+  const payload = parseFirstJson<{
+    summary: {
+      nodeCount: number;
+      edgeCount: number;
+      skills: number;
+      agents: number;
+      personas: number;
+      presets: number;
+    };
+    edges: Array<{ from: string; to: string; relation: string }>;
+    mermaid: string;
+    impact?: {
+      target: { type: string; name: string; id: string };
+      upstream: Array<{ id: string }>;
+      downstream: Array<{ id: string }>;
+    };
+    reportJsonPath: string;
+    reportMarkdownPath: string;
+  }>(await callTool("resource_dependency_graph", {
+    includeTypes: ["skills", "agents", "personas", "presets"],
+    includeIsolated: false,
+    impactTarget: { type: "presets", name: "ResourceGraphTestPreset" },
+    maxImpacts: 50
+  }));
+
+  assert.ok(payload.summary.nodeCount > 0);
+  assert.ok(payload.summary.edgeCount > 0);
+  assert.ok(payload.summary.presets > 0);
+  assert.ok(payload.edges.some((edge) => edge.from.startsWith("presets:") && edge.relation === "includes"));
+  assert.ok(payload.mermaid.startsWith("graph LR"));
+  assert.ok(payload.impact);
+  assert.equal(payload.impact?.target.type, "presets");
+
+  const jsonPath = isAbsolute(payload.reportJsonPath) ? payload.reportJsonPath : resolve(process.cwd(), payload.reportJsonPath);
+  const mdPath = isAbsolute(payload.reportMarkdownPath) ? payload.reportMarkdownPath : resolve(process.cwd(), payload.reportMarkdownPath);
+  assert.ok(existsSync(jsonPath));
+  assert.ok(existsSync(mdPath));
+});
+
+test("record_skill_rating and get_skill_rating_report generate report and flag low trend", async () => {
+  const saved = parseFirstJson<{
+    saved: boolean;
+    totalRatingCount: number;
+    flaggedForRefactor: string[];
+    reportJsonPath: string;
+    reportMarkdownPath: string;
+  }>(await callTool("record_skill_rating", {
+    ratings: [
+      {
+        skill: "apex/trigger-audit",
+        rating: 5
+      },
+      {
+        skill: "apex/trigger-audit",
+        rating: 2
+      },
+      {
+        skill: "security/permission-audit",
+        rating: 2
+      }
+    ],
+    recentWindow: 2,
+    lowRatingThreshold: 3,
+    trendDropThreshold: 0.5
+  }));
+
+  assert.equal(saved.saved, true);
+  assert.ok(saved.totalRatingCount >= 3);
+  const savedMarkdown = isAbsolute(saved.reportMarkdownPath)
+    ? saved.reportMarkdownPath
+    : resolve(process.cwd(), saved.reportMarkdownPath);
+  assert.ok(existsSync(savedMarkdown));
+
+  const report = parseFirstJson<{
+    totalRatingCount: number;
+    averageRating: number;
+    flaggedForRefactor: string[];
+    skills: Array<{ skill: string; averageRating: number; flaggedForRefactor: boolean }>;
+    reportMarkdownPath: string;
+  }>(await callTool("get_skill_rating_report", {
+    recentWindow: 2,
+    lowRatingThreshold: 3,
+    trendDropThreshold: 0.5,
+    maxSkills: 20
+  }));
+
+  assert.equal(typeof report.totalRatingCount, "number");
+  assert.equal(typeof report.averageRating, "number");
+  assert.ok(Array.isArray(report.flaggedForRefactor));
+  assert.ok(Array.isArray(report.skills));
+  const markdownPath = isAbsolute(report.reportMarkdownPath)
+    ? report.reportMarkdownPath
+    : resolve(process.cwd(), report.reportMarkdownPath);
+  assert.ok(existsSync(markdownPath));
+});
+
+test("agent_ab_test compares two agents and writes comparison report", async () => {
+  const payload = parseFirstJson<{
+    comparison: string;
+    winner: { byQuality: string; byLatency: string; overall: string };
+    runs: {
+      agentA: { agent: string; qualityScore: number; durationMs: number; promptChars: number };
+      agentB: { agent: string; qualityScore: number; durationMs: number; promptChars: number };
+    };
+    reportJsonPath: string;
+    reportMarkdownPath: string;
+  }>(await callTool("agent_ab_test", {
+    topic: "Salesforce release readiness checklist",
+    agentA: "architect",
+    agentB: "qa-engineer",
+    skills: ["architecture/salesforce-architecture", "testing/apex-test"],
+    turns: 4
+  }));
+
+  assert.equal(payload.comparison, "architect vs qa-engineer");
+  assert.ok(["architect", "qa-engineer"].includes(payload.winner.byQuality));
+  assert.ok(["architect", "qa-engineer"].includes(payload.winner.byLatency));
+  assert.ok(["architect", "qa-engineer"].includes(payload.winner.overall));
+  assert.equal(payload.runs.agentA.agent, "architect");
+  assert.equal(payload.runs.agentB.agent, "qa-engineer");
+  assert.ok(payload.runs.agentA.promptChars > 0);
+  assert.ok(payload.runs.agentB.promptChars > 0);
+
+  const jsonPath = isAbsolute(payload.reportJsonPath) ? payload.reportJsonPath : resolve(process.cwd(), payload.reportJsonPath);
+  const markdownPath = isAbsolute(payload.reportMarkdownPath) ? payload.reportMarkdownPath : resolve(process.cwd(), payload.reportMarkdownPath);
+  assert.ok(existsSync(jsonPath));
+  assert.ok(existsSync(markdownPath));
+});
+
+test("proposal_feedback_learn updates query-skill incremental model with versioned output", async () => {
+  const payload = parseFirstJson<{
+    saved: boolean;
+    querySkillModelVersion: string;
+    querySkillLogFile: string;
+    querySkillModelFile: string;
+    querySkillFeedbackCount: number;
+  }>(await callTool("proposal_feedback_learn", {
+    feedback: [
+      {
+        resourceType: "skills",
+        name: "security/security-rules",
+        decision: "accepted",
+        topic: "release security checklist"
+      },
+      {
+        resourceType: "skills",
+        name: "security/security-rules",
+        decision: "accepted",
+        topic: "release security checklist"
+      }
+    ],
+    minSamples: 1
+  }));
+
+  assert.equal(payload.saved, true);
+  assert.equal(payload.querySkillModelVersion, "query-skill-v1");
+  assert.ok(payload.querySkillFeedbackCount >= 2);
+
+  const querySkillLogPath = isAbsolute(payload.querySkillLogFile)
+    ? payload.querySkillLogFile
+    : resolve(process.cwd(), payload.querySkillLogFile);
+  const querySkillModelPath = isAbsolute(payload.querySkillModelFile)
+    ? payload.querySkillModelFile
+    : resolve(process.cwd(), payload.querySkillModelFile);
+  assert.ok(existsSync(querySkillLogPath));
+  assert.ok(existsSync(querySkillModelPath));
 });
 
 test("metrics_summary returns trace-based summary fields", async () => {
@@ -834,4 +1212,80 @@ test("simulate_governance_change evaluates delta without mutating governance sta
   assert.deepEqual(after.config.maxCounts, before.config.maxCounts);
   assert.deepEqual(after.config.thresholds, before.config.thresholds);
   assert.deepEqual(after.disabled.tools, before.disabled.tools);
+});
+
+test("analyze_test_coverage_gap returns CI-gate compatible result", async () => {
+  const repoPath = mkdtempSync(join(tmpdir(), "sf-ai-coverage-gap-int-"));
+  try {
+    const git = (args: string[]) => execFileSync("git", args, { cwd: repoPath, encoding: "utf-8" });
+    git(["init"]);
+    git(["config", "user.email", "test@example.com"]);
+    git(["config", "user.name", "test-user"]);
+    git(["checkout", "-b", "main"]);
+
+    mkdirSync(join(repoPath, "force-app", "main", "default", "classes"), { recursive: true });
+
+    writeFileSync(
+      join(repoPath, "force-app", "main", "default", "classes", "OrderService.cls"),
+      "public with sharing class OrderService { public static void run() {} }\n",
+      "utf-8"
+    );
+    git(["add", "."]);
+    git(["commit", "-m", "base"]);
+
+    git(["checkout", "-b", "feature/no-test"]);
+    writeFileSync(
+      join(repoPath, "force-app", "main", "default", "classes", "OrderService.cls"),
+      "public with sharing class OrderService { public static void run(){ System.debug('v2'); } }\n",
+      "utf-8"
+    );
+    git(["add", "."]);
+    git(["commit", "-m", "change without test"]);
+
+    const payload = parseFirstJson<{
+      hasCoverageGap: boolean;
+      gapCount: number;
+      ciGate: { pass: boolean; suggestedExitCode: number };
+      reportJsonPath: string;
+      reportMarkdownPath: string;
+    }>(await callTool("analyze_test_coverage_gap", {
+      repoPath,
+      baseBranch: "main",
+      workingBranch: "feature/no-test"
+    }));
+
+    assert.equal(typeof payload.hasCoverageGap, "boolean");
+    assert.equal(typeof payload.gapCount, "number");
+    assert.equal(typeof payload.ciGate.pass, "boolean");
+    assert.ok([0, 1].includes(payload.ciGate.suggestedExitCode));
+    assert.ok(payload.reportJsonPath.length > 0);
+    assert.ok(payload.reportMarkdownPath.length > 0);
+  } finally {
+    rmSync(repoPath, { recursive: true, force: true });
+  }
+});
+
+test("suggest_cleanup_resources returns dry-run candidates and writes reports", async () => {
+  const payload = parseFirstJson<{
+    dryRun: boolean;
+    thresholdDays: number;
+    candidateCount: number;
+    reportJson: string;
+    reportMarkdown: string;
+    candidates: Array<{ resourceType: string; name: string }>;
+  }>(await callTool("suggest_cleanup_resources", {
+    daysUnused: 30,
+    limit: 30,
+    resourceTypes: ["skills", "tools", "presets"],
+    eventLimit: 500
+  }));
+
+  assert.equal(payload.dryRun, true);
+  assert.equal(typeof payload.thresholdDays, "number");
+  assert.equal(typeof payload.candidateCount, "number");
+  assert.ok(Array.isArray(payload.candidates));
+  const jsonPath = isAbsolute(payload.reportJson) ? payload.reportJson : resolve(process.cwd(), payload.reportJson);
+  const markdownPath = isAbsolute(payload.reportMarkdown) ? payload.reportMarkdown : resolve(process.cwd(), payload.reportMarkdown);
+  assert.ok(existsSync(jsonPath));
+  assert.ok(existsSync(markdownPath));
 });

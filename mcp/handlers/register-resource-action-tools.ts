@@ -4,6 +4,10 @@ import { z } from "zod";
 import type { GovernanceState, GovernedResourceType } from "../core/governance/governance-state.js";
 import type { ChatPreset, CustomToolDefinition, ResourceOperation } from "../core/types/index.js";
 import type { RegisterGovToolDeps } from "./types.js";
+import type { SystemEventRecord } from "../core/event/system-event-manager.js";
+import type { HandlersStatistics } from "./statistics-manager.js";
+import { buildResourceActivityIndex } from "./statistics-manager.js";
+import { suggestCleanupResources } from "../tools/suggest-cleanup-resources.js";
 
 type GovernanceActionType = "create" | "delete" | "disable" | "enable";
 
@@ -31,6 +35,8 @@ interface RegisterResourceActionToolsDeps extends RegisterGovToolDeps {
   appendOperationLog: (op: ResourceOperation) => Promise<void>;
   emitEvent: (event: { type: string; timestamp: string; payload: Record<string, unknown> }) => Promise<void>;
   toPosixPath: (pathValue: string) => string;
+  loadSystemEvents: (limit?: number, event?: string) => Promise<SystemEventRecord[]>;
+  handlersStatistics: HandlersStatistics;
 }
 
 export function registerResourceActionTools(deps: RegisterResourceActionToolsDeps): void {
@@ -58,9 +64,41 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
     refreshDisabledToolsCache,
     appendOperationLog,
     emitEvent,
-    toPosixPath
+    toPosixPath,
+    loadSystemEvents,
+    handlersStatistics
   } = deps;
   const auditFile = join(dirname(governanceFile), "audit", "resource-actions.jsonl");
+
+  function renderCleanupMarkdown(payload: {
+    generatedAt: string;
+    thresholdDays: number;
+    candidates: Array<{
+      resourceType: string;
+      name: string;
+      usageCount: number;
+      lastUsedAt: string | null;
+      firstSeenAt: string | null;
+      reason: string;
+      confidence: string;
+    }>;
+  }): string {
+    const lines: string[] = [];
+    lines.push(`# Cleanup Suggestion Report`);
+    lines.push("");
+    lines.push(`- generatedAt: ${payload.generatedAt}`);
+    lines.push(`- thresholdDays: ${payload.thresholdDays}`);
+    lines.push(`- candidateCount: ${payload.candidates.length}`);
+    lines.push("");
+    lines.push(`| type | name | usage | lastUsedAt | firstSeenAt | confidence | reason |`);
+    lines.push(`|---|---|---:|---|---|---|---|`);
+    for (const row of payload.candidates) {
+      lines.push(
+        `| ${row.resourceType} | ${row.name} | ${row.usageCount} | ${row.lastUsedAt ?? "-"} | ${row.firstSeenAt ?? "-"} | ${row.confidence} | ${row.reason} |`
+      );
+    }
+    return lines.join("\n");
+  }
 
   govTool(
     "apply_resource_actions",
@@ -437,6 +475,101 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
               results,
               governanceFile: toPosixPath(relative(root, governanceFile)),
               auditFile: toPosixPath(relative(root, auditFile))
+            }, null, 2)
+          }
+        ]
+      };
+    }
+  );
+
+  govTool(
+    "suggest_cleanup_resources",
+    {
+      title: "クリーンアップ候補提案",
+      description: "30日以上未使用のスキル・プリセット・カスタムツール候補を dry-run で提案します。",
+      inputSchema: {
+        daysUnused: z.number().int().min(1).max(365).optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+        resourceTypes: z.array(z.enum(["skills", "tools", "presets"])).min(1).max(3).optional(),
+        eventLimit: z.number().int().min(50).max(5000).optional()
+      }
+    },
+    async ({
+      daysUnused,
+      limit,
+      resourceTypes,
+      eventLimit
+    }: {
+      daysUnused?: number;
+      limit?: number;
+      resourceTypes?: Array<"skills" | "tools" | "presets">;
+      eventLimit?: number;
+    }) => {
+      const state = await loadGovernanceState();
+      const targetTypes = resourceTypes ?? ["skills", "tools", "presets"];
+
+      const skills = targetTypes.includes("skills") ? await listSkillsCatalog() : [];
+      const presets = targetTypes.includes("presets") ? await listPresetsCatalog() : [];
+
+      const customTools: string[] = [];
+      if (targetTypes.includes("tools") && existsSync(customToolsDir)) {
+        const entries = await fsPromises.readdir(customToolsDir);
+        for (const entry of entries) {
+          if (!entry.endsWith(".json")) {
+            continue;
+          }
+          try {
+            const raw = await fsPromises.readFile(join(customToolsDir, entry), "utf-8");
+            const parsed = JSON.parse(raw) as { name?: unknown };
+            if (typeof parsed.name === "string" && parsed.name.trim().length > 0) {
+              customTools.push(parsed.name.trim());
+            }
+          } catch {
+            // skip malformed custom tool file
+          }
+        }
+      }
+
+      const toolSet = new Set(customTools);
+
+      const events = await loadSystemEvents(eventLimit ?? 2000, "tool_before_execute");
+      const activityIndex = buildResourceActivityIndex(handlersStatistics, events);
+
+      const suggestion = suggestCleanupResources({
+        daysUnused: daysUnused ?? 30,
+        limit: limit ?? 50,
+        usage: state.usage,
+        bugSignals: state.bugSignals,
+        catalogs: {
+          skills,
+          presets,
+          customTools: [...toolSet]
+        },
+        activity: activityIndex
+      });
+
+      const outputsDir = dirname(governanceFile);
+      const reportsDir = join(outputsDir, "reports");
+      await ensureDir(reportsDir);
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const jsonPath = join(reportsDir, `cleanup-suggestions-${stamp}.json`);
+      const mdPath = join(reportsDir, `cleanup-suggestions-${stamp}.md`);
+
+      await fsPromises.writeFile(jsonPath, JSON.stringify(suggestion, null, 2), "utf-8");
+      await fsPromises.writeFile(mdPath, renderCleanupMarkdown(suggestion), "utf-8");
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              dryRun: true,
+              thresholdDays: suggestion.thresholdDays,
+              totalAnalyzed: suggestion.totalAnalyzed,
+              candidateCount: suggestion.candidates.length,
+              candidates: suggestion.candidates,
+              reportJson: toPosixPath(jsonPath),
+              reportMarkdown: toPosixPath(mdPath)
             }, null, 2)
           }
         ]

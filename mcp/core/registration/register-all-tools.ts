@@ -235,7 +235,13 @@ export function registerAllTools(deps: RegisterAllToolsDeps): void {
 
   registerCoreAnalysisTools(govTool);
   registerBranchReviewTools(govTool);
-  registerResourceCatalogTools({ govTool, listMdFiles, getMdFile });
+  registerResourceCatalogTools({
+    govTool,
+    listMdFiles,
+    getMdFile,
+    rootDir: root,
+    presetsDir
+  });
 
   registerChatOrchestrationTools({
     govTool,
@@ -317,7 +323,10 @@ export function registerAllTools(deps: RegisterAllToolsDeps): void {
     handlersState,
     exportStatisticsAsCsv,
     exportStatisticsAsJson,
-    ensureDir
+    ensureDir,
+    runChatTool,
+    evaluatePromptMetrics,
+    outputsDir: join(root, "outputs")
   });
 
   registerExportTools({
@@ -395,6 +404,14 @@ export function registerAllTools(deps: RegisterAllToolsDeps): void {
     refreshDisabledToolsCache,
     appendOperationLog,
     emitEvent,
-    toPosixPath
+    toPosixPath,
+    loadSystemEvents: (limit?: number, event?: string) => loadSystemEvents(limit, event as SystemEventName | undefined),
+    handlersStatistics: {
+      created: handlersState.createdTracker,
+      deleted: handlersState.deletedTracker,
+      errors: handlersState.errorTracker,
+      qualityFailures: handlersState.qualityTracker,
+      lastUpdated: new Date().toISOString()
+    }
   });
 }

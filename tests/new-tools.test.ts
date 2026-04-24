@@ -197,3 +197,67 @@ test("summarizeMetrics and benchmark suite remain stable with high trace volume"
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("summarizeMetrics slaEvaluation passes on exact thresholds and alerts only on exceed", () => {
+  const root = mkdtempSync(join(tmpdir(), "sf-ai-metrics-sla-threshold-test-"));
+  const filePath = join(root, "trace-log.jsonl");
+
+  try {
+    const traces = [
+      {
+        traceId: "trace-a",
+        toolName: "tool-a",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        endedAt: "2026-01-01T00:00:00.100Z",
+        durationMs: 100,
+        status: "success",
+        metadata: {}
+      },
+      {
+        traceId: "trace-b",
+        toolName: "tool-b",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        endedAt: "2026-01-01T00:00:00.200Z",
+        durationMs: 200,
+        status: "success",
+        metadata: {}
+      },
+      {
+        traceId: "trace-c",
+        toolName: "tool-c",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        endedAt: "2026-01-01T00:00:00.300Z",
+        durationMs: 300,
+        status: "error",
+        errorMessage: "expected",
+        metadata: {}
+      }
+    ];
+
+    writeFileSync(filePath, `${traces.map((row) => JSON.stringify(row)).join("\n")}\n`, "utf-8");
+    configureTraceStorageForTest(filePath);
+
+    const atThreshold = summarizeMetrics({
+      limit: 50,
+      maxP95Ms: 300,
+      maxErrorRatePercent: 33.3
+    });
+    assert.equal(atThreshold.slaEvaluation?.values.p95DurationMs, 300);
+    assert.equal(atThreshold.slaEvaluation?.values.errorRatePercent, 33.3);
+    assert.equal(atThreshold.slaEvaluation?.pass, true);
+    assert.equal(atThreshold.slaEvaluation?.alerts.length, 0);
+
+    const overThreshold = summarizeMetrics({
+      limit: 50,
+      maxP95Ms: 299,
+      maxErrorRatePercent: 33.29
+    });
+    assert.equal(overThreshold.slaEvaluation?.pass, false);
+    assert.ok((overThreshold.slaEvaluation?.alerts.length ?? 0) >= 2);
+    assert.ok(overThreshold.slaEvaluation?.alerts.some((row) => row.metric === "p95DurationMs"));
+    assert.ok(overThreshold.slaEvaluation?.alerts.some((row) => row.metric === "errorRatePercent"));
+  } finally {
+    clearTraceStorageForTest();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

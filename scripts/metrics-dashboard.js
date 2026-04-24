@@ -20,14 +20,24 @@ const DEFAULT_INPUT = process.env.SF_AI_METRICS_FILE
   : join(ROOT, "outputs", "events", "metrics-samples.jsonl");
 const DEFAULT_OUTPUT = join(ROOT, "outputs", "reports", "metrics-dashboard.html");
 const DEFAULT_SNAPSHOT = join(ROOT, "docs", "metrics-snapshot.json");
+const DEFAULT_EVENTS = join(ROOT, "outputs", "events", "system-events.jsonl");
+const DEFAULT_ALERT_JSON = join(ROOT, "outputs", "reports", "metrics-alerts.json");
+const DEFAULT_ALERT_MD = join(ROOT, "outputs", "reports", "metrics-alerts.md");
 
 function parseArgs(argv) {
   const options = {
     input: DEFAULT_INPUT,
     output: DEFAULT_OUTPUT,
     snapshot: "",
+    events: DEFAULT_EVENTS,
+    alertJson: DEFAULT_ALERT_JSON,
+    alertMarkdown: DEFAULT_ALERT_MD,
     top: 10,
-    days: 7
+    days: 7,
+    maxP95Ms: 200,
+    maxErrorRatePercent: 5,
+    minGovernanceCompliancePercent: 98,
+    failOnAlert: false
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -59,9 +69,63 @@ function parseArgs(argv) {
       i += 1;
       continue;
     }
+    if (token === "--events" && argv[i + 1]) {
+      options.events = resolve(argv[i + 1]);
+      i += 1;
+      continue;
+    }
+    if (token === "--alert-json" && argv[i + 1]) {
+      options.alertJson = resolve(argv[i + 1]);
+      i += 1;
+      continue;
+    }
+    if (token === "--alert-markdown" && argv[i + 1]) {
+      options.alertMarkdown = resolve(argv[i + 1]);
+      i += 1;
+      continue;
+    }
+    if (token === "--max-p95-ms" && argv[i + 1]) {
+      const parsed = Number.parseFloat(argv[i + 1]);
+      if (Number.isFinite(parsed) && parsed >= 1) options.maxP95Ms = Math.min(parsed, 10000);
+      i += 1;
+      continue;
+    }
+    if (token === "--max-error-rate" && argv[i + 1]) {
+      const parsed = Number.parseFloat(argv[i + 1]);
+      if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 100) options.maxErrorRatePercent = parsed;
+      i += 1;
+      continue;
+    }
+    if (token === "--min-governance-rate" && argv[i + 1]) {
+      const parsed = Number.parseFloat(argv[i + 1]);
+      if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 100) options.minGovernanceCompliancePercent = parsed;
+      i += 1;
+      continue;
+    }
+    if (token === "--fail-on-alert") {
+      options.failOnAlert = true;
+      continue;
+    }
   }
 
   return options;
+}
+
+function readSystemEvents(filePath) {
+  if (!existsSync(filePath)) {
+    return [];
+  }
+  return readFileSync(filePath, "utf-8")
+    .split(/\r?\n/)
+    .filter((line) => line.trim().length > 0)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter((row) => row && typeof row.event === "string" && typeof row.timestamp === "string");
 }
 
 function isValidSummary(summary) {
@@ -177,6 +241,130 @@ function buildSummary(samples, topN, days) {
   };
 }
 
+function evaluateSla(summary, events, options) {
+  const errorRatePercent = Number(((1 - summary.successRate) * 100).toFixed(2));
+  const maxP95Ms = options.maxP95Ms;
+  const maxErrorRatePercent = options.maxErrorRatePercent;
+  const minGovernanceCompliancePercent = options.minGovernanceCompliancePercent;
+
+  const end = new Date();
+  const start = new Date(end.getTime() - options.days * 24 * 60 * 60 * 1000);
+
+  let toolExecCount = 0;
+  let thresholdExceededCount = 0;
+  for (const evt of events) {
+    const ts = new Date(evt.timestamp);
+    if (Number.isNaN(ts.getTime()) || ts < start || ts > end) {
+      continue;
+    }
+    if (evt.event === "tool_before_execute") {
+      toolExecCount += 1;
+    }
+    if (evt.event === "governance_threshold_exceeded") {
+      thresholdExceededCount += 1;
+    }
+  }
+
+  const governanceCompliancePercent = toolExecCount > 0
+    ? Number((((toolExecCount - thresholdExceededCount) / toolExecCount) * 100).toFixed(2))
+    : null;
+
+  const alerts = [];
+  if (summary.p95Ms > maxP95Ms) {
+    alerts.push({
+      id: "sla-p95",
+      severity: "high",
+      metric: "overallP95Ms",
+      value: summary.p95Ms,
+      threshold: maxP95Ms,
+      message: `Overall p95 exceeded threshold (${summary.p95Ms}ms > ${maxP95Ms}ms)`
+    });
+  }
+
+  if (errorRatePercent > maxErrorRatePercent) {
+    alerts.push({
+      id: "sla-error-rate",
+      severity: "high",
+      metric: "errorRatePercent",
+      value: errorRatePercent,
+      threshold: maxErrorRatePercent,
+      message: `Error rate exceeded threshold (${errorRatePercent}% > ${maxErrorRatePercent}%)`
+    });
+  }
+
+  if (governanceCompliancePercent !== null && governanceCompliancePercent < minGovernanceCompliancePercent) {
+    alerts.push({
+      id: "sla-governance-compliance",
+      severity: "medium",
+      metric: "governanceCompliancePercent",
+      value: governanceCompliancePercent,
+      threshold: minGovernanceCompliancePercent,
+      message: `Governance compliance dropped below threshold (${governanceCompliancePercent}% < ${minGovernanceCompliancePercent}%)`
+    });
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    periodDays: options.days,
+    thresholds: {
+      maxP95Ms,
+      maxErrorRatePercent,
+      minGovernanceCompliancePercent
+    },
+    values: {
+      overallP95Ms: summary.p95Ms,
+      errorRatePercent,
+      governanceCompliancePercent,
+      governanceThresholdExceededCount: thresholdExceededCount,
+      toolExecutionCount: toolExecCount
+    },
+    alertCount: alerts.length,
+    alerts
+  };
+}
+
+function writeAlertReports(alertReport, jsonPath, markdownPath) {
+  mkdirSync(dirname(jsonPath), { recursive: true });
+  mkdirSync(dirname(markdownPath), { recursive: true });
+  writeFileSync(jsonPath, JSON.stringify(alertReport, null, 2), "utf-8");
+
+  const lines = [];
+  lines.push("# Metrics SLA Alerts");
+  lines.push("");
+  lines.push(`- generatedAt: ${alertReport.generatedAt}`);
+  lines.push(`- periodDays: ${alertReport.periodDays}`);
+  lines.push(`- alertCount: ${alertReport.alertCount}`);
+  lines.push("");
+  lines.push("## Thresholds");
+  lines.push("");
+  lines.push(`- maxP95Ms: ${alertReport.thresholds.maxP95Ms}`);
+  lines.push(`- maxErrorRatePercent: ${alertReport.thresholds.maxErrorRatePercent}`);
+  lines.push(`- minGovernanceCompliancePercent: ${alertReport.thresholds.minGovernanceCompliancePercent}`);
+  lines.push("");
+  lines.push("## Values");
+  lines.push("");
+  lines.push(`- overallP95Ms: ${alertReport.values.overallP95Ms}`);
+  lines.push(`- errorRatePercent: ${alertReport.values.errorRatePercent}`);
+  lines.push(`- governanceCompliancePercent: ${alertReport.values.governanceCompliancePercent ?? "N/A"}`);
+  lines.push(`- governanceThresholdExceededCount: ${alertReport.values.governanceThresholdExceededCount}`);
+  lines.push(`- toolExecutionCount: ${alertReport.values.toolExecutionCount}`);
+  lines.push("");
+
+  if (alertReport.alerts.length === 0) {
+    lines.push("No SLA alerts detected.");
+  } else {
+    lines.push("## Alerts");
+    lines.push("");
+    lines.push("| severity | metric | value | threshold | message |");
+    lines.push("|---|---|---:|---:|---|");
+    for (const alert of alertReport.alerts) {
+      lines.push(`| ${alert.severity} | ${alert.metric} | ${alert.value} | ${alert.threshold} | ${alert.message} |`);
+    }
+  }
+
+  writeFileSync(markdownPath, lines.join("\n"), "utf-8");
+}
+
 function escapeHtml(text) {
   return String(text)
     .replaceAll("&", "&amp;")
@@ -186,7 +374,7 @@ function escapeHtml(text) {
     .replaceAll("'", "&#39;");
 }
 
-function renderHtml(summary, sourcePath) {
+function renderHtml(summary, sourcePath, alertReport) {
   const labels = summary.trend.map((x) => x.date);
   const calls = summary.trend.map((x) => x.calls);
   const success = summary.trend.map((x) => Number((x.successRate * 100).toFixed(1)));
@@ -198,6 +386,11 @@ function renderHtml(summary, sourcePath) {
   }).join("\n");
 
   const toolRows = summary.perTool.map((x) => `<tr><td>${escapeHtml(x.toolName)}</td><td>${x.calls}</td><td>${(x.successRate * 100).toFixed(1)}%</td><td>${x.errors}</td><td>${x.avgMs}</td><td>${x.p95Ms}</td></tr>`).join("\n");
+  const alertRows = alertReport.alerts.length === 0
+    ? `<tr><td colspan="5">No SLA alerts</td></tr>`
+    : alertReport.alerts
+      .map((a) => `<tr><td>${escapeHtml(a.severity)}</td><td>${escapeHtml(a.metric)}</td><td>${a.value}</td><td>${a.threshold}</td><td>${escapeHtml(a.message)}</td></tr>`)
+      .join("\n");
 
   const metricRows = [
     {
@@ -266,6 +459,13 @@ table{width:100%;border-collapse:collapse} th,td{padding:8px;border-bottom:1px s
     <div class="card"><p class="k">Overall p95</p><p class="v">${summary.p95Ms} ms</p></div>
   </div>
 
+  <div class="grid" style="margin-top:12px">
+    <div class="card"><p class="k">SLA Alerts</p><p class="v">${alertReport.alertCount}</p></div>
+    <div class="card"><p class="k">Error Rate</p><p class="v">${alertReport.values.errorRatePercent}%</p></div>
+    <div class="card"><p class="k">Governance Compliance</p><p class="v">${alertReport.values.governanceCompliancePercent === null ? "N/A" : `${alertReport.values.governanceCompliancePercent}%`}</p></div>
+    <div class="card"><p class="k">Governance Threshold Events</p><p class="v">${alertReport.values.governanceThresholdExceededCount}</p></div>
+  </div>
+
   <div class="section">
     <h2>Daily Trend</h2>
     <p class="small">直近 ${summary.trend.length} 日の call 数と success rate。</p>
@@ -281,6 +481,15 @@ table{width:100%;border-collapse:collapse} th,td{padding:8px;border-bottom:1px s
     <table>
       <thead><tr><th>Tool</th><th>Calls</th><th>Success</th><th>Errors</th><th>Avg ms</th><th>p95 ms</th></tr></thead>
       <tbody>${toolRows}</tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>SLA Alerts</h2>
+    <p class="small">通知先を持たない運用向け: レポート出力と CI 失敗判定で検知します。</p>
+    <table>
+      <thead><tr><th>Severity</th><th>Metric</th><th>Value</th><th>Threshold</th><th>Message</th></tr></thead>
+      <tbody>${alertRows}</tbody>
     </table>
   </div>
 
@@ -306,11 +515,29 @@ function main() {
       const samples = readSamples(options.input);
       return { summary: buildSummary(samples, options.top, options.days), sourcePath: options.input };
     })();
-  const html = renderHtml(summary, sourcePath);
+  const events = readSystemEvents(options.events);
+  const alertReport = evaluateSla(summary, events, options);
+  const html = renderHtml(summary, sourcePath, alertReport);
 
   mkdirSync(dirname(options.output), { recursive: true });
   writeFileSync(options.output, html, "utf-8");
+  writeAlertReports(alertReport, options.alertJson, options.alertMarkdown);
   console.log(`[metrics-dashboard] wrote ${options.output}`);
+  console.log(`[metrics-dashboard] wrote ${options.alertJson}`);
+  console.log(`[metrics-dashboard] wrote ${options.alertMarkdown}`);
+
+  if (alertReport.alertCount > 0) {
+    for (const alert of alertReport.alerts) {
+      console.warn(`[metrics-dashboard][alert] ${alert.message}`);
+      if (process.env.GITHUB_ACTIONS === "true") {
+        console.log(`::warning title=Metrics SLA Alert::${alert.message}`);
+      }
+    }
+  }
+
+  if (options.failOnAlert && alertReport.alertCount > 0) {
+    throw new Error(`SLA alerts detected: ${alertReport.alertCount}`);
+  }
 }
 
 try {

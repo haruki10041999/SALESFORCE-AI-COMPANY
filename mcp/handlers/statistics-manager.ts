@@ -21,6 +21,8 @@ import {
 import {
   initializeQualityCheckFailureTracker
 } from "./governance/quality-check-failed.handler.js";
+import type { GovernedResourceType } from "../core/governance/governance-state.js";
+import type { SystemEventRecord } from "../core/event/system-event-manager.js";
 
 /**
  * ハンドラー統計の総合管理オブジェクト
@@ -200,4 +202,113 @@ export function updateStatisticsTimestamp(
     ...stats,
     lastUpdated: new Date().toISOString()
   };
+}
+
+export interface ResourceActivitySnapshot {
+  lastUsedAt?: string;
+  firstSeenAt?: string;
+}
+
+export function buildResourceActivityIndex(
+  stats: HandlersStatistics,
+  events: SystemEventRecord[]
+): Record<GovernedResourceType, Record<string, ResourceActivitySnapshot>> {
+  const index: Record<GovernedResourceType, Record<string, ResourceActivitySnapshot>> = {
+    skills: {},
+    tools: {},
+    presets: {}
+  };
+
+  function setFirstSeen(resourceType: GovernedResourceType, name: string, ts: string): void {
+    const row = index[resourceType][name] ?? {};
+    if (!row.firstSeenAt || Date.parse(ts) < Date.parse(row.firstSeenAt)) {
+      row.firstSeenAt = ts;
+    }
+    index[resourceType][name] = row;
+  }
+
+  function setLastUsed(resourceType: GovernedResourceType, name: string, ts: string): void {
+    const row = index[resourceType][name] ?? {};
+    if (!row.lastUsedAt || Date.parse(ts) > Date.parse(row.lastUsedAt)) {
+      row.lastUsedAt = ts;
+    }
+    index[resourceType][name] = row;
+  }
+
+  for (const created of stats.created.lastCreatedResources) {
+    if (created.resourceType === "skills" || created.resourceType === "tools" || created.resourceType === "presets") {
+      setFirstSeen(created.resourceType, created.name, created.timestamp);
+    }
+  }
+
+  for (const event of events) {
+    const ts = event.timestamp;
+    if (!ts) {
+      continue;
+    }
+
+    const payload = (event.payload ?? {}) as { toolName?: string; input?: string };
+    const toolName = payload.toolName;
+    const rawInput = payload.input;
+
+    if (!toolName || typeof rawInput !== "string") {
+      continue;
+    }
+
+    let parsedInput: Record<string, unknown> = {};
+    try {
+      parsedInput = JSON.parse(rawInput) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    if (toolName === "record_resource_signal") {
+      const resourceType = parsedInput.resourceType;
+      const name = parsedInput.name;
+      if ((resourceType === "skills" || resourceType === "tools" || resourceType === "presets") && typeof name === "string") {
+        setLastUsed(resourceType, name, ts);
+      }
+      continue;
+    }
+
+    if (toolName === "run_preset") {
+      const name = parsedInput.name;
+      if (typeof name === "string") {
+        setLastUsed("presets", name, ts);
+      }
+      continue;
+    }
+
+    if (toolName === "chat" || toolName === "smart_chat") {
+      const skills = parsedInput.skills;
+      if (Array.isArray(skills)) {
+        for (const value of skills) {
+          if (typeof value === "string") {
+            setLastUsed("skills", value, ts);
+          }
+        }
+      }
+      continue;
+    }
+
+    if (toolName === "apply_resource_actions") {
+      const actions = parsedInput.actions;
+      if (!Array.isArray(actions)) {
+        continue;
+      }
+      for (const action of actions) {
+        if (!action || typeof action !== "object") {
+          continue;
+        }
+        const row = action as { resourceType?: unknown; action?: unknown; name?: unknown };
+        if ((row.resourceType === "skills" || row.resourceType === "tools" || row.resourceType === "presets") &&
+            row.action === "create" &&
+            typeof row.name === "string") {
+          setFirstSeen(row.resourceType, row.name, ts);
+        }
+      }
+    }
+  }
+
+  return index;
 }

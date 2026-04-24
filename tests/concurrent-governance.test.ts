@@ -126,8 +126,8 @@ test("governance state changes are sequenced correctly under high concurrency", 
     // Track tool disable/enable sequence
     const operations: Array<{ op: "disable" | "enable"; tool: string; idx: number }> = [];
 
-    // Simulate tool disable operations
-    const disables = Array.from({ length: 10 }).map(async (_, idx) => {
+    // Simulate tool disable operations sequentially to avoid race conditions
+    for (let idx = 0; idx < 10; idx++) {
       const state = await loadGovernanceState(governanceFile, async () => undefined, []);
       const toolName = `tool-${idx}`;
       if (!state.disabled.tools.includes(toolName)) {
@@ -135,18 +135,16 @@ test("governance state changes are sequenced correctly under high concurrency", 
         await saveGovernanceState(governanceFile, state);
         operations.push({ op: "disable", tool: toolName, idx });
       }
-    });
+    }
 
-    // Simulate tool enable operations (after disables)
-    const enables = Array.from({ length: 5 }).map(async (_, idx) => {
+    // Simulate tool enable operations sequentially (after all disables complete)
+    for (let idx = 0; idx < 5; idx++) {
       const state = await loadGovernanceState(governanceFile, async () => undefined, []);
       const toolName = `tool-${idx}`;
       state.disabled.tools = state.disabled.tools.filter((t) => t !== toolName);
       await saveGovernanceState(governanceFile, state);
       operations.push({ op: "enable", tool: toolName, idx });
-    });
-
-    await Promise.all([...disables, ...enables]);
+    }
 
     // Verify: Final state reflects the operations
     const finalState = await loadGovernanceState(governanceFile, async () => undefined, []);

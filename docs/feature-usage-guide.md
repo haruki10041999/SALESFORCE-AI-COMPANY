@@ -175,6 +175,98 @@ benchmark_suite:
 - metricsSnapshot
 - recommendations
 
+### 3.11 run_deployment_verification
+
+用途:
+- デプロイ後スモークテスト結果から rollback/continue/monitor を判定
+- 判定レポート（JSON/Markdown）を出力
+
+入力例:
+
+```text
+run_deployment_verification:
+  targetOrg: "production"
+  dryRun: false
+  deploymentSucceeded: true
+  smokeClassNames: ["OrderServiceTest"]
+  smokeResult:
+    totalTests: 12
+    failedTests: 3
+    passedTests: 9
+  failureRateThresholdPercent: 20
+```
+
+主な出力:
+- decision(recommendedAction / shouldRollback)
+- smokeTestCommand
+- reportJsonPath / reportMarkdownPath
+
+### 3.12 scaffold (開発補助スクリプト)
+
+用途:
+- 新規 agent / skill / custom tool の雛形を生成
+- 引数なし実行で対話型 Wizard を起動
+
+実行例:
+
+```bash
+npm run scaffold --
+npm run scaffold -- --non-interactive agent release-coordinator
+npm run scaffold -- --non-interactive skill apex/trigger-audit --title "Trigger Audit"
+npm run scaffold -- --non-interactive tool release_guard --description "Release safety check" --agents release-manager,qa-engineer
+```
+
+主な出力:
+- `agents/*.md`
+- `skills/<category>/*.md`
+- `outputs/custom-tools/*.json`
+
+### 3.13 suggest_flow_test_cases
+
+用途:
+- Flow の decision rules を抽出し、未到達パスのテストケースを提案
+- 条件を満たすサンプルレコードを自動生成し、シミュレーション結果を併記
+
+入力例:
+
+```text
+suggest_flow_test_cases:
+  filePath: "force-app/main/default/flows/OrderFlow.flow-meta.xml"
+  coveredPaths: ["StatusDecision.ApprovedPath"]
+  maxCases: 20
+```
+
+主な出力:
+- uncoveredPaths
+- suggestedCases(conditionTree / sampleRecord / simulation)
+- reportJsonPath / reportMarkdownPath
+
+### 3.14 recommend_permission_sets
+
+用途:
+- 実利用権限シグナル（Object / Field / Apex）から最小権限の Permission Set 候補を推奨
+- 現行 Permission Set との差分も併記可能
+
+入力例:
+
+```text
+recommend_permission_sets:
+  permissionSetFiles:
+    - "force-app/main/default/permissionsets/Support.permissionset-meta.xml"
+    - "force-app/main/default/permissionsets/SupportAdmin.permissionset-meta.xml"
+  usage:
+    objects: ["Account", "Case"]
+    fields: ["Account.Name", "Case.Subject"]
+    apexClasses: ["CaseService"]
+  objectAccessLevel: "read"
+  maxRecommendations: 5
+```
+
+主な出力:
+- recommendations(score / coverage / missing / excess)
+- diffFromCurrent（指定時）
+- reportJsonPath / reportMarkdownPath
+
 ---
 
 ## 4. ブランチ差分レビュー系
@@ -343,6 +435,29 @@ metadata_dependency_graph:
 主な出力:
 - targets（メタデータ単位の参照一覧と risk）
 - summary
+
+### 4.9 analyze_test_coverage_gap
+
+用途:
+- 変更Apexクラス/トリガーで対応テスト不足を検出
+- CIゲート判定に使える JSON/Markdown レポートを出力
+
+入力例:
+
+```text
+analyze_test_coverage_gap:
+  repoPath: "D:/Projects/mult-agent-ai/salesforce-ai-company"
+  baseBranch: "main"
+  workingBranch: "feature/refactor"
+  reportOutputDir: "outputs/reports"
+  maxItems: 200
+```
+
+主な出力:
+- hasCoverageGap
+- gaps
+- ciGate(pass/suggestedExitCode)
+- reportJsonPath / reportMarkdownPath
 
 ---
 
@@ -757,6 +872,56 @@ apply_resource_actions:
     - resourceType: "tools"
       action: "disable"
       name: "run_tests"
+```
+
+### 9.8 suggest_cleanup_resources
+
+用途:
+- 30日以上未使用の skills / presets / custom tools を dry-run で抽出
+- `outputs/reports/` に JSON / Markdown レポートを自動出力
+
+入力例:
+
+```text
+suggest_cleanup_resources:
+  daysUnused: 30
+  limit: 50
+  resourceTypes: ["skills", "tools", "presets"]
+```
+
+### 9.9 record_skill_rating
+
+用途:
+- スキル利用後の満足度（1〜5）を記録
+- `outputs/reports/skill-rating.md` を再生成
+
+入力例:
+
+```text
+record_skill_rating:
+  ratings:
+    - skill: "apex/trigger-audit"
+      rating: 4
+      topic: "release review"
+  recentWindow: 5
+  lowRatingThreshold: 3
+  trendDropThreshold: 0.5
+```
+
+### 9.10 get_skill_rating_report
+
+用途:
+- 記録済みレーティングから平均評価/トレンドを再集計
+- 低下傾向スキルをリファクタ候補として返却
+
+入力例:
+
+```text
+get_skill_rating_report:
+  recentWindow: 5
+  lowRatingThreshold: 3
+  trendDropThreshold: 0.5
+  maxSkills: 50
 ```
 
 ---

@@ -8,6 +8,13 @@ import {
   loadProposalFeedbackLog,
   saveProposalFeedbackModel
 } from "../core/resource/proposal-feedback.js";
+import {
+  appendQuerySkillFeedback,
+  buildQuerySkillIncrementalModel,
+  QUERY_SKILL_MODEL_VERSION,
+  loadQuerySkillFeedbackLog,
+  saveQuerySkillIncrementalModel
+} from "../core/resource/query-skill-incremental.js";
 import type { RegisterGovToolDeps } from "./types.js";
 
 type GovernanceActionType = "create" | "delete" | "disable" | "enable";
@@ -41,6 +48,8 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
     : resolve("outputs");
   const proposalFeedbackLog = join(outputsDir, "tool-proposals", "proposal-feedback.jsonl");
   const proposalFeedbackModel = join(outputsDir, "tool-proposals", "proposal-feedback-model.json");
+  const querySkillFeedbackLog = join(outputsDir, "tool-proposals", "query-skill-feedback.jsonl");
+  const querySkillModel = join(outputsDir, "tool-proposals", "query-skill-model.json");
 
   govTool(
     "proposal_feedback_learn",
@@ -89,6 +98,21 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
       const model = buildProposalFeedbackModel(allEntries, effectiveMinSamples);
       await saveProposalFeedbackModel(proposalFeedbackModel, model);
 
+      const querySkillEntries = normalizedEntries
+        .filter((entry) => entry.resourceType === "skills" && typeof entry.topic === "string" && entry.topic.trim().length > 0)
+        .map((entry) => ({
+          query: entry.topic!.trim(),
+          skill: entry.name,
+          decision: entry.decision,
+          recordedAt: entry.recordedAt
+        }));
+      if (querySkillEntries.length > 0) {
+        await appendQuerySkillFeedback(querySkillFeedbackLog, querySkillEntries);
+      }
+      const allQuerySkillEntries = await loadQuerySkillFeedbackLog(querySkillFeedbackLog);
+      const querySkillIncrementalModel = buildQuerySkillIncrementalModel(allQuerySkillEntries);
+      await saveQuerySkillIncrementalModel(querySkillModel, querySkillIncrementalModel);
+
       return {
         content: [
           {
@@ -101,7 +125,12 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
               totalFeedbackCount: model.totals.total,
               totals: model.totals,
               typeAdjustments: model.typeAdjustments,
-              topLearnedResources: model.resources.slice(0, 20)
+              topLearnedResources: model.resources.slice(0, 20),
+              querySkillModelVersion: QUERY_SKILL_MODEL_VERSION,
+              querySkillLogFile: querySkillFeedbackLog,
+              querySkillModelFile: querySkillModel,
+              querySkillFeedbackCount: allQuerySkillEntries.length,
+              topLearnedQuerySkills: querySkillIncrementalModel.skills.slice(0, 20)
             }, null, 2)
           }
         ]

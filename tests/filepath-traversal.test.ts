@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
-import { join, resolve, normalize } from "node:path";
+import { join, resolve, normalize, relative } from "node:path";
 import { tmpdir } from "node:os";
 
 /**
@@ -20,10 +20,12 @@ function sanitizeFilePath(basePath: string, userPath: string): string | null {
   const resolvedPath = resolve(basePath, normalized);
   const resolvedBase = resolve(basePath);
 
-  // Check if resolved path is within base directory
-  // Use startsWith with path separator to avoid directory name substring attacks
-  // e.g., /home/userfoo should not be allowed if basePath is /home/user
-  if (!resolvedPath.startsWith(resolvedBase + (resolvedBase.endsWith("/") || resolvedBase.endsWith("\\") ? "" : "/"))) {
+  // Use relative() to check if resolved path is within base directory
+  // If relative path starts with "..", the file is outside the base directory
+  const rel = relative(resolvedBase, resolvedPath);
+  
+  // Accept empty string (current dir) or paths that don't go up with ".."
+  if (rel && (rel.startsWith("..") || rel.startsWith("..\\"))  ) {
     return null; // Path traversal attempt detected
   }
 

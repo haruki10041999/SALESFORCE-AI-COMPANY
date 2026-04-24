@@ -50,9 +50,48 @@
 - ローカル要約: `npm run metrics:report -- --top 10`
 - ローカル可視化: `npm run metrics:dashboard`
 - HTML 出力: `outputs/reports/metrics-dashboard.html`
+- SLA アラート JSON: `outputs/reports/metrics-alerts.json`
+- SLA アラート Markdown: `outputs/reports/metrics-alerts.md`
+- スキル満足度レポート: `outputs/reports/skill-rating.md`
 - ベンチ実行: `npm run benchmark:run`
 - ベンチ出力: `outputs/reports/benchmark-suite.json`
 - GitHub Pages 公開: `Metrics Dashboard Publish` ワークフロー
+
+## 6.1 通知先なし運用のアラート方針
+
+Webhook 等の通知先が未設定でも運用できるよう、しきい値超過は次の方法で扱う。
+
+- `metrics-dashboard` 実行時にローカルレポートへ記録
+- GitHub Actions 実行時は `::warning` を出力し、Step Summary に集約
+- 必要時のみ `--fail-on-alert` を指定して CI を失敗化
+
+CI 既定ポリシー:
+
+- `.github/workflows/metrics-dashboard-publish.yml` は既定で warning-only（失敗化しない）
+- 手動実行時は `workflow_dispatch` の `fail_on_alert` を `true` にすると失敗化
+- もしくはリポジトリ変数 `METRICS_FAIL_ON_ALERT=true` で常時失敗化モードに切り替え可能
+
+主要オプション:
+
+- `--max-p95-ms <number>`
+- `--max-error-rate <0-100>`
+- `--min-governance-rate <0-100>`
+- `--fail-on-alert`
+
+## 6.2 スキル満足度レーティング運用
+
+スキル利用後の満足度（1〜5）は `record_skill_rating` で蓄積し、
+`get_skill_rating_report` で再集計できます。
+
+- 平均評価: スキル全期間の平均値
+- 直近評価: `recentWindow` 件で集計
+- 低下傾向: `trendDropThreshold` 以上の下落、または `lowRatingThreshold` 未満の評価をフラグ化
+
+出力ファイル:
+
+- `outputs/reports/skill-rating.jsonl`（生ログ）
+- `outputs/reports/skill-rating.json`（集計JSON）
+- `outputs/reports/skill-rating.md`（集計Markdown）
 
 ## 7. ベンチスイート評価
 

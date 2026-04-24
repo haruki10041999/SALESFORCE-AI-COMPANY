@@ -30,3 +30,8 @@ Salesforce プロジェクト全体で守るべきセキュリティ最低基準
 - 監査ログ方針があるか
 - 共有ルール変更時の影響分析をしたか
 - 権限セットが肥大化していないか
+
+## 実装時の推奨フロー
+- `recommend_permission_sets` で利用実績ベースの最小権限候補を算出する
+- `permission_set_diff` で現行との差分を確認し、過剰権限を削減する
+- 変更後に `permission_set_analyze` で高リスク権限（Modify All Data 等）を再チェックする

@@ -2,7 +2,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { existsSync, promises as fsPromises } from "fs";
 import { join, resolve, relative } from "path";
-import { connectServerWithStdio, initializeServerRuntime as initializeServerRuntimeModule, isDirectRun as isDirectRunModule } from "./bootstrap.js";
+import { initializeServerRuntime as initializeServerRuntimeModule } from "./bootstrap.js";
+import { registerServerTools } from "./tool-registry.js";
+import { startMcpTransport } from "./transport.js";
+import { runWithLifecycle } from "./lifecycle.js";
 
 // ============================================================
 // Core Modules
@@ -40,8 +43,6 @@ import {
   generateHandlersDashboard,
   type HandlersState
 } from "./handlers/auto-init.js";
-import { registerAllTools as registerAllToolsModule } from "./core/registration/register-all-tools.js";
-import { buildRegisterAllToolsDeps } from "./core/registration/register-all-tools-deps.js";
 
 // ============================================================
 // Memory / Prompt-Engine / Statistics
@@ -377,9 +378,12 @@ const BUILTIN_TOOL_CATALOG = [
   "lwc_analyze",
   "deploy_org",
   "run_tests",
+  "run_deployment_verification",
   "compare_org_metadata",
   "flow_condition_simulate",
+  "suggest_flow_test_cases",
   "permission_set_diff",
+  "recommend_permission_sets",
   "apex_dependency_graph",
   "branch_diff_summary",
   "branch_diff_to_prompt",
@@ -417,6 +421,9 @@ const BUILTIN_TOOL_CATALOG = [
   "run_preset",
   "search_resources",
   "auto_select_resources",
+  "record_skill_rating",
+  "get_skill_rating_report",
+  "agent_ab_test",
   "proposal_feedback_learn",
   "smart_chat",
   "analyze_chat_trends",
@@ -536,8 +543,7 @@ async function validateAndCreateToolWithQuality(
   return validateToolCreation(toolName, toolDescription, existingTools);
 }
 
-registerAllToolsModule(
-  buildRegisterAllToolsDeps({
+registerServerTools({
     govTool,
     chatInputSchema,
     triggerRuleSchema,
@@ -604,8 +610,7 @@ registerAllToolsModule(
     appendOperationLog,
     emitEvent,
     resourceScore
-  })
-);
+  });
 
 async function main(): Promise<void> {
   await initializeServerRuntimeModule({
@@ -619,15 +624,13 @@ async function main(): Promise<void> {
     autoInitializeHandlers
   });
 
-  await connectServerWithStdio(server, logger);
+  await startMcpTransport(server, logger);
 }
 
-const isDirectRun = isDirectRunModule(import.meta.url, process.argv[1]);
-
-if (isDirectRun) {
-  main().catch((error) => {
-    logger.error("MCP server failed to start", error);
-    process.exit(1);
-  });
-}
+runWithLifecycle({
+  importMetaUrl: import.meta.url,
+  argvPath: process.argv[1],
+  logger,
+  start: main
+});
 

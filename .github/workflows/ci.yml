@@ -28,14 +28,17 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Test
-        run: npm test
+      - name: Selective test run
+        run: npm run test:selective -- --base origin/main --head HEAD
 
       - name: Tool test matrix
         run: npm run test:matrix -- --fail-on-missing
 
       - name: Generate tool manifest
         run: npm run docs:manifest
+
+      - name: Check tool compatibility
+        run: npm run tools:compat -- --baseline-ref origin/main --fail-on-breaking
 
       - name: Verify tool manifest integrity
         run: |
