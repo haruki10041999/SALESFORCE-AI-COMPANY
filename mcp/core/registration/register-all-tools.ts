@@ -124,6 +124,10 @@ interface RegisterAllToolsDeps {
     containsAgentsSection: boolean;
     containsSkillsSection: boolean;
     containsTaskSection: boolean;
+    matchedSkillCount: number;
+    totalSkillCount: number;
+    matchedTriggerCount: number;
+    totalTriggerCount: number;
     skillCoverageRate: number;
     triggerMatchRate: number;
   };

@@ -1,16 +1,21 @@
 ﻿import { z } from "zod";
-import type { GovTool } from "@mcp/tool-types.js";
+import { join, resolve } from "node:path";
 import type { GovernanceState } from "../core/governance/governance-state.js";
+import {
+  applyProposalFeedbackScore,
+  loadProposalFeedbackModel,
+  type FeedbackResourceType
+} from "../core/resource/proposal-feedback.js";
+import type { RegisterGovToolDeps, ToolMetadata } from "./types.js";
 
-interface RegisterResourceSearchToolsDeps {
-  govTool: GovTool;
+interface RegisterResourceSearchToolsDeps extends RegisterGovToolDeps {
   loadGovernanceState: () => Promise<GovernanceState>;
   listMdFiles: (dir: string) => { name: string; summary: string }[];
   listPresetsData: () => Promise<Array<{ name: string; description: string; topic: string; agents: string[] }>>;
   scoreByQuery: (query: string, ...targets: string[]) => number;
   emitSystemEvent: (event: string, payload: Record<string, unknown>) => Promise<void>;
   lowRelevanceScoreThreshold: number;
-  registeredToolMetadata: Map<string, { title?: string; description?: string; tags?: string[] }>;
+  registeredToolMetadata: Map<string, ToolMetadata>;
 }
 
 export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDeps): void {
@@ -24,6 +29,20 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
     lowRelevanceScoreThreshold,
     registeredToolMetadata
   } = deps;
+
+  const outputsDir = process.env.SF_AI_OUTPUTS_DIR
+    ? resolve(process.env.SF_AI_OUTPUTS_DIR)
+    : resolve("outputs");
+  const proposalFeedbackModelFile = join(outputsDir, "tool-proposals", "proposal-feedback-model.json");
+
+  function withFeedbackScore(
+    baseScore: number,
+    resourceType: FeedbackResourceType,
+    name: string,
+    model: Awaited<ReturnType<typeof loadProposalFeedbackModel>>
+  ): number {
+    return applyProposalFeedbackScore(baseScore, resourceType, name, model);
+  }
 
   govTool(
     "search_resources",
@@ -47,13 +66,14 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
       const limit = limitPerType ?? 5;
       const showDisabled = includeDisabled !== false;
       const state = await loadGovernanceState();
+      const feedbackModel = await loadProposalFeedbackModel(proposalFeedbackModelFile);
 
       const skillRows = types.includes("skills")
         ? listMdFiles("skills")
           .map((s) => ({
             name: s.name,
             summary: s.summary,
-            score: scoreByQuery(query, s.name, s.summary),
+            score: withFeedbackScore(scoreByQuery(query, s.name, s.summary), "skills", s.name, feedbackModel),
             disabled: state.disabled.skills.includes(s.name)
           }))
           .filter((x) => x.score > 0 && (showDisabled || !x.disabled))
@@ -67,7 +87,12 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
             name,
             title: meta.title ?? name,
             description: meta.description ?? "",
-            score: scoreByQuery(query, name, meta.title ?? "", meta.description ?? "", ...(meta.tags ?? [])),
+            score: withFeedbackScore(
+              scoreByQuery(query, name, meta.title ?? "", meta.description ?? "", ...(meta.tags ?? [])),
+              "tools",
+              name,
+              feedbackModel
+            ),
             disabled: state.disabled.tools.includes(name)
           }))
           .filter((x) => x.score > 0 && (showDisabled || !x.disabled))
@@ -82,7 +107,12 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
             description: p.description,
             topic: p.topic,
             agents: p.agents,
-            score: scoreByQuery(query, p.name, p.description, p.topic, p.agents.join(" ")),
+            score: withFeedbackScore(
+              scoreByQuery(query, p.name, p.description, p.topic, p.agents.join(" ")),
+              "presets",
+              p.name,
+              feedbackModel
+            ),
             disabled: state.disabled.presets.includes(p.name)
           }))
           .filter((x) => x.score > 0 && (showDisabled || !x.disabled))
@@ -139,11 +169,12 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
     async ({ topic, limitPerType }: { topic: string; limitPerType?: number }) => {
       const limit = limitPerType ?? 3;
       const state = await loadGovernanceState();
+      const feedbackModel = await loadProposalFeedbackModel(proposalFeedbackModelFile);
 
       const rankedSkills = listMdFiles("skills")
         .map((s) => ({
           name: s.name,
-          score: scoreByQuery(topic, s.name, s.summary),
+          score: withFeedbackScore(scoreByQuery(topic, s.name, s.summary), "skills", s.name, feedbackModel),
           disabled: state.disabled.skills.includes(s.name)
         }))
         .filter((x) => x.score > 0 && !x.disabled)
@@ -154,7 +185,12 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
         .map(([name, meta]) => ({
           name,
           title: meta.title ?? name,
-          score: scoreByQuery(topic, name, meta.title ?? "", meta.description ?? "", ...(meta.tags ?? [])),
+          score: withFeedbackScore(
+            scoreByQuery(topic, name, meta.title ?? "", meta.description ?? "", ...(meta.tags ?? [])),
+            "tools",
+            name,
+            feedbackModel
+          ),
           disabled: state.disabled.tools.includes(name)
         }))
         .filter((x) => x.score > 0 && !x.disabled)
@@ -167,7 +203,12 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
           topic: p.topic,
           description: p.description,
           agents: p.agents,
-          score: scoreByQuery(topic, p.name, p.topic, p.description, p.agents.join(" ")),
+          score: withFeedbackScore(
+            scoreByQuery(topic, p.name, p.topic, p.description, p.agents.join(" ")),
+            "presets",
+            p.name,
+            feedbackModel
+          ),
           disabled: state.disabled.presets.includes(p.name)
         }))
         .filter((x) => x.score > 0 && !x.disabled)

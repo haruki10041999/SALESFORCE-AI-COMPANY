@@ -11,7 +11,7 @@
 - `docs/features/` に機能別ドキュメントを追加（11カテゴリ）。
 - `docs/documentation-map.md` を追加し、用途別導線を整備。
 - Trace / Metrics 集約の運用導線を明確化。
-- `scripts/cleanup-outputs.js` を追加し、`outputs/history` と `outputs/sessions` の保持期間クリーンアップを自動化。
+- `scripts/cleanup-outputs.ts` を追加し、`outputs/history` と `outputs/sessions` の保持期間クリーンアップを自動化。
 - `docs/metrics-evaluation.md` を追加し、各評価指標の算出式・しきい値・運用基準を明確化。
 - `.github/workflows/metrics-dashboard-publish.yml` を追加し、GitHub Pages へダッシュボードを定期公開。
 

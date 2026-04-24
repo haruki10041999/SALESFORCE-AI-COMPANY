@@ -1,7 +1,7 @@
 # salesforce-ai-company システム構成ドキュメント（UML付き）
 
 > リポジトリ: `D:\Projects\mult-agent-ai\salesforce-ai-company`  
-> 作成日: 2026-04-20
+> 最終更新: 2026-04-24
 
 ---
 
@@ -9,71 +9,56 @@
 
 ```mermaid
 graph TB
-    subgraph Client["MCP クライアント（Claude Desktop / VS Code）"]
-        USER[ユーザー]
+    subgraph Client["MCP クライアント"]
+        USER["Claude Desktop / VS Code"]
     end
 
-    subgraph Server["mcp/server.ts — MCP サーバー"]
+    subgraph Server["mcp/server.ts"]
         direction TB
-        GOVTOOL["govTool() ラッパー\n（disable チェック + イベント発火）"]
-        BCP["buildChatPrompt()\nプロンプト組み立て"]
-        TOOLS["57 ツール群"]
+        GOVTOOL["govTool ラッパー"]
+        TOOLREG["ツール登録\n(register-*.ts)"]
+        BCP["buildChatPrompt"]
     end
 
-    subgraph Content["コンテンツ層（Markdown）"]
-        AGENTS["agents/ × 17"]
-        SKILLS["skills/ × 25"]
-        PERSONAS["personas/ × 15"]
-        CONTEXT["context/ × 3\n（全プロンプトに自動注入）"]
-        PROMPTENG["prompt-engine/ × 5"]
+    subgraph Content["コンテンツ層"]
+        AG["agents/ (17)"]
+        SK["skills/ (31+)"]
+        PE["personas/ (15)"]
+        CTX["context/"]
     end
 
-    subgraph Core["mcp/core/ — コアモジュール"]
-        RESOURCE["resource/\nスコアリング・ギャップ検出"]
-        QUALITY["quality/\n品質チェック・重複検出"]
-        GOVERNANCE["governance/\nガバナンス設定・日次制限"]
-        EVENT["event/\nEventDispatcher"]
-    end
-
-    subgraph Memory["memory/ — インメモリストア"]
-        PMEM["project-memory.ts\n文字列ストア"]
-        VSTORE["vector-store.ts\nキーワードレコード"]
-    end
-
-    subgraph PromptEngine["prompt-engine/"]
-        BUILDER["prompt-builder.ts\n単一エージェント用"]
+    subgraph Core["mcp/core/"]
+        RES["resource/"]
+        QUAL["quality/"]
+        GOV["governance/"]
+        EVT["EventDispatcher"]
     end
 
     subgraph Handlers["mcp/handlers/"]
-        AUTOINIT["auto-init.ts\n6ハンドラー自動登録"]
-        STATS["statistics-manager.ts\n統計管理"]
+        AUTOINIT["auto-init.ts"]
+        STATS["statistics-manager.ts"]
+        REG["register-*.ts (19+)"]
     end
 
-    subgraph Outputs["outputs/ — 永続化"]
-        PRESETS["presets/*.json"]
-        HISTORY["history/*.json"]
-        SESSIONS["sessions/*.json"]
-        GOVFILE["resource-governance.json"]
-        EVTLOG["events/system-events.jsonl"]
-        OPSLOG["operations-log.jsonl"]
-        CUSTOMTOOLS["custom-tools/*.json"]
+    subgraph Output["outputs/"]
+        GOVSTATE["governance.json"]
+        EVENTS["events/"]
+        PRESETS["presets/"]
     end
 
-    USER -->|MCP プロトコル| GOVTOOL
-    GOVTOOL --> TOOLS
-    TOOLS --> BCP
-    BCP --> AGENTS
-    BCP --> SKILLS
-    BCP --> PERSONAS
-    BCP --> CONTEXT
-    BCP --> PROMPTENG
-    TOOLS --> Core
-    TOOLS --> Memory
-    TOOLS --> PromptEngine
-    TOOLS --> Outputs
-    Core --> EVENT
-    EVENT --> Handlers
-    Handlers --> STATS
+    USER -->|MCP| GOVTOOL
+    GOVTOOL --> TOOLREG
+    TOOLREG --> BCP
+    BCP --> AG
+    BCP --> SK
+    BCP --> PE
+    BCP --> CTX
+    TOOLREG --> Core
+    Core --> EVT
+    EVT --> AUTOINIT
+    AUTOINIT --> REG
+    REG --> STATS
+    EVT --> Output
 ```
 
 ---
@@ -126,7 +111,7 @@ flowchart TD
     AUTO --> LIST["listMdFiles('skills')\n全スキルの name + summary を取得"]
     LIST --> SCORE["scoreByQuery(topic, name, summary)\nJaccard + usage + bugSignals でスコア計算"]
     SCORE --> RANK["スコア降順ソート\n上位3件を選択"]
-    RANK --> CHECK{overallMax\n>= 閾値(6)?}
+    RANK --> CHECK{"overallMax >= 6?"}
     CHECK -- No --> EVT["low_relevance_detected\nイベント発火"]
     CHECK -- Yes --> DISABLED["filterDisabledSkills()\n disabled スキルを除外"]
     EVT --> DISABLED
@@ -185,27 +170,23 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    subgraph TRIGGER["エラー集約検出"]
-        FAIL["ツール実行失敗"]
-        FAIL --> REGFAIL["registerToolFailure(toolName)"]
-        REGFAIL --> WIN{"10分以内に\n3回以上失敗?"}
-        WIN -- No --> END1[終了]
-        WIN -- Yes --> COOL{"クールダウン\n60秒経過?"}
-        COOL -- No --> END1
-        COOL -- Yes --> EMIT["error_aggregate_detected\nイベント発火"]
-    end
-
-    subgraph AUTOMATION["イベント自動アクション（applyEventAutomation）"]
-        EMIT --> ENABLED{"eventAutomation\nenabled?"}
-        ENABLED -- No --> END2[スキップ]
-        ENABLED -- Yes --> PROTECTED{"保護ツール\n(DEFAULT_PROTECTED)?"}
-        PROTECTED -- Yes --> SKIP["action: skip\n(protected-tool)"]
-        PROTECTED -- No --> DISABLED2{"既に\ndisabled?"}
-        DISABLED2 -- Yes --> SKIP2["action: skip\n(already-disabled)"]
-        DISABLED2 -- No --> DISABLE["setToolDisabledState(true)\nガバナンス状態に記録"]
-        DISABLE --> CACHE["refreshDisabledToolsCache()\nメモリ Set を更新"]
-        CACHE --> BLOCK["次回 govTool で\nツールブロック"]
-    end
+    FAIL["ツール実行失敗"]
+    FAIL --> REG["registerToolFailure()"]
+    REG --> CHECK{"10分内に3回以上?"}
+    CHECK -- No --> END1[終了]
+    CHECK -- Yes --> COOL{"60秒クールダウン?"}
+    COOL -- No --> END2[終了]
+    COOL -- Yes --> EMIT["error_aggregate_detected\nイベント発火"]
+    
+    EMIT --> AUTO["applyEventAutomation()"]
+    AUTO --> PROT{"保護ツール?"}
+    PROT -- Yes --> SKIP["スキップ"]
+    PROT -- No --> ALREADYDIS{"既にdisabled?"}
+    ALREADYDIS -- Yes --> SKIP
+    ALREADYDIS -- No --> DISABLE["setDisabled(true)"]
+    DISABLE --> UPDATE["ガバナンス状態更新"]
+    UPDATE --> CACHE["キャッシュ更新"]
+    CACHE --> BLOCK["次回呼び出しで\nブロック"]
 ```
 
 ---
@@ -215,13 +196,13 @@ flowchart TD
 ```mermaid
 flowchart TD
     INPUT["apply_resource_actions\n{ action: 'create', resourceType, name, content }"]
-    INPUT --> LIMIT{"日次制限チェック\ncheckDailyLimitExceeded()"}
+    INPUT --> LIMIT{"日次制限チェック"}
     LIMIT -- 超過 --> ERR1["daily_limit_exceeded で中止"]
     LIMIT -- OK --> MAXCHECK{"maxCounts 超過?"}
     MAXCHECK -- 超過 --> ERR2["max reached で中止"]
-    MAXCHECK -- OK --> DUP{"重複チェック\ncheckForDuplicates()\n類似度 >= 0.8?"}
+    MAXCHECK -- OK --> DUP{"重複チェック (0.8以上)"}
     DUP -- 重複あり --> ERR3["quality_check_failed\n(類似リソース存在)"]
-    DUP -- 重複なし --> QUAL{"品質チェック\ncheckResourceQuality()\npass?"}
+    DUP -- 重複なし --> QUAL{"品質チェック pass?"}
     QUAL -- fail --> ERR4["quality_check_failed\n(品質基準未達)"]
     QUAL -- pass --> WRITE["ファイルに書き込み\n(skill .md / preset .json / tool .json)"]
     WRITE --> EVT1["resource_created イベント発火"]
@@ -327,28 +308,23 @@ classDiagram
 
 ---
 
-## 8. イベントシステムのシーケンス（ブリッジ構造）
+## 8. イベント駆動フロー
 
 ```mermaid
 sequenceDiagram
-    participant Tool as govTool ラッパー
-    participant SES as emitSystemEvent()
-    participant AUTO as applyEventAutomation()
-    participant LOG as system-events.jsonl
-    participant MEM as recentSystemEvents[]
-    participant BRIDGE as emitEvent() (core EventDispatcher)
-    participant HANDLER as auto-init ハンドラー
+    participant Tool as govTool
+    participant Event as EventDispatcher
+    participant Log as system-events.jsonl
+    participant Auto as applyEventAutomation
+    participant Handler as register-*.ts
 
-    Tool->>SES: emitSystemEvent("error_aggregate_detected", payload)
-    SES->>AUTO: applyEventAutomation() でツール自動無効化
-    AUTO-->>SES: payload.automation に結果を付記
-    SES->>MEM: recentSystemEvents に push (上限200件)
-    SES->>LOG: system-events.jsonl に追記
-    alt event が error_aggregate_detected または governance_threshold_exceeded
-        SES->>BRIDGE: emitEvent({ type, timestamp, payload })
-        BRIDGE->>HANDLER: error_aggregator ハンドラー起動
-        HANDLER-->>HANDLER: handlersState.errorTracker をインクリメント
-    end
+    Tool->>Event: emit(error_aggregate_detected)
+    Event->>Log: イベント記録
+    Event->>Auto: トリガー
+    Auto->>Auto: ツール無効化判定
+    Auto->>Log: 自動アクション記録
+    Event->>Handler: リスナー実行
+    Handler->>Handler: 統計更新
 ```
 
 ---
@@ -360,16 +336,20 @@ salesforce-ai-company/
 ├── mcp/
 │   ├── server.ts                    ← 全ツール登録・buildChatPrompt・ガバナンス管理
 │   ├── tools/
-│   │   ├── apex-analyzer.ts         ← 9項目静的チェック
-│   │   ├── lwc-analyzer.ts          ← 7項目静的チェック
-│   │   ├── deploy-org.ts            ← sf CLI コマンド生成
-│   │   ├── run-tests.ts             ← Apex テストコマンド生成
+│   │   ├── apex-analyzer.ts         ← Apex 静的解析
+│   │   ├── lwc-analyzer.ts          ← LWC 静的解析
+│   │   ├── deploy-org.ts            ← デプロイコマンド生成
+│   │   ├── run-tests.ts             ← テストコマンド生成
 │   │   ├── branch-diff-summary.ts   ← git diff 集計
-│   │   ├── branch-diff-to-prompt.ts ← diff → プロンプト変換
+│   │   ├── branch-diff-to-prompt.ts ← diff からプロンプト生成
 │   │   ├── pr-readiness-check.ts    ← PR 準備スコア
 │   │   ├── security-delta-scan.ts   ← セキュリティ差分検出
 │   │   ├── deployment-impact-summary.ts
-│   │   └── changed-tests-suggest.ts
+│   │   ├── changed-tests-suggest.ts
+│   │   ├── apex-dependency-graph.ts
+│   │   ├── flow-condition-simulator.ts
+│   │   ├── org-metadata-diff.ts
+│   │   └── permission-set-diff.ts
 │   ├── core/
 │   │   ├── resource/
 │   │   │   ├── resource-selector.ts     ← scoreCandidate() スコアリング
@@ -383,8 +363,10 @@ salesforce-ai-company/
 │   │   └── event/
 │   │       └── event-dispatcher.ts  ← EventDispatcher (onEvent / emitEvent)
 │   └── handlers/
-│       ├── auto-init.ts             ← 6ハンドラー自動登録・HandlersState
-│       └── statistics-manager.ts   ← CSV/JSON エクスポート
+│       ├── auto-init.ts             ← register-*.ts 自動登録・初期化
+│       ├── register-*.ts (19+)       ← ツール登録
+│       ├── types.ts                  ← 共通型定義
+│       └── statistics-manager.ts     ← 統計集計
 ├── memory/
 │   ├── project-memory.ts            ← memory[] 配列 (add/search/list/clear)
 │   └── vector-store.ts             ← records[] 配列 (addRecord/searchByKeyword)
@@ -395,12 +377,12 @@ salesforce-ai-company/
 │   ├── discussion-framework.md
 │   ├── review-framework.md
 │   └── review-mode.md
-├── agents/       (17 .md)
-├── skills/       (25 .md)
-├── personas/     (15 .md)
-├── context/      (3 .md ← 全プロンプトに自動注入)
+├── agents/          (17 個)
+├── skills/          (11+ カテゴリ, 31+ ファイル)
+├── personas/        (15 個)
+├── context/      (全プロンプトに自動注入)
 ├── outputs/
-│   ├── presets/          (7 .json)
+│   ├── presets/
 │   ├── history/          (.json 都度生成)
 │   ├── sessions/         (.json 都度生成)
 │   ├── custom-tools/     (.json 動的生成)
@@ -420,15 +402,15 @@ salesforce-ai-company/
 
 ---
 
-## 10. ツール分類一覧（55ツール）
+## 10. ツール分類一覧（概念整理）
 
-### 静的解析・コマンド生成（11）
+### 静的解析・コマンド生成
 
 | ツール名 | 概要 |
 |---|---|
 | `repo_analyze` | Apex/LWC/Object のファイル一覧を返す |
-| `apex_analyze` | Apex 9項目静的チェック（SOQL in loop / DML in loop / without sharing 等） |
-| `lwc_analyze` | LWC 7項目静的チェック（@wire / @api / imperative / NavigationMixin 等） |
+| `apex_analyze` | Apex 静的解析（SOQL in loop / DML in loop / without sharing 等） |
+| `lwc_analyze` | LWC 静的解析（@wire / @api / imperative / NavigationMixin 等） |
 | `deploy_org` | `sf project deploy start` コマンドを組み立てて返す |
 | `run_tests` | `sf apex run test` コマンドを組み立てて返す |
 | `branch_diff_summary` | ブランチ差分のファイル変更サマリー |
@@ -437,8 +419,12 @@ salesforce-ai-company/
 | `security_delta_scan` | 差分から CRUD/FLS/sharing/動的 SOQL 懸念を検出 |
 | `deployment_impact_summary` | 差分をメタデータ種別に集計してデプロイ注意点を返す |
 | `changed_tests_suggest` | 差分から推奨テストクラスと実行コマンドを返す |
+| `apex_dependency_graph` | Apex 依存関係グラフを構築・分析 |
+| `flow_condition_simulator` | Flow 条件の実行結果をシミュレート |
+| `org_metadata_diff` | 複数 Org のメタデータ差分を比較 |
+| `permission_set_diff` | Permission Set の差分を検出 |
 
-### 定義参照（5）
+### 定義参照
 
 | ツール名 | 概要 |
 |---|---|
@@ -448,7 +434,7 @@ salesforce-ai-company/
 | `get_skill` | 特定スキルの Markdown 全文 |
 | `list_personas` | 全ペルソナ一覧（name + summary） |
 
-### 会話生成（6）
+### 会話生成
 
 | ツール名 | 概要 |
 |---|---|
@@ -459,7 +445,7 @@ salesforce-ai-company/
 | `build_prompt` | 単一エージェント用軽量プロンプト（base + reasoning のみ） |
 | `get_context` | context/ の内容確認（プロンプトに何が注入されているか） |
 
-### オーケストレーション（7）
+### オーケストレーション
 
 | ツール名 | 概要 |
 |---|---|
@@ -471,7 +457,7 @@ salesforce-ai-company/
 | `restore_orchestration_session` | 保存済みセッションを復元 |
 | `list_orchestration_sessions` | 保存済みセッション一覧 |
 
-### ログ・履歴（7）
+### ログ・履歴
 
 | ツール名 | 概要 |
 |---|---|
@@ -483,7 +469,7 @@ salesforce-ai-company/
 | `restore_chat_history` | 保存済み履歴をログに復元 |
 | `export_to_markdown` | チャット履歴を Markdown エクスポート（ファイル出力可） |
 
-### プリセット・検索（5）
+### プリセット・検索
 
 | ツール名 | 概要 |
 |---|---|
@@ -493,7 +479,7 @@ salesforce-ai-company/
 | `search_resources` | スキル/ツール/プリセット横断検索（スコア付き） |
 | `auto_select_resources` | トピックから最適リソースを自動選択 |
 
-### 分析・統計（4）
+### 分析・統計
 
 | ツール名 | 概要 |
 |---|---|
@@ -502,14 +488,14 @@ salesforce-ai-company/
 | `export_handlers_statistics` | ハンドラー統計を JSON/CSV エクスポート |
 | `get_system_events` | システムイベントログ取得 |
 
-### イベント自動化設定（2）
+### イベント自動化設定
 
 | ツール名 | 概要 |
 |---|---|
 | `get_event_automation_config` | イベント自動アクション設定を返す |
 | `update_event_automation_config` | イベント自動アクション設定を更新 |
 
-### ガバナンス（4）
+### ガバナンス
 
 | ツール名 | 概要 |
 |---|---|
@@ -518,7 +504,7 @@ salesforce-ai-company/
 | `review_resource_governance` | 整理推奨リストを返す（設定変更も可） |
 | `apply_resource_actions` | スキル/ツール/プリセットの作成/削除/無効化/有効化 |
 
-### メモリ・ベクターストア（6）
+### メモリ・ベクターストア
 
 | ツール名 | 概要 |
 |---|---|

@@ -2,49 +2,23 @@
 
 ## 1. このガイドの目的
 
-このドキュメントは README とは別に、各機能の実行方法と使用例をまとめた実践ガイドです。
-MCP クライアントからそのまま呼べる入力例を中心に記載しています。
+このドキュメントは、MCP クライアントから呼び出す入力例をまとめた実践集です。
 
-関連ドキュメント:
-- README: 全体像とクイックスタート
-- docs/configuration.md: 環境変数一覧
-- verification-guide.md: 検証手順
+起動や設定などの共通手順は、次を参照してください。
+
+- [README.md](../README.md)
+- [configuration.md](./configuration.md)
+- [verification-guide.md](./verification-guide.md)
 
 ---
 
-## 2. 使い始める前の前提
-
-1. サーバー起動
-
-```bash
-npm install
-npm run init   # 初回のみ: outputs/ ディレクトリ構造と governance-state.json を生成
-npm run doctor # 設定/権限/outputs 構造を診断
-npm run build
-npm run mcp:dev
-```
-
-2. 環境変数（任意）
-
-| 変数名 | デフォルト | 説明 |
-|---|---|---|
-| `SF_AI_OUTPUTS_DIR` | `<root>/outputs` | outputs/ ディレクトリの場所を変更 |
-| `LOG_LEVEL` | `info` | ログ粒度: `error` / `warn` / `info` / `debug` |
-| `SF_AI_AUTO_APPLY` | `false` | resource / threshold handler の自動適用を有効化 |
-| `SF_AI_TRACE_FILE` | `<root>/outputs/events/trace-log.jsonl` | trace 履歴の永続化先 |
-| `SF_AI_METRICS_FILE` | `<root>/outputs/events/metrics-samples.jsonl` | metrics サンプルの永続化先 |
-
-```bash
-SF_AI_OUTPUTS_DIR=/data/sf-ai/outputs LOG_LEVEL=debug npm run mcp:dev
-```
-
-3. 代表的な入力ルール
+## 2. 代表的な入力ルール
 
 - 文字列はダブルクォートで指定
 - 配列は JSON 配列で指定
 - 省略可能パラメータは未指定でも動作
 
-4. 差分系ツールの前提
+3. 差分系ツールの前提
 
 - repoPath は Git 管理されたディレクトリ
 - baseBranch と workingBranch は有効な参照名

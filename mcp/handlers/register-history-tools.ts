@@ -1,5 +1,5 @@
 ﻿import { z } from "zod";
-import type { GovTool } from "@mcp/tool-types.js";
+import type { RegisterGovToolDeps } from "./types.js";
 
 interface AgentMessage {
   agent: string;
@@ -16,8 +16,7 @@ interface ChatSession {
   entries: AgentMessage[];
 }
 
-interface RegisterHistoryToolsDeps {
-  govTool: GovTool;
+interface RegisterHistoryToolsDeps extends RegisterGovToolDeps {
   agentLog: AgentMessage[];
   saveChatHistory: (topic: string) => Promise<string>;
   loadChatHistories: () => Promise<ChatSession[]>;

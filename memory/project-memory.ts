@@ -38,8 +38,9 @@ function archivePayloadIfNeeded(payload: string): string {
   try {
     const archivePath = `${storageFilePath}.${Date.now()}.gz`;
     writeFileSync(archivePath, gzipSync(payload));
-  } catch {
-    // ignore archive write failures to keep runtime resilient
+  } catch (error) {
+    // Log archive write failures for operational visibility
+    console.warn(`[project-memory] archive failed: ${String(error)}`);
   }
 
   const keep = Math.max(10, Math.floor(maxRecords / 2));

@@ -1,7 +1,7 @@
 import {
-  OrgIdentifierSchema,
-  SafeFilePathSchema,
-  runSchemaValidation
+  validateOrgIdentifier,
+  validateSafeCliValue,
+  validateSafeFilePath
 } from "../core/quality/resource-validation.js";
 
 export type DeployInput = {
@@ -18,14 +18,6 @@ export type DeployResult = {
   command: string;
   dryRun: boolean;
 };
-
-function assertSafeCliValue(value: string, fieldName: string): void {
-  if (/[;&|`$<>\\"\n\r]/.test(value)) {
-    throw new Error(
-      `${fieldName} に使用できない文字が含まれています。英数字・ハイフン・アンダースコア・ドットのみ許可されます。`
-    );
-  }
-}
 
 export function buildDeployCommand(
   targetOrgOrInput: string | DeployInput,
@@ -46,19 +38,11 @@ export function buildDeployCommand(
     ignoreWarnings = false
   } = input;
 
-  assertSafeCliValue(targetOrg, "targetOrg");
-  assertSafeCliValue(sourceDir, "sourceDir");
-  const orgCheck = runSchemaValidation(OrgIdentifierSchema, targetOrg);
-  if (!orgCheck.success) {
-    throw new Error(`targetOrg validation failed: ${orgCheck.errors.join(", ")}`);
-  }
-  const dirCheck = runSchemaValidation(SafeFilePathSchema, sourceDir);
-  if (!dirCheck.success) {
-    throw new Error(`sourceDir validation failed: ${dirCheck.errors.join(", ")}`);
-  }
+  validateOrgIdentifier(targetOrg, "targetOrg");
+  validateSafeFilePath(sourceDir, "sourceDir");
   if (specificTests) {
     for (const t of specificTests) {
-      assertSafeCliValue(t, "specificTests");
+      validateSafeCliValue(t, "specificTests");
     }
   }
 

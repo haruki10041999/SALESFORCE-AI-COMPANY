@@ -5,6 +5,6 @@ dist/
 .env.local
 *.log
 outputs/
-docs/internal/README.section17.confidential.md
+docs/internal/
 .mcp.json
 package-lock.json

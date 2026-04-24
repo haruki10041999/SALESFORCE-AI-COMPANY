@@ -1,11 +1,10 @@
 ﻿import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import type { GovTool } from "@mcp/tool-types.js";
 import type { TriggerRule, AgentMessage, OrchestrationSession } from "../core/types/index.js";
+import type { RegisterGovToolDeps } from "./types.js";
 
-interface RegisterChatOrchestrationToolsDeps {
-  govTool: GovTool;
+interface RegisterChatOrchestrationToolsDeps extends RegisterGovToolDeps {
   chatInputSchema: Record<string, unknown>;
   triggerRuleSchema: z.ZodTypeAny;
   runChatTool: (input: {

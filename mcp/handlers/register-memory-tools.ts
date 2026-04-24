@@ -1,8 +1,7 @@
 ﻿import { z } from "zod";
-import type { GovTool } from "@mcp/tool-types.js";
+import type { RegisterGovToolDeps } from "./types.js";
 
-interface RegisterMemoryToolsDeps {
-  govTool: GovTool;
+interface RegisterMemoryToolsDeps extends RegisterGovToolDeps {
   addMemory: (text: string) => void;
   searchMemory: (query: string) => string[];
   listMemory: () => string[];

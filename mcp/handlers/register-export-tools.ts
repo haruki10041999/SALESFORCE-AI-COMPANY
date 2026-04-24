@@ -1,7 +1,7 @@
 ﻿import { promises as fsPromises } from "fs";
 import { dirname, resolve } from "path";
 import { z } from "zod";
-import type { GovTool } from "@mcp/tool-types.js";
+import type { RegisterGovToolDeps } from "./types.js";
 
 interface AgentMessage {
   agent: string;
@@ -18,8 +18,7 @@ interface ChatSession {
   entries: AgentMessage[];
 }
 
-interface RegisterExportToolsDeps {
-  govTool: GovTool;
+interface RegisterExportToolsDeps extends RegisterGovToolDeps {
   agentLog: AgentMessage[];
   loadChatHistories: () => Promise<ChatSession[]>;
   ensureDir: (dir: string) => Promise<void>;

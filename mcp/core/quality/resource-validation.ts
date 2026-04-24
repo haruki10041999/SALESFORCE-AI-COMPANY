@@ -100,6 +100,39 @@ export function validateSkillCreation(
     };
   }
 
+/**
+ * CLI 引数として安全な文字列のみを許可します。
+ */
+export function validateSafeCliValue(value: string, fieldName: string): void {
+  if (/[;&|`$<>\\"\n\r]/.test(value)) {
+    throw new Error(
+      `${fieldName} に使用できない文字が含まれています。英数字・ハイフン・アンダースコア・ドットのみ許可されます。`
+    );
+  }
+}
+
+/**
+ * Salesforce org 識別子を検証します。
+ */
+export function validateOrgIdentifier(value: string, fieldName = "targetOrg"): void {
+  validateSafeCliValue(value, fieldName);
+  const result = runSchemaValidation(OrgIdentifierSchema, value);
+  if (!result.success) {
+    throw new Error(`${fieldName} validation failed: ${result.errors.join(", ")}`);
+  }
+}
+
+/**
+ * パストラバーサルと危険文字を含むパスを拒否します。
+ */
+export function validateSafeFilePath(value: string, fieldName = "filePath"): void {
+  validateSafeCliValue(value, fieldName);
+  const result = runSchemaValidation(SafeFilePathSchema, value);
+  if (!result.success) {
+    throw new Error(`${fieldName} validation failed: ${result.errors.join(", ")}`);
+  }
+}
+
 export function validatePresetCreation(
   presetName: string,
   presetData: { description: string; agents: string[] },

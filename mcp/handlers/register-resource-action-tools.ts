@@ -1,14 +1,13 @@
 ﻿import { existsSync, promises as fsPromises } from "fs";
 import { dirname, join, relative } from "path";
 import { z } from "zod";
-import type { GovTool } from "@mcp/tool-types.js";
 import type { GovernanceState, GovernedResourceType } from "../core/governance/governance-state.js";
 import type { ChatPreset, CustomToolDefinition, ResourceOperation } from "../core/types/index.js";
+import type { RegisterGovToolDeps } from "./types.js";
 
 type GovernanceActionType = "create" | "delete" | "disable" | "enable";
 
-interface RegisterResourceActionToolsDeps {
-  govTool: GovTool;
+interface RegisterResourceActionToolsDeps extends RegisterGovToolDeps {
   root: string;
   presetsDir: string;
   toolProposalsDir: string;

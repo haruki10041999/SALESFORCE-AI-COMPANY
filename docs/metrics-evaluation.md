@@ -51,3 +51,23 @@
 - ローカル可視化: `npm run metrics:dashboard`
 - HTML 出力: `outputs/reports/metrics-dashboard.html`
 - GitHub Pages 公開: `Metrics Dashboard Publish` ワークフロー
+
+## 7. 提案ログ学習フィードバック
+
+`proposal_feedback_learn` は提案の採用/不採用を学習し、
+`search_resources` / `auto_select_resources` のスコアへ補正を適用します。
+
+評価指標:
+
+- 採用率: $acceptRate = accepted / (accepted + rejected)$
+- 補正値（平滑化あり）:
+  $$
+  adjustment = clamp\left((\frac{accepted+1}{accepted+rejected+2} - 0.5) \times 0.8 \times confidence, -0.3, 0.3\right)
+  $$
+- 信頼度: $confidence = min(1, total/10)$
+
+適用ルール:
+
+- `minSamples` 未満のサンプルしかないリソースは補正 0
+- 最終スコアは `baseScore * multiplier`
+- `multiplier = clamp(1 + resourceAdjustment + typeAdjustment * 0.5, 0.5, 1.5)`

@@ -1,8 +1,7 @@
 ﻿import { z } from "zod";
-import type { GovTool } from "@mcp/tool-types.js";
+import type { RegisterGovToolDeps } from "./types.js";
 
-interface RegisterBatchToolsDeps {
-  govTool: GovTool;
+interface RegisterBatchToolsDeps extends RegisterGovToolDeps {
   buildChatPrompt: (
     topic: string,
     agents: string[],

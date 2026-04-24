@@ -1,149 +1,74 @@
-# outputs 配下のファイル構成
+# outputs フォルダ運用ガイド
 
-このドキュメントは、実行時に生成される outputs 配下の構成と用途を整理したものです。
+このページは、`outputs` フォルダの意味を非エンジニア向けにまとめた運用説明です。
 
-## ディレクトリ構成
+## まず理解したいこと
 
-- outputs/
-  - audit/
-  - custom-tools/
-  - events/
-  - history/
-  - presets/
-  - sessions/
-  - tool-proposals/
-  - memory.jsonl
-  - vector-store.jsonl
-  - resource-governance.json
-  - operations-log.jsonl
+- `outputs` は「実行結果の保管庫」です
+- アプリ本体のコードではなく、履歴・ログ・バックアップが入ります
+- 困ったときの調査材料は、ほぼこのフォルダにあります
 
-## 各ディレクトリの役割
+## フォルダ構成（かんたん版）
 
-### outputs/audit/
+| 場所 | 何が入るか | いつ見るか |
+|---|---|---|
+| `outputs/history/` | チャット履歴 | 過去の会話を見返したいとき |
+| `outputs/sessions/` | オーケストレーションの状態 | 実行中セッションを追いたいとき |
+| `outputs/events/` | システムイベントとメトリクス | エラーや遅延を調べるとき |
+| `outputs/backups/` | 世代バックアップ | 復元したいとき |
+| `outputs/audit/` | 操作の監査ログ | 誰が何をしたか確認するとき |
+| `outputs/tool-proposals/` | 提案学習ログ | 推薦精度の分析をするとき |
 
-- 監査ログを保存します。
-- 代表例: resource-actions.jsonl
+## 削除してよいもの・だめなもの
 
-### outputs/custom-tools/
+### 基本ルール
 
-- 動的に追加されたカスタムツール定義を保存します。
-- 代表例: tool-name.json
+- 手動削除より、まず `npm run outputs:cleanup -- --dry-run` を使う
+- 復元に使う可能性があるため、`outputs/backups/` は消さない
 
-### outputs/events/
+### 消してよい例
 
-- イベントと観測情報を保存します。
-- 代表例:
-  - system-events.jsonl
-  - trace-log.jsonl
-  - metrics-samples.jsonl
+- 古い `history/` と `sessions/`（運用ルールに従う）
+- 一時検証で作った不要 JSON
 
-### outputs/history/
+### 消さないほうがよい例
 
-- チャット履歴の保存先です。
-- 代表例: history-YYYY-MM-DDTHH-mm-ss-SSSZ.json
+- `events/system-events.jsonl`
+- `resource-governance.json`
+- `backups/` 配下
 
-### outputs/presets/
+## よく使う運用コマンド
 
-- プリセット定義の保存先です。
-- 代表例: salesforce-dev-review.json
+```bash
+# 構成を作り直す
+npm run init
 
-### outputs/sessions/
+# 健全性をチェック
+npm run doctor
 
-- オーケストレーションセッション保存先です。
-- 代表例: orch-YYYY-MM-DDTHH-mm-ss-SSSZ.json
+# 古い履歴を整理（まずは確認だけ）
+npm run outputs:cleanup -- --dry-run
 
-### outputs/tool-proposals/
+# バックアップ作成
+npm run outputs:version -- backup
 
-- 将来拡張用のツール提案ファイル保存先です。
+# バックアップ一覧
+npm run outputs:version -- list
 
-## ルートファイルの役割
+# 復元
+npm run outputs:version -- restore --snapshot <snapshot-id>
+```
 
-### outputs/memory.jsonl
+## 障害時の最短手順
 
-- プロジェクトメモリの永続化ファイルです。
+1. `npm run doctor` を実行
+2. `outputs/events/system-events.jsonl` を確認
+3. 必要なら `outputs:version` で直近バックアップへ復元
+4. 復元後に再度 `npm run doctor`
 
-### outputs/vector-store.jsonl
+## 参考（詳細構成）
 
-- ベクターストアの永続化ファイルです。
-
-### outputs/resource-governance.json
-
-- ガバナンス設定・使用状況・無効化状態を保持します。
-
-### outputs/operations-log.jsonl
-
-- リソース操作ログです。
-- 日次作成・削除制限の判定に利用されます。
-
-## 運用ルール
-
-- 空ディレクトリでも削除しない対象:
-  - custom-tools
-  - tool-proposals
-  - history
-  - sessions
-  - events
-  - audit
-  - presets
-- 削除対象にしやすいもの:
-  - 実運用で参照しないサンプル出力ファイル
-  - 一時検証用に手作業で置いた JSON
-- 構成再生成:
-  - npm run init
-- 健全性チェック:
-  - npm run doctor
-- メトリクス要約:
-  - npm run metrics:report
-- メトリクス公開スナップショット生成:
-  - npm run metrics:snapshot
-  - 出力先: docs/metrics-snapshot.json
-- メトリクスサンプル生成（CI/ローカル検証用）:
-  - npm run metrics:seed
-  - npm run metrics:seed -- --days 30 --records-per-day 20 --reset
-- メトリクス可視化HTML生成:
-  - npm run metrics:dashboard
-  - 出力先: outputs/reports/metrics-dashboard.html
-- 履歴クリーンアップ:
-  - npm run outputs:cleanup
-  - npm run outputs:cleanup -- --days 14
-  - npm run outputs:cleanup -- --dry-run
-
-## 可視化確認の動線
-
-1. データ生成
-  - MCP サーバを起動し、いくつかツールを実行して metrics を蓄積
-2. 要約確認
-  - npm run metrics:report -- --top 10
-3. 公開スナップショット更新
-  - npm run metrics:snapshot
-  - docs/metrics-snapshot.json をコミット
-4. ダッシュボード生成
-  - npm run metrics:dashboard -- --snapshot docs/metrics-snapshot.json
-5. ブラウザ確認
-  - outputs/reports/metrics-dashboard.html を開いて確認
-6. 運用時チェック
-  - success rate 低下、p95 増加、error 増加のツールを優先調査
-
-## GitHub での公開と定期更新
-
-- ワークフロー: `.github/workflows/metrics-dashboard-publish.yml`
-- 公開先: GitHub Pages（workflow summary に URL を出力）
-- 実行トリガー:
-  - main への push（可視化関連ファイル更新時）
-  - 毎日 01:00 UTC の定期実行
-  - 手動実行 (`workflow_dispatch`)
-
-ローカル確認だけでなく、GitHub 上の同一 URL で継続監視できます。
-
-注意:
-- GitHub Actions はローカル PC の metrics ファイルを参照できません。
-- 公開ワークフローはリポジトリにコミットされた `docs/metrics-snapshot.json` を入力として使用します。
-- ローカル実測値を反映するには、`metrics:snapshot` 実行後に snapshot ファイルをコミットしてください。
-
-## 保持期間の推奨値
-
-- history: 30日（監査要件がある場合は延長）
-- sessions: 30日（運用トラブル調査が長期化する場合は 60 日）
-
-`outputs:cleanup` は `outputs/history` と `outputs/sessions` のファイルを対象に、
-更新日が指定日数より古いファイルを削除します。
+- `outputs/memory.jsonl`: プロジェクトメモリ
+- `outputs/vector-store.jsonl`: ベクターストア
+- `outputs/resource-governance.json`: ガバナンス設定
+- `outputs/operations-log.jsonl`: 操作ログ

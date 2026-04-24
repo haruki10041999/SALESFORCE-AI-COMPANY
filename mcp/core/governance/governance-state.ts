@@ -1,6 +1,7 @@
 import { existsSync, promises as fsPromises } from "fs";
-import { basename, dirname, join } from "path";
+import { dirname } from "path";
 import { z } from "zod";
+import { TemporaryFileManager } from "./temporary-file-manager.js";
 
 // ============================================================
 // Governance State Types
@@ -130,51 +131,12 @@ async function withGovernanceStateLock<T>(governanceFile: string, operation: () 
 }
 
 async function writeGovernanceStateAtomic(governanceFile: string, state: GovernanceState): Promise<void> {
-  const stateDir = dirname(governanceFile);
-  await fsPromises.mkdir(stateDir, { recursive: true });
-
-  const tempFile = join(
-    stateDir,
-    `.${basename(governanceFile)}.${process.pid}.${Date.now()}.tmp`
-  );
   const payload = JSON.stringify(state, null, 2);
-  await fsPromises.writeFile(tempFile, payload, "utf-8");
-  try {
-    await fsPromises.rename(tempFile, governanceFile);
-  } catch (err) {
-    // Windows では監視中ディレクトリ内の rename が EPERM になることがある。
-    // フォールバックとして直接上書きする。
-    try {
-      await fsPromises.unlink(tempFile);
-    } catch {
-      // temp ファイル削除失敗は無視
-    }
-    await fsPromises.writeFile(governanceFile, payload, "utf-8");
-  }
+  await TemporaryFileManager.writeAtomic(governanceFile, payload);
 }
 
 async function cleanupStaleGovernanceTempFiles(governanceFile: string): Promise<void> {
-  const stateDir = dirname(governanceFile);
-  const tempPrefix = `.${basename(governanceFile)}.`;
-
-  try {
-    const entries = await fsPromises.readdir(stateDir, { withFileTypes: true });
-    const staleTempFiles = entries
-      .filter((entry) => entry.isFile() && entry.name.startsWith(tempPrefix) && entry.name.endsWith(".tmp"))
-      .map((entry) => join(stateDir, entry.name));
-
-    await Promise.all(
-      staleTempFiles.map(async (tempFile) => {
-        try {
-          await fsPromises.unlink(tempFile);
-        } catch {
-          // 競合した削除や一時的なロックは次回ロードで再試行する。
-        }
-      })
-    );
-  } catch {
-    // ディレクトリ読み取り失敗はロード処理を継続する。
-  }
+  await TemporaryFileManager.cleanupStaleTempFiles(governanceFile);
 }
 
 // ============================================================

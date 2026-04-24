@@ -1,9 +1,8 @@
 ﻿import { existsSync, readFileSync } from "fs";
 import { join, relative } from "path";
-import type { GovTool } from "@mcp/tool-types.js";
+import type { RegisterGovToolDeps } from "./types.js";
 
-interface RegisterContextToolsDeps {
-  govTool: GovTool;
+interface RegisterContextToolsDeps extends RegisterGovToolDeps {
   root: string;
   findMdFilesRecursive: (dir: string) => string[];
   toPosixPath: (pathValue: string) => string;

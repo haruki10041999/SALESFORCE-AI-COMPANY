@@ -1,9 +1,8 @@
 ﻿import { z } from "zod";
-import type { GovTool } from "@mcp/tool-types.js";
 import type { ChatPreset } from "../core/types/index.js";
+import type { RegisterGovToolDeps } from "./types.js";
 
-interface RegisterPresetToolsDeps {
-  govTool: GovTool;
+interface RegisterPresetToolsDeps extends RegisterGovToolDeps {
   createPreset: (preset: ChatPreset) => Promise<void>;
   listPresetsData: () => Promise<ChatPreset[]>;
   getPreset: (name: string) => Promise<ChatPreset | null>;

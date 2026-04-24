@@ -1,11 +1,17 @@
 ﻿import { z } from "zod";
-import type { GovTool } from "@mcp/tool-types.js";
+import { join, resolve } from "node:path";
 import type { GovernanceState, GovernedResourceType } from "../core/governance/governance-state.js";
+import {
+  appendProposalFeedback,
+  buildProposalFeedbackModel,
+  loadProposalFeedbackLog,
+  saveProposalFeedbackModel
+} from "../core/resource/proposal-feedback.js";
+import type { RegisterGovToolDeps } from "./types.js";
 
 type GovernanceActionType = "create" | "delete" | "disable" | "enable";
 
-interface RegisterResourceGovernanceToolsDeps {
-  govTool: GovTool;
+interface RegisterResourceGovernanceToolsDeps extends RegisterGovToolDeps {
   loadGovernanceState: () => Promise<GovernanceState>;
   saveGovernanceState: (state: GovernanceState) => Promise<void>;
   getCatalogCounts: (state: GovernanceState) => Promise<Record<GovernedResourceType, number>>;
@@ -28,6 +34,79 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
     resourceScore,
     emitSystemEvent
   } = deps;
+
+  const outputsDir = process.env.SF_AI_OUTPUTS_DIR
+    ? resolve(process.env.SF_AI_OUTPUTS_DIR)
+    : resolve("outputs");
+  const proposalFeedbackLog = join(outputsDir, "tool-proposals", "proposal-feedback.jsonl");
+  const proposalFeedbackModel = join(outputsDir, "tool-proposals", "proposal-feedback-model.json");
+
+  govTool(
+    "proposal_feedback_learn",
+    {
+      title: "提案ログ学習フィードバック",
+      description: "提案の採用/不採用ログを学習し、次回推薦スコア補正モデルを更新します。",
+      inputSchema: {
+        feedback: z.array(z.object({
+          resourceType: z.enum(["skills", "tools", "presets"]),
+          name: z.string(),
+          decision: z.enum(["accepted", "rejected"]),
+          topic: z.string().optional(),
+          note: z.string().optional(),
+          recordedAt: z.string().optional()
+        })).min(1).max(200),
+        minSamples: z.number().int().min(1).max(50).optional()
+      }
+    },
+    async ({
+      feedback,
+      minSamples
+    }: {
+      feedback: Array<{
+        resourceType: "skills" | "tools" | "presets";
+        name: string;
+        decision: "accepted" | "rejected";
+        topic?: string;
+        note?: string;
+        recordedAt?: string;
+      }>;
+      minSamples?: number;
+    }) => {
+      const now = new Date().toISOString();
+      const normalizedEntries = feedback.map((entry) => ({
+        resourceType: entry.resourceType,
+        name: entry.name,
+        decision: entry.decision,
+        topic: entry.topic,
+        note: entry.note,
+        recordedAt: entry.recordedAt ?? now
+      }));
+
+      await appendProposalFeedback(proposalFeedbackLog, normalizedEntries);
+      const allEntries = await loadProposalFeedbackLog(proposalFeedbackLog);
+      const effectiveMinSamples = minSamples ?? 3;
+      const model = buildProposalFeedbackModel(allEntries, effectiveMinSamples);
+      await saveProposalFeedbackModel(proposalFeedbackModel, model);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              saved: true,
+              logFile: proposalFeedbackLog,
+              modelFile: proposalFeedbackModel,
+              newFeedbackCount: normalizedEntries.length,
+              totalFeedbackCount: model.totals.total,
+              totals: model.totals,
+              typeAdjustments: model.typeAdjustments,
+              topLearnedResources: model.resources.slice(0, 20)
+            }, null, 2)
+          }
+        ]
+      };
+    }
+  );
 
   govTool(
     "get_resource_governance",

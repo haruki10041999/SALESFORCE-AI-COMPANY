@@ -1,7 +1,7 @@
 import {
-  OrgIdentifierSchema,
-  SafeFilePathSchema,
-  runSchemaValidation
+  validateOrgIdentifier,
+  validateSafeCliValue,
+  validateSafeFilePath
 } from "../core/quality/resource-validation.js";
 
 export type RunTestsInput = {
@@ -11,14 +11,6 @@ export type RunTestsInput = {
   wait?: number;
   outputDir?: string;
 };
-
-function assertSafeCliValue(value: string, fieldName: string): void {
-  if (/[;&|`$<>\\"\n\r]/.test(value)) {
-    throw new Error(
-      `${fieldName} に使用できない文字が含まれています。英数字・ハイフン・アンダースコア・ドットのみ許可されます。`
-    );
-  }
-}
 
 export function buildTestCommand(
   targetOrgOrInput: string | RunTestsInput
@@ -36,23 +28,15 @@ export function buildTestCommand(
     outputDir
   } = input;
 
-  assertSafeCliValue(targetOrg, "targetOrg");
-  const orgCheck = runSchemaValidation(OrgIdentifierSchema, targetOrg);
-  if (!orgCheck.success) {
-    throw new Error(`targetOrg validation failed: ${orgCheck.errors.join(", ")}`);
-  }
+  validateOrgIdentifier(targetOrg, "targetOrg");
   if (classNames) {
     for (const c of classNames) {
-      assertSafeCliValue(c, "classNames");
+      validateSafeCliValue(c, "classNames");
     }
   }
-  if (suiteName) assertSafeCliValue(suiteName, "suiteName");
+  if (suiteName) validateSafeCliValue(suiteName, "suiteName");
   if (outputDir) {
-    assertSafeCliValue(outputDir, "outputDir");
-    const outCheck = runSchemaValidation(SafeFilePathSchema, outputDir);
-    if (!outCheck.success) {
-      throw new Error(`outputDir validation failed: ${outCheck.errors.join(", ")}`);
-    }
+    validateSafeFilePath(outputDir, "outputDir");
   }
 
   const parts = [

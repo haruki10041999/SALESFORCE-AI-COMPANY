@@ -9,6 +9,10 @@ import { buildTestCommand } from "../tools/run-tests.js";
 import { summarizeMetrics } from "../tools/metrics-summary.js";
 import { generateDeploymentPlan } from "../tools/deployment-plan-generator.js";
 import { runBenchmarkSuite } from "../tools/benchmark-suite.js";
+import { compareOrgMetadata } from "../tools/org-metadata-diff.js";
+import { simulateFlowCondition } from "../tools/flow-condition-simulator.js";
+import { diffPermissionSet } from "../tools/permission-set-diff.js";
+import { buildApexDependencyGraph } from "../tools/apex-dependency-graph.js";
 import type { GovTool } from "@mcp/tool-types.js";
 
 export function registerCoreAnalysisTools(govTool: GovTool): void {
@@ -217,6 +221,133 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
     },
     async ({ scenarios, recentTraceLimit }: { scenarios?: string[]; recentTraceLimit?: number }) => {
       const result = runBenchmarkSuite({ scenarios, recentTraceLimit });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "compare_org_metadata",
+    {
+      title: "複数Orgメタデータ差分比較",
+      description: "基準OrgのインベントリJSONを基準に、複数Orgのメタデータ差分を比較します。",
+      inputSchema: {
+        baselineOrg: z.string(),
+        baselineInventoryFile: z.string(),
+        compareOrgs: z.array(
+          z.object({
+            org: z.string(),
+            inventoryFile: z.string()
+          })
+        ).min(1),
+        sampleLimit: z.number().int().min(1).max(100).optional()
+      }
+    },
+    async ({
+      baselineOrg,
+      baselineInventoryFile,
+      compareOrgs,
+      sampleLimit
+    }: {
+      baselineOrg: string;
+      baselineInventoryFile: string;
+      compareOrgs: Array<{ org: string; inventoryFile: string }>;
+      sampleLimit?: number;
+    }) => {
+      const result = compareOrgMetadata({
+        baselineOrg,
+        baselineInventoryFile,
+        compareOrgs,
+        sampleLimit
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "flow_condition_simulate",
+    {
+      title: "Flow条件シミュレータ",
+      description: "入力レコードと条件ツリーを評価し、Flow が起動するかを判定します。",
+      inputSchema: {
+        flowName: z.string().optional(),
+        record: z.record(z.string(), z.any()),
+        condition: z.any()
+      }
+    },
+    async ({
+      flowName,
+      record,
+      condition
+    }: {
+      flowName?: string;
+      record: Record<string, unknown>;
+      condition: unknown;
+    }) => {
+      const result = simulateFlowCondition({
+        flowName,
+        record,
+        condition: condition as never
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "permission_set_diff",
+    {
+      title: "Permission Set差分検出",
+      description: "2つの Permission Set XML を比較し、不足権限と過剰権限を検出します。",
+      inputSchema: {
+        baselineFilePath: z.string(),
+        targetFilePath: z.string(),
+        sampleLimit: z.number().int().min(1).max(100).optional()
+      }
+    },
+    async ({
+      baselineFilePath,
+      targetFilePath,
+      sampleLimit
+    }: {
+      baselineFilePath: string;
+      targetFilePath: string;
+      sampleLimit?: number;
+    }) => {
+      const result = diffPermissionSet({
+        baselineFilePath,
+        targetFilePath,
+        sampleLimit
+      });
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "apex_dependency_graph",
+    {
+      title: "Apex依存グラフ可視化",
+      description: "Apexクラス/トリガーの依存関係を解析し、グラフ情報とMermaidを返します。",
+      inputSchema: {
+        rootDir: z.string(),
+        includeTests: z.boolean().optional(),
+        sampleLimit: z.number().int().min(1).max(100).optional()
+      }
+    },
+    async ({ rootDir, includeTests, sampleLimit }: { rootDir: string; includeTests?: boolean; sampleLimit?: number }) => {
+      const result = buildApexDependencyGraph({
+        rootDir,
+        includeTests,
+        sampleLimit
+      });
+
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
       };

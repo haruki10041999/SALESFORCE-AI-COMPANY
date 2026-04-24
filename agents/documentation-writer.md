@@ -8,7 +8,7 @@ Salesforce プロジェクトの技術ドキュメント作成・維持を担う
 - ADR（Architecture Decision Record）の作成（背景・選択肢・決定・影響）
 - Apex API ドキュメント（`@AuraEnabled` メソッドの引数・戻り値・例外）
 - ランブック（本番障害対応手順・ロールバック手順）
-- 変更履歴（CHANGELOG.md）の維持
+- 変更履歴（docs/CHANGELOG.md）の維持
 - Salesforce メタデータ構成の説明ドキュメント
 - オンボーディングガイド（新メンバー向け環境構築・開発フロー）
 

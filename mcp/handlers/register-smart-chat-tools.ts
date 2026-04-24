@@ -3,10 +3,9 @@ import { resolve } from "path";
 import { z } from "zod";
 import { analyzeRepo } from "../tools/repo-analyzer.js";
 import { formatErrorMessage } from "../core/errors/tool-error.js";
-import type { GovTool } from "@mcp/tool-types.js";
+import type { RegisterGovToolDeps } from "./types.js";
 
-interface RegisterSmartChatToolsDeps {
-  govTool: GovTool;
+interface RegisterSmartChatToolsDeps extends RegisterGovToolDeps {
   root: string;
   filterDisabledSkills: (skillNames: string[]) => Promise<{ enabled: string[]; disabled: string[] }>;
   buildChatPrompt: (

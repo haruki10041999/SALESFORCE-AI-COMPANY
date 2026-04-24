@@ -1,7 +1,7 @@
 ﻿import { z } from "zod";
-import type { GovTool } from "@mcp/tool-types.js";
 import type { GovernanceState } from "../core/governance/governance-state.js";
 import type { SystemEventRecord, SystemEventName } from "../core/event/system-event-manager.js";
+import type { RegisterGovToolDeps } from "./types.js";
 
 interface AgentMessage {
   agent: string;
@@ -10,8 +10,7 @@ interface AgentMessage {
   topic?: string;
 }
 
-interface RegisterLoggingToolsDeps {
-  govTool: GovTool;
+interface RegisterLoggingToolsDeps extends RegisterGovToolDeps {
   agentLog: AgentMessage[];
   loadSystemEvents: (limit?: number, event?: SystemEventName) => Promise<SystemEventRecord[]>;
   loadGovernanceState: () => Promise<GovernanceState>;

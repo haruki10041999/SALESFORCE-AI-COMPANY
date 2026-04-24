@@ -1,11 +1,10 @@
 ﻿import { z } from "zod";
-import type { GovTool } from "@mcp/tool-types.js";
+import type { RegisterGovToolDeps } from "./types.js";
 
 type ListMdFiles = (dir: string) => { name: string; summary: string }[];
 type GetMdFile = (dir: string, name: string) => string;
 
-interface RegisterResourceCatalogToolsDeps {
-  govTool: GovTool;
+interface RegisterResourceCatalogToolsDeps extends RegisterGovToolDeps {
   listMdFiles: ListMdFiles;
   getMdFile: GetMdFile;
 }

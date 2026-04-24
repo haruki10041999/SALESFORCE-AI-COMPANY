@@ -1,15 +1,14 @@
 ﻿import { promises as fsPromises } from "fs";
 import { dirname, resolve } from "path";
 import { z } from "zod";
-import type { GovTool } from "@mcp/tool-types.js";
 import type { GovernanceState } from "../core/governance/governance-state.js";
 import type { SystemEventRecord, SystemEventLogStatus } from "../core/event/system-event-manager.js";
 import type { AgentMessage, ChatSession, HandlersDashboardState, ExportStatistics } from "../core/types/index.js";
 import { getActiveTraces, getCompletedTraces } from "../core/trace/trace-context.js";
 import { getMetricsSummary } from "../tools/metrics.js";
+import type { RegisterGovToolDeps } from "./types.js";
 
-interface RegisterAnalyticsToolsDeps {
-  govTool: GovTool;
+interface RegisterAnalyticsToolsDeps extends RegisterGovToolDeps {
   agentLog: AgentMessage[];
   loadChatHistories: () => Promise<ChatSession[]>;
   loadSystemEvents: (limit?: number, event?: string) => Promise<SystemEventRecord[]>;
