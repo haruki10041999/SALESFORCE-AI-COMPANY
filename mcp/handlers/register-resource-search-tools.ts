@@ -28,8 +28,8 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
   govTool(
     "search_resources",
     {
-      title: "Search Resources",
-      description: "Auto-generated description.",
+      title: "リソース検索",
+      description: "条件に一致するリソースを検索します。",
       inputSchema: {
         query: z.string(),
         resourceTypes: z.array(z.enum(["skills", "tools", "presets"])).optional(),
@@ -129,8 +129,8 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
   govTool(
     "auto_select_resources",
     {
-      title: "Auto Select Resources",
-      description: "Auto-generated description.",
+      title: "リソース自動選択",
+      description: "トピックに適したリソース候補を自動選択します。",
       inputSchema: {
         topic: z.string(),
         limitPerType: z.number().int().min(1).max(10).optional()

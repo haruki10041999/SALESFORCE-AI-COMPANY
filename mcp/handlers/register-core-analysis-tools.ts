@@ -15,8 +15,8 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
   govTool(
     "repo_analyze",
     {
-      title: "Repository Analyze",
-      description: "Analyze a Salesforce repository and return key file inventories.",
+      title: "リポジトリ解析",
+      description: "Salesforceリポジトリを解析し、主要ファイルの一覧を返します。",
       inputSchema: {
         path: z.string()
       }
@@ -32,8 +32,8 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
   govTool(
     "apex_analyze",
     {
-      title: "Apex Analyze",
-      description: "Run simple static checks for an Apex file.",
+      title: "Apex解析",
+      description: "Apexファイルに対して簡易静的チェックを実行します。",
       inputSchema: {
         filePath: z.string()
       }
@@ -49,8 +49,8 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
   govTool(
     "lwc_analyze",
     {
-      title: "LWC Analyze",
-      description: "Run simple static checks for an LWC JavaScript file.",
+      title: "LWC解析",
+      description: "LWC JavaScriptファイルに対して簡易静的チェックを実行します。",
       inputSchema: {
         filePath: z.string()
       }
@@ -66,8 +66,8 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
   govTool(
     "deploy_org",
     {
-      title: "Deploy Org",
-      description: "Build deployment command for Salesforce org.",
+      title: "Orgデプロイ",
+      description: "Salesforce組織向けのデプロイコマンドを生成します。",
       inputSchema: {
         targetOrg: z.string(),
         dryRun: z.boolean().optional(),
@@ -97,8 +97,8 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
   govTool(
     "run_tests",
     {
-      title: "Run Tests",
-      description: "Build Apex test run command.",
+      title: "テスト実行",
+      description: "Apexテスト実行コマンドを生成します。",
       inputSchema: {
         targetOrg: z.string(),
         classNames: z.array(z.string()).optional(),
@@ -124,8 +124,8 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
   govTool(
     "flow_analyze",
     {
-      title: "Flow Analyze",
-      description: "Run simple static checks for a Salesforce Flow metadata file.",
+      title: "Flow解析",
+      description: "Salesforce Flowメタデータファイルに対して簡易静的チェックを実行します。",
       inputSchema: {
         filePath: z.string()
       }
@@ -141,8 +141,8 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
   govTool(
     "permission_set_analyze",
     {
-      title: "Permission Set Analyze",
-      description: "Run simple static checks for a Salesforce Permission Set metadata file.",
+      title: "権限セット解析",
+      description: "Salesforce権限セットメタデータファイルに対して簡易静的チェックを実行します。",
       inputSchema: {
         filePath: z.string()
       }
@@ -158,8 +158,8 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
   govTool(
     "metrics_summary",
     {
-      title: "Metrics Summary",
-      description: "Summarize recent tool execution metrics from trace history.",
+      title: "メトリクス要約",
+      description: "トレース履歴から最近のツール実行メトリクスを要約します。",
       inputSchema: {
         limit: z.number().int().min(1).max(1000).optional()
       }
@@ -175,8 +175,8 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
   govTool(
     "deployment_plan_generate",
     {
-      title: "Deployment Plan Generator",
-      description: "Generate deployment order, risk, and rollback hints from branch diff.",
+      title: "デプロイ計画生成",
+      description: "ブランチ差分からデプロイ順序・リスク・ロールバックのヒントを生成します。",
       inputSchema: {
         repoPath: z.string(),
         baseBranch: z.string().optional(),
@@ -208,8 +208,8 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
   govTool(
     "benchmark_suite",
     {
-      title: "Benchmark Suite",
-      description: "Run lightweight benchmark scoring based on recent trace metrics.",
+      title: "ベンチマーク実行",
+      description: "最近のトレースメトリクスを基に軽量ベンチマーク評価を実行します。",
       inputSchema: {
         scenarios: z.array(z.string()).optional(),
         recentTraceLimit: z.number().int().min(1).max(5000).optional()

@@ -37,8 +37,8 @@ export function registerPresetTools(deps: RegisterPresetToolsDeps): void {
   govTool(
     "create_preset",
     {
-      title: "Create Chat Preset",
-      description: "Auto-generated description.",
+      title: "チャットプリセット作成",
+      description: "新しいチャットプリセットを作成します。",
       inputSchema: {
         name: z.string(),
         description: z.string(),
@@ -89,8 +89,8 @@ export function registerPresetTools(deps: RegisterPresetToolsDeps): void {
   govTool(
     "list_presets",
     {
-      title: "List Chat Presets",
-      description: "Auto-generated description.",
+      title: "チャットプリセット一覧",
+      description: "利用可能なチャットプリセットを一覧表示します。",
       inputSchema: {}
     },
     async () => {
@@ -117,8 +117,8 @@ export function registerPresetTools(deps: RegisterPresetToolsDeps): void {
   govTool(
     "run_preset",
     {
-      title: "Run Chat Preset",
-      description: "Auto-generated description.",
+      title: "チャットプリセット実行",
+      description: "指定したチャットプリセットを実行します。",
       inputSchema: {
         name: z.string(),
         overrideTopic: z.string().optional(),

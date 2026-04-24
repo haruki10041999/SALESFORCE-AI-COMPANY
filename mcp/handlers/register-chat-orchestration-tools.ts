@@ -79,8 +79,8 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
   govTool(
     "chat",
     {
-      title: "Chat (Default)",
-      description: "Auto-generated description.",
+      title: "チャット（デフォルト）",
+      description: "既定設定でチャットを実行します。",
       inputSchema: chatInputSchema
     },
     runChatTool
@@ -89,8 +89,8 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
   govTool(
     "simulate_chat",
     {
-      title: "Simulate Multi-Agent Chat (Compatibility Alias)",
-      description: "Auto-generated description.",
+      title: "マルチエージェントチャット実行（互換エイリアス）",
+      description: "互換エイリアスとしてマルチエージェントチャットを実行します。",
       inputSchema: chatInputSchema
     },
     runChatTool
@@ -99,8 +99,8 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
   govTool(
     "orchestrate_chat",
     {
-      title: "Orchestrate Chat (Pseudo Hook)",
-      description: "Auto-generated description.",
+      title: "オーケストレーションチャット（疑似フック）",
+      description: "疑似フックを使ったオーケストレーションチャットを実行します。",
       inputSchema: {
         topic: z.string(),
         filePaths: z.array(z.string()).optional(),
@@ -190,8 +190,8 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
   govTool(
     "evaluate_triggers",
     {
-      title: "Evaluate Triggers (Pseudo Hook)",
-      description: "Auto-generated description.",
+      title: "トリガー評価（疑似フック）",
+      description: "疑似フックのトリガールールを評価します。",
       inputSchema: {
         sessionId: z.string().optional(),
         lastAgent: z.string(),
@@ -281,8 +281,8 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
   govTool(
     "dequeue_next_agent",
     {
-      title: "Dequeue Next Agent",
-      description: "Auto-generated description.",
+      title: "次エージェント取り出し",
+      description: "セッションキューから次に実行するエージェントを取得します。",
       inputSchema: {
         sessionId: z.string(),
         limit: z.number().int().min(1).max(10).optional()
@@ -345,8 +345,8 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
   govTool(
     "get_orchestration_session",
     {
-      title: "Get Orchestration Session",
-      description: "Auto-generated description.",
+      title: "オーケストレーションセッション取得",
+      description: "オーケストレーションセッションの状態を取得します。",
       inputSchema: {
         sessionId: z.string()
       }
@@ -384,8 +384,8 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
   govTool(
     "save_orchestration_session",
     {
-      title: "Save Orchestration Session",
-      description: "Auto-generated description.",
+      title: "オーケストレーションセッション保存",
+      description: "オーケストレーションセッションを保存します。",
       inputSchema: {
         sessionId: z.string()
       }
@@ -422,8 +422,8 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
   govTool(
     "restore_orchestration_session",
     {
-      title: "Restore Orchestration Session",
-      description: "Auto-generated description.",
+      title: "オーケストレーションセッション復元",
+      description: "保存済みオーケストレーションセッションを復元します。",
       inputSchema: {
         sessionId: z.string()
       }
@@ -461,8 +461,8 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
   govTool(
     "list_orchestration_sessions",
     {
-      title: "List Orchestration Sessions",
-      description: "Auto-generated description.",
+      title: "オーケストレーションセッション一覧",
+      description: "オーケストレーションセッションの一覧を取得します。",
       inputSchema: {}
     },
     async () => {

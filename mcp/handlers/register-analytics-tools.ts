@@ -115,8 +115,8 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
   govTool(
     "health_check",
     {
-      title: "Health Check",
-      description: "Auto-generated description.",
+      title: "ヘルスチェック",
+      description: "システムの健全性を確認します。",
       inputSchema: {
         systemEventLimit: z.number().int().min(1).max(500).optional()
       }
@@ -210,8 +210,8 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
   govTool(
     "analyze_chat_trends",
     {
-      title: "Analyze Chat Trends",
-      description: "Auto-generated description.",
+      title: "チャット傾向分析",
+      description: "チャットログの傾向を分析します。",
       inputSchema: {
         historyId: z.string().optional(),
         since: z.string().optional(),
@@ -278,8 +278,8 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
   govTool(
     "get_tool_execution_statistics",
     {
-      title: "Get Tool Execution Statistics",
-      description: "Auto-generated description.",
+      title: "ツール実行統計取得",
+      description: "ツール実行の統計情報を取得します。",
       inputSchema: {
         windowMinutes: z.number().int().min(1).max(7 * 24 * 60).optional(),
         windowsMinutes: z.array(z.number().int().min(1).max(7 * 24 * 60)).max(10).optional(),
@@ -382,8 +382,8 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
   govTool(
     "get_handlers_dashboard",
     {
-      title: "Get Handlers Dashboard",
-      description: "Auto-generated description.",
+      title: "ハンドラーダッシュボード取得",
+      description: "ハンドラーのダッシュボード情報を取得します。",
       inputSchema: {}
     },
     async () => {
@@ -397,8 +397,8 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
   govTool(
     "export_handlers_statistics",
     {
-      title: "Export Handlers Statistics",
-      description: "Auto-generated description.",
+      title: "ハンドラー統計エクスポート",
+      description: "ハンドラー統計をエクスポートします。",
       inputSchema: {
         format: z.enum(["json", "csv"]).optional(),
         outputPath: z.string().optional()

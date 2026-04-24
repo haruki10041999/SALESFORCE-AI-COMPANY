@@ -32,8 +32,8 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
   govTool(
     "get_resource_governance",
     {
-      title: "Get Resource Governance",
-      description: "Auto-generated description.",
+      title: "リソースガバナンス取得",
+      description: "リソースガバナンスの現在状態を取得します。",
       inputSchema: {}
     },
     async () => {
@@ -61,8 +61,8 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
   govTool(
     "record_resource_signal",
     {
-      title: "Record Resource Signal",
-      description: "Auto-generated description.",
+      title: "リソースシグナル記録",
+      description: "リソース利用シグナルを記録します。",
       inputSchema: {
         resourceType: z.enum(["skills", "tools", "presets"]),
         name: z.string(),
@@ -101,8 +101,8 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
   govTool(
     "review_resource_governance",
     {
-      title: "Review Resource Governance",
-      description: "Auto-generated description.",
+      title: "リソースガバナンスレビュー",
+      description: "リソースガバナンスをレビューし提案を返します。",
       inputSchema: {
         updateMaxCounts: z.object({
           skills: z.number().int().min(1).max(200).optional(),

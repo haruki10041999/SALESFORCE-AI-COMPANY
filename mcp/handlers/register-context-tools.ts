@@ -15,8 +15,8 @@ export function registerContextTools(deps: RegisterContextToolsDeps): void {
   govTool(
     "get_context",
     {
-      title: "Get Context",
-      description: "Auto-generated description.",
+      title: "コンテキスト取得",
+      description: "現在の実行コンテキスト情報を取得します。",
       inputSchema: {}
     },
     async () => {

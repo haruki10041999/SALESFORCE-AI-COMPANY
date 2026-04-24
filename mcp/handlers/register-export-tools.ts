@@ -31,8 +31,8 @@ export function registerExportTools(deps: RegisterExportToolsDeps): void {
   govTool(
     "export_to_markdown",
     {
-      title: "Export Chat to Markdown",
-      description: "Auto-generated description.",
+      title: "チャットをMarkdownへエクスポート",
+      description: "チャット履歴をMarkdown形式でエクスポートします。",
       inputSchema: {
         historyId: z.string().optional(),
         title: z.string().optional(),

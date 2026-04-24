@@ -81,7 +81,7 @@ export function createCustomToolRegistry(deps: CreateCustomToolRegistryDeps) {
         const def = JSON.parse(raw) as CustomToolDefinition;
         registerCustomTool(def);
       } catch {
-        // 螢翫ｌ縺溘ヵ繧｡繧､繝ｫ縺ｯ繧ｹ繧ｭ繝・・
+        // 壊れたファイルはスキップ
       }
     }
   }

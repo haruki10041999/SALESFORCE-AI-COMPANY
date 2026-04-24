@@ -21,8 +21,8 @@ export function registerBatchTools(deps: RegisterBatchToolsDeps): void {
   govTool(
     "batch_chat",
     {
-      title: "Batch Chat",
-      description: "Auto-generated description.",
+      title: "バッチチャット",
+      description: "複数トピックのチャットを一括実行します。",
       inputSchema: {
         topics: z.array(z.string()).min(1).max(10).optional(),
         topicConfigs: z.array(z.object({

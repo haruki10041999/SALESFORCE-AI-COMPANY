@@ -38,8 +38,8 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
   govTool(
     "record_agent_message",
     {
-      title: "Record Agent Message",
-      description: "Auto-generated description.",
+      title: "エージェントメッセージ記録",
+      description: "エージェントのメッセージを記録します。",
       inputSchema: {
         agent: z.string(),
         message: z.string(),
@@ -63,8 +63,8 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
   govTool(
     "get_agent_log",
     {
-      title: "Get Agent Log",
-      description: "Auto-generated description.",
+      title: "エージェントログ取得",
+      description: "エージェントログを取得します。",
       inputSchema: {
         agent: z.string().optional(),
         limit: z.number().int().min(1).max(200).optional()
@@ -93,8 +93,8 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
   govTool(
     "parse_and_record_chat",
     {
-      title: "Parse And Record Chat",
-      description: "Auto-generated description.",
+      title: "チャット解析と記録",
+      description: "チャットテキストを解析して記録します。",
       inputSchema: {
         chatText: z.string(),
         topic: z.string().optional()
@@ -167,8 +167,8 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
   govTool(
     "get_system_events",
     {
-      title: "Get System Events",
-      description: "Auto-generated description.",
+      title: "システムイベント取得",
+      description: "システムイベントログを取得します。",
       inputSchema: {
         limit: z.number().int().min(1).max(200).optional(),
         event: z.enum([
@@ -209,8 +209,8 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
   govTool(
     "get_event_automation_config",
     {
-      title: "Get Event Automation Config",
-      description: "Auto-generated description.",
+      title: "イベント自動化設定取得",
+      description: "イベント自動化設定を取得します。",
       inputSchema: {}
     },
     async () => {
@@ -236,8 +236,8 @@ export function registerLoggingTools(deps: RegisterLoggingToolsDeps): void {
   govTool(
     "update_event_automation_config",
     {
-      title: "Update Event Automation Config",
-      description: "Auto-generated description.",
+      title: "イベント自動化設定更新",
+      description: "イベント自動化設定を更新します。",
       inputSchema: {
         enabled: z.boolean().optional(),
         protectedTools: z.array(z.string()).optional(),

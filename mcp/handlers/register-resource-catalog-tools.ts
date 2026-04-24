@@ -16,8 +16,8 @@ export function registerResourceCatalogTools(deps: RegisterResourceCatalogToolsD
   govTool(
     "list_agents",
     {
-      title: "List Agents",
-      description: "List all available AI agents with a short description each.",
+      title: "エージェント一覧",
+      description: "利用可能なAIエージェントを短い説明付きで一覧表示します。",
       inputSchema: {}
     },
     async () => {
@@ -29,8 +29,8 @@ export function registerResourceCatalogTools(deps: RegisterResourceCatalogToolsD
   govTool(
     "get_agent",
     {
-      title: "Get Agent Definition",
-      description: "Return the full definition markdown for a specific agent by name.",
+      title: "エージェント定義取得",
+      description: "指定した名前のエージェント定義Markdown全文を返します。",
       inputSchema: { name: z.string() }
     },
     async ({ name }: { name: string }) => {
@@ -42,8 +42,8 @@ export function registerResourceCatalogTools(deps: RegisterResourceCatalogToolsD
   govTool(
     "list_skills",
     {
-      title: "List Skills",
-      description: "List all available Salesforce skills with a short description each.",
+      title: "スキル一覧",
+      description: "利用可能なSalesforceスキルを短い説明付きで一覧表示します。",
       inputSchema: {}
     },
     async () => {
@@ -55,8 +55,8 @@ export function registerResourceCatalogTools(deps: RegisterResourceCatalogToolsD
   govTool(
     "get_skill",
     {
-      title: "Get Skill Definition",
-      description: "Return the full skill markdown for a specific skill by name.",
+      title: "スキル定義取得",
+      description: "指定した名前のスキルMarkdown全文を返します。",
       inputSchema: { name: z.string() }
     },
     async ({ name }: { name: string }) => {
@@ -68,8 +68,8 @@ export function registerResourceCatalogTools(deps: RegisterResourceCatalogToolsD
   govTool(
     "list_personas",
     {
-      title: "List Personas",
-      description: "List all available AI personas (personality/communication styles).",
+      title: "ペルソナ一覧",
+      description: "利用可能なAIペルソナ（性格・コミュニケーションスタイル）を一覧表示します。",
       inputSchema: {}
     },
     async () => {

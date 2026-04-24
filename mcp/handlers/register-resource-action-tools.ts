@@ -66,8 +66,8 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
   govTool(
     "apply_resource_actions",
     {
-      title: "Apply Resource Actions",
-      description: "Auto-generated description.",
+      title: "リソース操作適用",
+      description: "リソース操作の変更を適用します。",
       inputSchema: {
         dryRun: z.boolean().optional(),
         actions: z.array(z.object({
@@ -149,7 +149,7 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
               continue;
             }
 
-            const contentToWrite = content ?? ("# " + name + "\n\n(縺薙％縺ｫ繧ｹ繧ｭ繝ｫ蜀・ｮｹ繧定ｨ倩ｿｰ)");
+            const contentToWrite = content ?? ("# " + name + "\n\n(ここにスキル説明を記載)");
             const qualityValidation = await validateAndCreateSkillWithQuality(name, contentToWrite, state);
 
             if (!qualityValidation.success) {
@@ -225,7 +225,7 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
             } else {
               presetToCreate = {
                 name,
-                description: "閾ｪ蜍穂ｽ懈・繝励Μ繧ｻ繝・ヨ",
+                description: "自動生成プリセット",
                 topic: name,
                 agents: ["product-manager", "architect", "qa-engineer"],
                 skills: []
@@ -303,7 +303,7 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
               continue;
             }
 
-            const toolDescription = content ?? ("繧ｫ繧ｹ繧ｿ繝繝・・繝ｫ: " + name);
+            const toolDescription = content ?? ("カスタムツール: " + name);
             const qualityValidation = await validateAndCreateToolWithQuality(name, toolDescription, state);
 
             if (!qualityValidation.success) {

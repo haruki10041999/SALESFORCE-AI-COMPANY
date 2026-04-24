@@ -37,8 +37,8 @@ export function registerSmartChatTools(deps: RegisterSmartChatToolsDeps): void {
   govTool(
     "smart_chat",
     {
-      title: "Smart Chat",
-      description: "Auto-generated description.",
+      title: "スマートチャット",
+      description: "関連ファイルを自動検出してスマートチャットを実行します。",
       inputSchema: {
         topic: z.string(),
         agents: z.array(z.string()).optional(),
@@ -100,10 +100,10 @@ export function registerSmartChatTools(deps: RegisterSmartChatToolsDeps): void {
           {
             type: "text",
             text:
-              "縲仙ｯｾ雎｡繝ｪ繝昴ず繝医Μ縲曾n" +
+              "対象リポジトリ:\n" +
               targetPath +
-              "\n\n縲占・蜍墓､懷・繝輔ぃ繧､繝ｫ縲曾n" +
-              (autoFilePaths.length > 0 ? autoFilePaths.join("\n") : "(縺ｪ縺・") +
+              "\n\n自動検出ファイル:\n" +
+              (autoFilePaths.length > 0 ? autoFilePaths.join("\n") : "(なし)") +
               "\n\n" +
               prompt
           }

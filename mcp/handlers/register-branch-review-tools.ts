@@ -98,8 +98,8 @@ export function registerBranchReviewTools(govTool: GovTool): void {
   govTool(
     "branch_diff_summary",
     {
-      title: "Branch Diff Summary",
-      description: "Auto-generated description.",
+      title: "ブランチ差分サマリー",
+      description: "ブランチ差分の要約を生成します。",
       inputSchema: {
         repoPath: z.string(),
         baseBranch: z.string(),
@@ -149,8 +149,8 @@ export function registerBranchReviewTools(govTool: GovTool): void {
   govTool(
     "branch_diff_to_prompt",
     {
-      title: "Branch Diff To Prompt",
-      description: "Auto-generated description.",
+      title: "ブランチ差分からプロンプト生成",
+      description: "ブランチ差分からレビュー用プロンプトを生成します。",
       inputSchema: {
         repoPath: z.string(),
         baseBranch: z.string(),
@@ -200,8 +200,8 @@ export function registerBranchReviewTools(govTool: GovTool): void {
   govTool(
     "pr_readiness_check",
     {
-      title: "PR Readiness Check",
-      description: "Auto-generated description.",
+      title: "PR準備状況チェック",
+      description: "プルリクエストの準備状況をチェックします。",
       inputSchema: {
         repoPath: z.string(),
         baseBranch: z.string(),
@@ -245,8 +245,8 @@ export function registerBranchReviewTools(govTool: GovTool): void {
   govTool(
     "security_delta_scan",
     {
-      title: "Security Delta Scan",
-      description: "Auto-generated description.",
+      title: "セキュリティ差分スキャン",
+      description: "差分に対するセキュリティ観点のスキャンを実行します。",
       inputSchema: {
         repoPath: z.string(),
         baseBranch: z.string(),
@@ -275,8 +275,8 @@ export function registerBranchReviewTools(govTool: GovTool): void {
   govTool(
     "deployment_impact_summary",
     {
-      title: "Deployment Impact Summary",
-      description: "Auto-generated description.",
+      title: "デプロイ影響サマリー",
+      description: "変更がデプロイに与える影響を要約します。",
       inputSchema: {
         repoPath: z.string(),
         baseBranch: z.string(),
@@ -302,8 +302,8 @@ export function registerBranchReviewTools(govTool: GovTool): void {
   govTool(
     "changed_tests_suggest",
     {
-      title: "Changed Tests Suggest",
-      description: "Auto-generated description.",
+      title: "変更テスト提案",
+      description: "変更内容に応じたテスト候補を提案します。",
       inputSchema: {
         repoPath: z.string(),
         baseBranch: z.string(),
@@ -332,8 +332,8 @@ export function registerBranchReviewTools(govTool: GovTool): void {
   govTool(
     "coverage_estimate",
     {
-      title: "Coverage Estimate",
-      description: "Estimate likely test coverage for changed source files.",
+      title: "カバレッジ推定",
+      description: "変更されたソースファイルに対する想定テストカバレッジを推定します。",
       inputSchema: {
         repoPath: z.string(),
         baseBranch: z.string(),
@@ -362,8 +362,8 @@ export function registerBranchReviewTools(govTool: GovTool): void {
   govTool(
     "metadata_dependency_graph",
     {
-      title: "Metadata Dependency Graph",
-      description: "Detect metadata dependency references for changed objects and fields.",
+      title: "メタデータ依存グラフ",
+      description: "変更されたオブジェクトおよび項目のメタデータ依存関係を検出します。",
       inputSchema: {
         repoPath: z.string(),
         baseBranch: z.string(),

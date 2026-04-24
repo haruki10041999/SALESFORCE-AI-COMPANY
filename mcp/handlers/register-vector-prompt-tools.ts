@@ -25,8 +25,8 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
   govTool(
     "add_vector_record",
     {
-      title: "Add Vector Record",
-      description: "Auto-generated description.",
+      title: "ベクトルレコード追加",
+      description: "ベクトルストアにレコードを追加します。",
       inputSchema: {
         id: z.string().min(1),
         text: z.string().min(1),
@@ -44,8 +44,8 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
   govTool(
     "search_vector",
     {
-      title: "Search Vector",
-      description: "Auto-generated description.",
+      title: "ベクトル検索",
+      description: "ベクトルストアを検索します。",
       inputSchema: {
         query: z.string().min(1)
       }
@@ -66,8 +66,8 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
   govTool(
     "build_prompt",
     {
-      title: "Build Prompt",
-      description: "Build a single-agent prompt from base prompt and reasoning framework.",
+      title: "プロンプト構築",
+      description: "ベースプロンプトと推論フレームワークから単一エージェント用プロンプトを構築します。",
       inputSchema: {
         agentName: z.string(),
         agentContent: z.string(),
@@ -85,8 +85,8 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
   govTool(
     "evaluate_prompt_metrics",
     {
-      title: "Evaluate Prompt Metrics",
-      description: "Evaluate prompt quality metrics such as length, section coverage, skill coverage and trigger match rate.",
+      title: "プロンプト評価指標",
+      description: "長さ・セクション網羅率・スキル網羅率・トリガー一致率などのプロンプト品質指標を評価します。",
       inputSchema: {
         prompt: z.string().min(1),
         skills: z.array(z.string()).optional(),

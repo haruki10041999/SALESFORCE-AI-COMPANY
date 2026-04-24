@@ -38,8 +38,8 @@ export function registerHistoryTools(deps: RegisterHistoryToolsDeps): void {
   govTool(
     "save_chat_history",
     {
-      title: "Save Chat History",
-      description: "Auto-generated description.",
+      title: "チャット履歴保存",
+      description: "現在のチャット履歴を保存します。",
       inputSchema: {
         topic: z.string()
       }
@@ -71,8 +71,8 @@ export function registerHistoryTools(deps: RegisterHistoryToolsDeps): void {
   govTool(
     "load_chat_history",
     {
-      title: "Load Chat History",
-      description: "Auto-generated description.",
+      title: "チャット履歴読込",
+      description: "保存済みチャット履歴を読み込みます。",
       inputSchema: {}
     },
     async () => {
@@ -101,8 +101,8 @@ export function registerHistoryTools(deps: RegisterHistoryToolsDeps): void {
   govTool(
     "restore_chat_history",
     {
-      title: "Restore Chat History",
-      description: "Auto-generated description.",
+      title: "チャット履歴復元",
+      description: "保存済みチャット履歴を復元します。",
       inputSchema: {
         id: z.string()
       }

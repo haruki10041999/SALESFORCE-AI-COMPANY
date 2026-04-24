@@ -15,8 +15,8 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
   govTool(
     "add_memory",
     {
-      title: "Add Memory",
-      description: "Auto-generated description.",
+      title: "メモリ追加",
+      description: "メモリに新しい項目を追加します。",
       inputSchema: {
         text: z.string().min(1)
       }
@@ -24,7 +24,7 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
     async ({ text }: { text: string }) => {
       addMemory(text);
       return {
-        content: [{ type: "text", text: `險倬鹸縺励∪縺励◆: ${text.slice(0, 80)}${text.length > 80 ? "..." : ""}` }]
+        content: [{ type: "text", text: `保存しました: ${text.slice(0, 80)}${text.length > 80 ? "..." : ""}` }]
       };
     }
   );
@@ -32,8 +32,8 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
   govTool(
     "search_memory",
     {
-      title: "Search Memory",
-      description: "Auto-generated description.",
+      title: "メモリ検索",
+      description: "メモリ内容を検索します。",
       inputSchema: {
         query: z.string().min(1)
       }
@@ -54,8 +54,8 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
   govTool(
     "list_memory",
     {
-      title: "List Memory",
-      description: "Auto-generated description.",
+      title: "メモリ一覧",
+      description: "メモリ項目を一覧表示します。",
       inputSchema: {}
     },
     async () => {
@@ -74,8 +74,8 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
   govTool(
     "clear_memory",
     {
-      title: "Clear Memory",
-      description: "Auto-generated description.",
+      title: "メモリクリア",
+      description: "メモリ内容をすべてクリアします。",
       inputSchema: {}
     },
     async () => {
