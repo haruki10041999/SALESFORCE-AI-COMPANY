@@ -11,6 +11,9 @@
 |---|---|---|
 | `SF_AI_OUTPUTS_DIR` | 実行ログや履歴の保存場所 | `outputs/` |
 | `LOG_LEVEL` | ログの詳しさ（`error` / `warn` / `info` / `debug`） | `info` |
+| `AI_LOW_RELEVANCE_THRESHOLD` | 低関連度判定のしきい値（高いほど厳格） | `6` |
+| `AI_AGENT_TRUST_SCORING_ENABLED` | エージェント信頼スコアによる自動エスカレーションを有効化 | `false` |
+| `AI_AGENT_TRUST_THRESHOLD` | 信頼スコアの閾値（0.0〜1.0） | `0.55` |
 
 ## よくある利用パターン
 
@@ -59,7 +62,14 @@ LOG_LEVEL=debug SF_AI_DEBUG_VERBOSE_PROMPT=true npm run mcp:dev
 | `LOG_LEVEL` | ログ出力レベル（`error` / `warn` / `info` / `debug`） | `info` |
 | `SF_AI_DEBUG_VERBOSE_PROMPT` | `LOG_LEVEL=debug` 時にプロンプト本文までログ出力するか | `false` |
 | `PROMPT_CACHE_MAX_ENTRIES` | メモリ上にキャッシュするプロンプトの最大件数 | `100` |
-| `PROMPT_CACHE_TTL_SECONDS` | キャッシュエントリの有効期間（秒） | `60` |
+| `PROMPT_CACHE_TTL_SECONDS` | キャッシュエントリの有効期間（秒） | `600` |
+| `AI_PROMPT_CACHE_MAX_ENTRIES` | `PROMPT_CACHE_MAX_ENTRIES` の新名称（優先して参照） | `100` |
+| `AI_PROMPT_CACHE_TTL_SECONDS` | `PROMPT_CACHE_TTL_SECONDS` の新名称（優先して参照） | `600` |
+| `AI_LOW_RELEVANCE_THRESHOLD` | 低関連度判定しきい値（`LOW_RELEVANCE_SCORE_THRESHOLD` 互換） | `6` |
+| `AI_AGENT_TRUST_SCORING_ENABLED` | エージェント信頼スコアを有効化（`SF_AI_AGENT_TRUST_SCORING_ENABLED` 互換） | `false` |
+| `SF_AI_AGENT_TRUST_SCORING_ENABLED` | 互換用: エージェント信頼スコアを有効化 | `false` |
+| `AI_AGENT_TRUST_THRESHOLD` | 信頼スコアの閾値（0.0〜1.0） | `0.55` |
+| `SF_AI_AGENT_TRUST_THRESHOLD` | 互換用: 信頼スコアの閾値（0.0〜1.0） | `0.55` |
 | `SF_AI_AUTO_APPLY` | リソースハンドラー・閾値ハンドラーによる自動 apply を有効化 | `false` |
 | `SF_AI_AUTO_APPLY_MIN_SCORE` | 自動 apply を実行する最低品質スコア（0〜100） | `70` |
 | `SF_AI_AUTO_APPLY_MAX_PER_DAY` | 1日あたりの自動リソース作成上限件数 | `5` |

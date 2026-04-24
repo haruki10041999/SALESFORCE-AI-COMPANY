@@ -8,6 +8,7 @@ import {
   buildDefaultGovernanceState,
   loadGovernanceState
 } from "../mcp/core/governance/governance-state.js";
+import { simulateGovernanceChange } from "../mcp/tools/simulate-governance-change.js";
 import {
   formatErrorMessage,
   isRetryableByCode,
@@ -100,4 +101,62 @@ test("tool-error helpers normalize messages and retryability consistently", () =
   assert.equal(readErrorCode(codedError), "ETIMEDOUT");
   assert.equal(isRetryableError(codedError, ["timeout", "503"]), true);
   assert.equal(isRetryableByCode(codedError, ["503", "ETIMEDOUT"]), true);
+});
+
+test("simulateGovernanceChange returns config delta and impacted resources without mutating state", () => {
+  const state = buildDefaultGovernanceState(["apply_resource_actions"]);
+  state.config.maxCounts.tools = 3;
+  state.config.thresholds.minUsageToKeep = 1;
+  state.config.thresholds.bugSignalToFlag = 2;
+
+  state.usage.tools = {
+    alpha_tool: 5,
+    beta_tool: 0,
+    gamma_tool: 0,
+    delta_tool: 2,
+    epsilon_tool: 4
+  };
+  state.bugSignals.tools = {
+    alpha_tool: 0,
+    beta_tool: 1,
+    gamma_tool: 3,
+    delta_tool: 0,
+    epsilon_tool: 0
+  };
+
+  const beforeState = JSON.stringify(state);
+
+  const simulated = simulateGovernanceChange({
+    state,
+    catalogs: {
+      skills: [],
+      tools: ["alpha_tool", "beta_tool", "gamma_tool", "delta_tool", "epsilon_tool"],
+      presets: []
+    },
+    counts: {
+      skills: 0,
+      tools: 5,
+      presets: 0
+    },
+    resourceScore: (usage, bugs) => usage - bugs * 3,
+    patch: {
+      updateMaxCounts: { tools: 2 },
+      updateThresholds: { minUsageToKeep: 2, bugSignalToFlag: 1 }
+    }
+  });
+
+  assert.equal(simulated.current.maxCounts.tools, 3);
+  assert.equal(simulated.proposed.maxCounts.tools, 2);
+  assert.equal(simulated.deltas.maxCounts.tools.diff, -1);
+  assert.equal(simulated.deltas.thresholds.minUsageToKeep.diff, 1);
+  assert.equal(simulated.impact.recommendationDelta.added > 0, true);
+  assert.equal(simulated.impact.byResourceType.tools.projectedOverflow, 3);
+  assert.equal(simulated.impact.impactedResources.length > 0, true);
+
+  const impactedToolNames = simulated.impact.impactedResources
+    .filter((item) => item.resourceType === "tools")
+    .map((item) => item.name);
+  assert.ok(impactedToolNames.includes("beta_tool") || impactedToolNames.includes("delta_tool"));
+
+  assert.equal(JSON.stringify(state), beforeState);
 });

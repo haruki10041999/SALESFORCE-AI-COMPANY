@@ -388,6 +388,8 @@ simulate_chat:
 smart_chat:
   topic: "権限設計レビュー"
   repoPath: "D:/Projects/mult-agent-ai/salesforce-ai-company"
+  enableTrustScoring: true
+  trustThreshold: 0.6
   appendInstruction: "権限過剰付与リスクを重点確認"
 ```
 
@@ -442,6 +444,9 @@ evaluate_triggers:
   lastAgent: "architect"
   lastMessage: "追加テストが必要です"
   fallbackRoundRobin: true
+  enableTrustScoring: true
+  trustThreshold: 0.7
+  agentFeedback: "reject"
 ```
 
 ### 6.3 dequeue_next_agent
@@ -537,7 +542,35 @@ get_agent_log:
   limit: 20
 ```
 
-### 7.4 save_chat_history / load_chat_history / restore_chat_history
+### 7.4 record_reasoning_step
+
+用途:
+- trace に Think/Do/Check ステップを記録
+
+入力例:
+
+```text
+record_reasoning_step:
+  traceId: "<trace-id>"
+  stage: "think"
+  message: "リスクを確認する"
+  agent: "architect"
+```
+
+### 7.5 get_trace_reasoning
+
+用途:
+- 推論チェーンを JSON / Markdown / Mermaid で可視化
+
+入力例:
+
+```text
+get_trace_reasoning:
+  traceId: "<trace-id>"
+  format: "all"
+```
+
+### 7.6 save_chat_history / load_chat_history / restore_chat_history
 
 用途:
 - 会話履歴の保存・一覧・復元
@@ -558,7 +591,7 @@ restore_chat_history:
   id: "2026-04-20-101500"
 ```
 
-### 7.5 analyze_chat_trends
+### 7.7 analyze_chat_trends
 
 用途:
 - エージェント別の件数・平均文字数・トピックを集計
@@ -569,7 +602,7 @@ restore_chat_history:
 analyze_chat_trends: {}
 ```
 
-### 7.6 export_to_markdown
+### 7.8 export_to_markdown
 
 用途:
 - 現在ログまたは履歴から Markdown を生成
@@ -582,7 +615,7 @@ export_to_markdown:
   title: "リリース準備レビュー"
 ```
 
-### 7.7 get_handlers_dashboard
+### 7.9 get_handlers_dashboard
 
 用途:
 - ハンドラー稼働統計を取得
@@ -664,13 +697,27 @@ auto_select_resources:
   limitPerType: 3
 ```
 
-### 9.3 get_resource_governance
+### 9.3 recommend_first_steps
+
+用途:
+- 目的に応じたエージェント/スキル/ペルソナ/関連ドキュメントを同時に推薦
+- すぐ実行できる 3 ステップの初動計画を返却
+
+入力例:
+
+```text
+recommend_first_steps:
+  goal: "Apex trigger review"
+  limitPerType: 3
+```
+
+### 9.4 get_resource_governance
 
 ```text
 get_resource_governance: {}
 ```
 
-### 9.4 record_resource_signal
+### 9.5 record_resource_signal
 
 ```text
 record_resource_signal:
@@ -679,7 +726,7 @@ record_resource_signal:
   signal: "used"
 ```
 
-### 9.5 review_resource_governance
+### 9.6 review_resource_governance
 
 ```text
 review_resource_governance:
@@ -692,7 +739,7 @@ review_resource_governance:
     bugSignalToFlag: 2
 ```
 
-### 9.6 apply_resource_actions
+### 9.7 apply_resource_actions
 
 用途:
 - create/delete/disable/enable を一括適用

@@ -6,7 +6,10 @@ import { join } from "node:path";
 
 import {
   buildChatPromptFromContext,
-  clearBuildChatPromptCache
+  clearBuildChatPromptCache,
+  invalidateBuildChatPromptCache,
+  getPromptCacheMetrics,
+  resetPromptCacheMetrics
 } from "../mcp/core/context/chat-prompt-builder.js";
 
 type MdMap = Record<string, string>;
@@ -267,5 +270,227 @@ test("prompt cache respects PROMPT_CACHE_MAX_ENTRIES and PROMPT_CACHE_TTL_SECOND
       delete process.env.PROMPT_CACHE_TTL_SECONDS;
     }
     clearBuildChatPromptCache();
+  }
+});
+
+test("prompt cache invalidation clears entries by agent names", async () => {
+  clearBuildChatPromptCache();
+  resetPromptCacheMetrics();
+  const root = mkdtempSync(join(tmpdir(), "chat-prompt-test-invalidate-"));
+
+  try {
+    const promptEngineDir = join(root, "prompt-engine");
+    mkdirSync(promptEngineDir, { recursive: true });
+    writeFileSync(join(promptEngineDir, "discussion-framework.md"), "Discussion Framework", "utf-8");
+
+    const deps = buildDeps(
+      root,
+      {
+        "agents/architect": "Architect Agent",
+        "agents/qa-engineer": "QA Engineer Agent"
+      },
+      []
+    );
+
+    const input1 = {
+      topic: "design review",
+      agentNames: ["architect"],
+      personaName: undefined,
+      skillNames: [],
+      filePaths: [],
+      turns: 1,
+      includeProjectContext: false
+    };
+
+    const input2 = {
+      topic: "quality check",
+      agentNames: ["qa-engineer"],
+      personaName: undefined,
+      skillNames: [],
+      filePaths: [],
+      turns: 1,
+      includeProjectContext: false
+    };
+
+    // Build two different prompts
+    const prompt1 = await buildChatPromptFromContext(input1, deps);
+    const prompt2 = await buildChatPromptFromContext(input2, deps);
+    
+    assert.ok(prompt1);
+    assert.ok(prompt2);
+    assert.notEqual(prompt1, prompt2);
+
+    let metrics = getPromptCacheMetrics();
+    assert.equal(metrics.hits, 0); // First builds are misses
+    assert.equal(metrics.misses, 2);
+    assert.equal(metrics.size, 2); // Both cached
+
+    // Rebuild first prompt (should hit cache)
+    const prompt1Again = await buildChatPromptFromContext(input1, deps);
+    assert.equal(prompt1, prompt1Again);
+
+    metrics = getPromptCacheMetrics();
+    assert.equal(metrics.hits, 1); // One cache hit
+    assert.equal(metrics.misses, 2);
+    assert.equal(metrics.size, 2);
+
+    // Invalidate by architect agent
+    invalidateBuildChatPromptCache({ agentNames: ["architect"] });
+
+    metrics = getPromptCacheMetrics();
+    assert.equal(metrics.size, 1); // First prompt invalidated
+
+    // Rebuild first prompt (should miss cache)
+    const prompt1New = await buildChatPromptFromContext(input1, deps);
+    assert.equal(prompt1, prompt1New);
+
+    metrics = getPromptCacheMetrics();
+    assert.equal(metrics.hits, 1); // No new hits
+    assert.equal(metrics.misses, 3); // One more miss
+    assert.equal(metrics.size, 2); // Both cached again
+  } finally {
+    clearBuildChatPromptCache();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prompt cache invalidation clears entries by skills", async () => {
+  clearBuildChatPromptCache();
+  resetPromptCacheMetrics();
+  const root = mkdtempSync(join(tmpdir(), "chat-prompt-test-invalidate-skills-"));
+
+  try {
+    const promptEngineDir = join(root, "prompt-engine");
+    mkdirSync(promptEngineDir, { recursive: true });
+    writeFileSync(join(promptEngineDir, "discussion-framework.md"), "Discussion Framework", "utf-8");
+
+    const deps = buildDeps(
+      root,
+      {
+        "agents/architect": "Architect Agent",
+        "skills/apex/best-practices": "Apex Best Practices",
+        "skills/lwc/advanced-patterns": "LWC Advanced Patterns"
+      },
+      []
+    );
+
+    const input1 = {
+      topic: "apex review",
+      agentNames: ["architect"],
+      personaName: undefined,
+      skillNames: ["apex/best-practices"],
+      filePaths: [],
+      turns: 1,
+      includeProjectContext: false
+    };
+
+    const input2 = {
+      topic: "lwc review",
+      agentNames: ["architect"],
+      personaName: undefined,
+      skillNames: ["lwc/advanced-patterns"],
+      filePaths: [],
+      turns: 1,
+      includeProjectContext: false
+    };
+
+    // Build two prompts with different skills
+    const prompt1 = await buildChatPromptFromContext(input1, deps);
+    const prompt2 = await buildChatPromptFromContext(input2, deps);
+
+    assert.ok(prompt1);
+    assert.ok(prompt2);
+    
+    let metrics = getPromptCacheMetrics();
+    assert.equal(metrics.size, 2); // Both cached
+
+    // Invalidate by skill
+    invalidateBuildChatPromptCache({ skillNames: ["apex/best-practices"] });
+
+    metrics = getPromptCacheMetrics();
+    assert.equal(metrics.size, 1); // First prompt invalidated, second still cached
+
+    // LWC prompt should still be cached
+    const prompt2Cached = await buildChatPromptFromContext(input2, deps);
+    assert.equal(prompt2, prompt2Cached);
+
+    metrics = getPromptCacheMetrics();
+    assert.equal(metrics.hits, 1); // Cache hit on LWC prompt
+  } finally {
+    clearBuildChatPromptCache();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prompt cache metrics track hits, misses, and expirations", async () => {
+  clearBuildChatPromptCache();
+  resetPromptCacheMetrics();
+  const root = mkdtempSync(join(tmpdir(), "chat-prompt-test-metrics-"));
+
+  try {
+    const promptEngineDir = join(root, "prompt-engine");
+    mkdirSync(promptEngineDir, { recursive: true });
+    writeFileSync(join(promptEngineDir, "discussion-framework.md"), "Discussion Framework", "utf-8");
+
+    // Set TTL to 10ms for testing expiration
+    const originalTtl = process.env.PROMPT_CACHE_TTL_SECONDS;
+    process.env.PROMPT_CACHE_TTL_SECONDS = "1"; // Very short TTL for testing
+
+    const deps = buildDeps(
+      root,
+      {
+        "agents/architect": "Architect Agent"
+      },
+      []
+    );
+
+    const input = {
+      topic: "design review",
+      agentNames: ["architect"],
+      personaName: undefined,
+      skillNames: [],
+      filePaths: [],
+      turns: 1,
+      includeProjectContext: false
+    };
+
+    // Build prompt (miss)
+    const prompt1 = await buildChatPromptFromContext(input, deps);
+    assert.ok(prompt1);
+
+    let metrics = getPromptCacheMetrics();
+    assert.equal(metrics.misses, 1);
+    assert.equal(metrics.hits, 0);
+    assert.equal(metrics.size, 1);
+    assert.equal(metrics.maxSize, 100); // Default max entries
+
+    // Rebuild immediately (hit)
+    const prompt2 = await buildChatPromptFromContext(input, deps);
+    assert.equal(prompt1, prompt2);
+
+    metrics = getPromptCacheMetrics();
+    assert.equal(metrics.hits, 1);
+    assert.equal(metrics.misses, 1);
+
+    // Wait for TTL to expire
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // Rebuild after expiration (miss due to expiration)
+    const prompt3 = await buildChatPromptFromContext(input, deps);
+    assert.equal(prompt1, prompt3); // Content still same
+
+    metrics = getPromptCacheMetrics();
+    assert.equal(metrics.hits, 1); // No new hits
+    assert.equal(metrics.misses, 2); // One more miss
+    assert.equal(metrics.expirations, 1); // One expiration
+
+    if (originalTtl !== undefined) {
+      process.env.PROMPT_CACHE_TTL_SECONDS = originalTtl;
+    } else {
+      delete process.env.PROMPT_CACHE_TTL_SECONDS;
+    }
+  } finally {
+    clearBuildChatPromptCache();
+    rmSync(root, { recursive: true, force: true });
   }
 });

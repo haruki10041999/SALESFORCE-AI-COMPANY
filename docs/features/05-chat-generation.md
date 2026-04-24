@@ -180,9 +180,39 @@ batch_chat:
 | 環境変数 | デフォルト | 説明 |
 |---|---|---|
 | `PROMPT_CACHE_MAX_ENTRIES` | `100` | キャッシュの最大エントリ数 |
-| `PROMPT_CACHE_TTL_SECONDS` | `60` | キャッシュエントリの有効期間（秒） |
+| `PROMPT_CACHE_TTL_SECONDS` | `600` | キャッシュエントリの有効期間（秒） |
+| `AI_PROMPT_CACHE_MAX_ENTRIES` | `100` | `PROMPT_CACHE_MAX_ENTRIES` の新名称（優先して参照） |
+| `AI_PROMPT_CACHE_TTL_SECONDS` | `600` | `PROMPT_CACHE_TTL_SECONDS` の新名称（優先して参照） |
 
 同じトピック・エージェント・スキルの組み合わせが短時間内に繰り返される場合は自動的にキャッシュが使われます。
+
+### キャッシュ無効化
+
+`invalidateBuildChatPromptCache` を使うことで、条件に一致するキャッシュだけを部分的に無効化できます。
+
+- `agentNames`
+- `skillNames`
+- `filePaths`
+- `topic`
+- `personaName`
+
+例: スキル更新時に対象スキルだけキャッシュを無効化
+
+```ts
+invalidateBuildChatPromptCache({ skillNames: ["apex/apex-best-practices"] });
+```
+
+### キャッシュメトリクス
+
+`summarize_metrics` の `promptCache` フィールドで以下を確認できます。
+
+- `hits`: キャッシュヒット回数
+- `misses`: キャッシュミス回数（期限切れ含む）
+- `hitRate`: ヒット率
+- `evictions`: 上限超過による追い出し回数
+- `expirations`: TTL 期限切れ回数
+- `size`: 現在のキャッシュ件数
+- `maxSize`: 設定上の最大キャッシュ件数
 
 ---
 

@@ -256,4 +256,118 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
       };
     }
   );
+
+  govTool(
+    "recommend_first_steps",
+    {
+      title: "最初の一歩提案",
+      description: "目的に合わせて最初に実施すべき3ステップを提案します。",
+      inputSchema: {
+        goal: z.string(),
+        limitPerType: z.number().int().min(1).max(5).optional()
+      }
+    },
+    async ({ goal, limitPerType }: { goal: string; limitPerType?: number }) => {
+      const limit = limitPerType ?? 3;
+      const state = await loadGovernanceState();
+      const feedbackModel = await loadProposalFeedbackModel(proposalFeedbackModelFile);
+
+      const agents = listMdFiles("agents")
+        .map((agent) => ({
+          name: agent.name,
+          summary: agent.summary,
+          score: scoreByQuery(goal, agent.name, agent.summary)
+        }))
+        .filter((row) => row.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
+
+      const skills = listMdFiles("skills")
+        .map((skill) => ({
+          name: skill.name,
+          summary: skill.summary,
+          score: withFeedbackScore(scoreByQuery(goal, skill.name, skill.summary), "skills", skill.name, feedbackModel),
+          disabled: state.disabled.skills.includes(skill.name)
+        }))
+        .filter((row) => row.score > 0 && !row.disabled)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
+
+      const personas = listMdFiles("personas")
+        .map((persona) => ({
+          name: persona.name,
+          summary: persona.summary,
+          score: scoreByQuery(goal, persona.name, persona.summary)
+        }))
+        .filter((row) => row.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
+
+      const docs = listMdFiles("docs/features")
+        .map((doc) => ({
+          name: `docs/features/${doc.name}.md`,
+          summary: doc.summary,
+          score: scoreByQuery(goal, doc.name, doc.summary)
+        }))
+        .filter((row) => row.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
+
+      const steps = [
+        {
+          step: 1,
+          title: "担当エージェントを決める",
+          action: "agents と personas の上位候補を選び、担当観点を固定する",
+          picks: {
+            agents: agents.map((x) => x.name),
+            personas: personas.map((x) => x.name)
+          }
+        },
+        {
+          step: 2,
+          title: "実装スキルを適用する",
+          action: "skills の上位候補から必要なスキルを選び、実装またはレビューを開始する",
+          picks: {
+            skills: skills.map((x) => x.name)
+          }
+        },
+        {
+          step: 3,
+          title: "関連仕様を確認する",
+          action: "features ドキュメントを確認し、検証条件と出力形式を揃える",
+          picks: {
+            docs: docs.map((x) => x.name)
+          }
+        }
+      ];
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                goal,
+                selected: {
+                  agents: agents.map((x) => x.name),
+                  skills: skills.map((x) => x.name),
+                  personas: personas.map((x) => x.name),
+                  docs: docs.map((x) => x.name)
+                },
+                detail: {
+                  agents,
+                  skills,
+                  personas,
+                  docs
+                },
+                firstSteps: steps
+              },
+              null,
+              2
+            )
+          }
+        ]
+      };
+    }
+  );
 }

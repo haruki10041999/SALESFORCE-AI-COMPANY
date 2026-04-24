@@ -1,5 +1,6 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { join } from "node:path";
+import { maskUnknown } from "../logging/pii-masker.js";
 
 export type SystemEventName =
   | "session_start"
@@ -155,7 +156,7 @@ export function createSystemEventManager(deps: CreateSystemEventManagerDeps) {
   }
 
   async function appendSystemEvent(record: SystemEventRecord): Promise<void> {
-    const line = JSON.stringify(record) + "\n";
+    const line = JSON.stringify(maskUnknown(record)) + "\n";
     await rotateEventLogIfNeeded(line);
     await fsPromises.appendFile(eventLogFile, line, "utf-8");
   }

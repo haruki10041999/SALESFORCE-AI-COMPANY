@@ -45,19 +45,21 @@ export function registerHistoryTools(deps: RegisterHistoryToolsDeps): void {
     },
     async ({ topic }: { topic: string }) => {
       const id = await saveChatHistory(topic);
+      const day = id.slice(0, 10);
+      const relativePath = "outputs/history/" + day + "/" + id + ".json";
       const messageCount = agentLog.filter((e) => e.topic === topic || !e.topic).length;
       await emitSystemEvent("history_saved", {
         historyId: id,
         topic,
         messageCount,
-        path: "outputs/history/" + id + ".json"
+        path: relativePath
       });
       return {
         content: [
           {
             type: "text",
             text: JSON.stringify(
-              { saved: true, id, path: "outputs/history/" + id + ".json" },
+              { saved: true, id, path: relativePath },
               null,
               2
             )

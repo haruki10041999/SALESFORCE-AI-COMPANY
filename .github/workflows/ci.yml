@@ -31,5 +31,30 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Tool test matrix
+        run: npm run test:matrix -- --fail-on-missing
+
+      - name: Generate tool manifest
+        run: npm run docs:manifest
+
+      - name: Verify tool manifest integrity
+        run: |
+          if ! node -e "JSON.parse(require('fs').readFileSync('docs/internal/tool-manifest.json', 'utf-8'))" 2>/dev/null; then
+            echo "❌ tool-manifest.json is invalid JSON"
+            exit 1
+          fi
+          echo "✅ tool-manifest.json integrity verified"
+
+      - name: Run benchmark suite
+        run: npm run benchmark:run -- --limit 200
+
+      - name: Verify benchmark output
+        run: |
+          if [ ! -f "outputs/reports/benchmark-suite.json" ]; then
+            echo "❌ benchmark-suite.json not found"
+            exit 1
+          fi
+          echo "✅ benchmark-suite.json generated"
+
       - name: Dependency audit
         run: npm run audit:deps

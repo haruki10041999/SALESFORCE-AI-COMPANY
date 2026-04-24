@@ -52,6 +52,41 @@ node --test --import tsx tests/proposal-feedback.test.ts
 - 追加ツール名が `mcp/server.ts` のカタログに存在
 - 対応する `docs/features` の更新がある
 
+### ストレステスト・性能測定（TASK-010）を進める場合
+
+1. ベンチマーク実行
+
+```bash
+npm run benchmark:run
+```
+
+2. メトリクススナップショット生成
+
+```bash
+npm run metrics:snapshot
+```
+
+3. ダッシュボード生成（傾向確認）
+
+```bash
+npm run metrics:dashboard
+```
+
+評価時は [docs/metrics-evaluation.md](./metrics-evaluation.md) のしきい値（success rate / p95 / エラー率）を併せて確認する。
+
+### 高負荷トレース回帰（TASK-011）を進める場合
+
+1. 高負荷シナリオの集計安定性テストを実行
+
+```bash
+node --import tsx --test tests/new-tools.test.ts
+```
+
+2. 次のケースが pass していることを確認
+
+- `summarizeMetrics and benchmark suite remain stable with high trace volume`
+- 完了トレース数が履歴上限（既定 500）を超えても、集計とスコア計算が失敗しないこと
+
 ## リリース前チェック
 
 - `npm run build` 成功

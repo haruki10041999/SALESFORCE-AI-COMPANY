@@ -1,14 +1,13 @@
-﻿import { z } from "zod";
+﻿
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { existsSync, promises as fsPromises, watch, type FSWatcher } from "fs";
-import { basename, dirname, join, resolve, relative } from "path";
-import { pathToFileURL } from "url";
+import { existsSync, promises as fsPromises } from "fs";
+import { join, resolve, relative } from "path";
+import { connectServerWithStdio, initializeServerRuntime as initializeServerRuntimeModule, isDirectRun as isDirectRunModule } from "./bootstrap.js";
 
 // ============================================================
 // Core Modules
 // ============================================================
-import { rankSkillNamesByTopic, scoreByQuery } from "./core/resource/topic-skill-ranking.js";
+import { scoreByQuery } from "./core/resource/topic-skill-ranking.js";
 import {
   resolveProjectRootFromFile,
   findMdFilesRecursive,
@@ -63,12 +62,9 @@ import { createOperationLog } from "./core/governance/operation-log.js";
 import { createGovernedToolRegistrar } from "./core/governance/governed-tool-registrar.js";
 import { createGovernanceEventAutomationManager } from "./core/governance/governance-event-automation.js";
 import { createDisabledResourceFilter } from "./core/governance/disabled-resource-filter.js";
+import { createDisabledToolsCacheManager } from "./core/governance/disabled-tools-cache.js";
+import { createGovernanceStateManager } from "./core/governance/governance-state-manager.js";
 import {
-  normalizeDisabledEntries as _normalizeDisabledEntries,
-  normalizeProtectedTools as _normalizeProtectedTools,
-  buildDefaultGovernanceState as _buildDefaultGovernanceState,
-  loadGovernanceState as _loadGovernanceState,
-  saveGovernanceState as _saveGovernanceState,
   type GovernedResourceType,
   type GovernanceState
 } from "./core/governance/governance-state.js";
@@ -79,12 +75,14 @@ import { createHistoryStore } from "./core/context/history-store.js";
 import { createOrchestrationSessionStore } from "./core/context/orchestration-session-store.js";
 import { buildChatPromptFromContext } from "./core/context/chat-prompt-builder.js";
 import type { CustomToolDefinition as RegistryCustomToolDefinition } from "./core/resource/custom-tool-registry.js";
-import {
-  buildRuleKey as _buildRuleKey,
-  evaluatePseudoHooks as _evaluatePseudoHooks
-} from "./core/orchestration/pseudo-hooks.js";
+import { evaluatePseudoHooks as evaluatePseudoHooksCore } from "./core/orchestration/pseudo-hooks.js";
+import { createChatToolRunner, generateSessionId } from "./core/orchestration/chat-tool-runner.js";
+import { orchestrationSessions, clearOrchestrationSessionsForTest } from "./core/orchestration/session-registry.js";
+import { chatInputSchema, triggerRuleSchema } from "./core/orchestration/schemas.js";
+import type { OrchestrationSession } from "./core/types/index.js";
 import type { SystemEventType } from "./core/event/event-dispatcher.js";
 import { createLogger } from "./core/logging/logger.js";
+import { getLowRelevanceScoreThreshold } from "./core/config/runtime-config.js";
 
 // Resolve project root from this file location so cross-repo clients can share one server.
 const ROOT = resolveProjectRootFromFile(import.meta.url);
@@ -190,7 +188,7 @@ const agentLog: AgentMessage[] = [];
 const handlersState = initializeHandlersState();
 const OPERATIONS_LOG_FILE = join(OUTPUTS_DIR, "operations-log.jsonl");
 const { loadRecentOperations, appendOperationLog } = createOperationLog({ logFile: OPERATIONS_LOG_FILE, ensureDir });
-const LOW_RELEVANCE_SCORE_THRESHOLD = 6;
+const LOW_RELEVANCE_SCORE_THRESHOLD = getLowRelevanceScoreThreshold();
 const DEFAULT_PROTECTED_TOOLS = [
   "apply_resource_actions",
   "get_resource_governance",
@@ -200,6 +198,20 @@ const DEFAULT_PROTECTED_TOOLS = [
   "get_event_automation_config",
   "update_event_automation_config"
 ];
+const GOVERNANCE_FILE = join(OUTPUTS_DIR, "resource-governance.json");
+const TOOL_PROPOSALS_DIR = join(OUTPUTS_DIR, "tool-proposals");
+const CUSTOM_TOOLS_DIR = join(OUTPUTS_DIR, "custom-tools");
+const governanceStateManager = createGovernanceStateManager({
+  defaultProtectedTools: DEFAULT_PROTECTED_TOOLS,
+  governanceFile: GOVERNANCE_FILE,
+  ensureDir
+});
+const buildDefaultGovernanceState = () => governanceStateManager.buildDefaultGovernanceState();
+const loadGovernanceState = () => governanceStateManager.loadGovernanceState();
+const saveGovernanceState = (state: GovernanceState) => governanceStateManager.saveGovernanceState(state);
+const normalizeDisabledEntries = (names: string[]) => governanceStateManager.normalizeDisabledEntries(names);
+const normalizeProtectedTools = (names: string[]) => governanceStateManager.normalizeProtectedTools(names);
+
 const { emitSystemEvent, loadSystemEvents, registerToolFailure, getSystemEventLogStatus } = createSystemEventManager({
   rootDir: ROOT,
   outputsDir: OUTPUTS_DIR,
@@ -255,76 +267,18 @@ export async function invokeRegisteredToolForTest(name: string, input: unknown):
   return handler(input);
 }
 
-export function clearOrchestrationSessionsForTest(): void {
-  orchestrationSessions.clear();
-}
+export { clearOrchestrationSessionsForTest };
 
 // ============================================================
 // ガバナンス対応ツール登録ラッパー（disable チェック付き）
 // ============================================================
 
-let cachedDisabledTools: Set<string> = new Set();
-let disabledToolsCacheLastRefreshAt = 0;
-let refreshDisabledToolsCacheInFlight: Promise<void> | null = null;
-let governanceWatcher: FSWatcher | null = null;
-let disabledToolsCacheRefreshInterval: NodeJS.Timeout | null = null;
-
-const DISABLED_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
-const DISABLED_CACHE_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
-
-function triggerRefreshDisabledToolsCache(reason: string): void {
-  if (!refreshDisabledToolsCacheInFlight) {
-    refreshDisabledToolsCacheInFlight = refreshDisabledToolsCache()
-      .catch((error) => {
-        logger.warn(`Disabled tools cache refresh failed (${reason})`, error);
-      })
-      .finally(() => {
-        refreshDisabledToolsCacheInFlight = null;
-      });
-  }
-}
-
-function maybeRefreshDisabledToolsCache(reason: string): void {
-  const isStale = Date.now() - disabledToolsCacheLastRefreshAt > DISABLED_CACHE_MAX_AGE_MS;
-  if (isStale) {
-    triggerRefreshDisabledToolsCache(reason);
-  }
-}
-
-function startDisabledToolsCacheSync(governanceFilePath: string): void {
-  if (!disabledToolsCacheRefreshInterval) {
-    disabledToolsCacheRefreshInterval = setInterval(() => {
-      triggerRefreshDisabledToolsCache("interval");
-    }, DISABLED_CACHE_REFRESH_INTERVAL_MS);
-    disabledToolsCacheRefreshInterval.unref?.();
-  }
-
-  if (!governanceWatcher) {
-    const watchedDir = dirname(governanceFilePath);
-    const watchedFile = basename(governanceFilePath);
-    governanceWatcher = watch(watchedDir, (_eventType, fileName) => {
-      if (!fileName || fileName.toString() !== watchedFile) {
-        return;
-      }
-      triggerRefreshDisabledToolsCache("fs-watch");
-    });
-    governanceWatcher.on("error", (error) => {
-      logger.warn("Governance file watcher error", error);
-    });
-    governanceWatcher.unref?.();
-  }
-}
-
-async function refreshDisabledToolsCache(): Promise<void> {
-  try {
-    const state = await loadGovernanceState();
-    cachedDisabledTools = new Set((state.disabled.tools ?? []).map((name: string) => normalizeResourceName(name)));
-    disabledToolsCacheLastRefreshAt = Date.now();
-  } catch {
-    cachedDisabledTools = new Set();
-    disabledToolsCacheLastRefreshAt = Date.now();
-  }
-}
+const disabledToolsCache = createDisabledToolsCacheManager({
+  governanceFilePath: join(OUTPUTS_DIR, "resource-governance.json"),
+  logger,
+  loadGovernanceState,
+  normalizeResourceName
+});
 
 const { govTool } = createGovernedToolRegistrar({
   registerTool: (name, config, handler) => {
@@ -335,8 +289,7 @@ const { govTool } = createGovernedToolRegistrar({
     );
   },
   isToolDisabled: (toolName: string) => {
-    maybeRefreshDisabledToolsCache("on-check");
-    return cachedDisabledTools.has(toolName);
+    return disabledToolsCache.isToolDisabled(toolName);
   },
   normalizeResourceName,
   emitSystemEvent: emitSystemEventCompat,
@@ -348,66 +301,7 @@ const { govTool } = createGovernedToolRegistrar({
   }
 });
 
-async function suggestSkillsFromTopic(topic: string, limit = 3): Promise<string[]> {
-  const skills = listMdFiles("skills");
-  return rankSkillNamesByTopic(topic, skills, limit);
-}
 
-const chatInputSchema = {
-  topic: z.string(),
-  filePaths: z.array(z.string()).optional(),
-  agents: z.array(z.string()).optional(),
-  persona: z.string().optional(),
-  skills: z.array(z.string()).optional(),
-  turns: z.number().int().min(1).max(30).optional(),
-  maxContextChars: z.number().int().min(500).max(200000).optional(),
-  appendInstruction: z.string().optional()
-};
-
-const triggerRuleSchema = z.object({
-  whenAgent: z.string(),
-  thenAgent: z.string(),
-  messageIncludes: z.string().optional(),
-  reason: z.string().optional(),
-  once: z.boolean().optional()
-});
-
-type TriggerRule = z.infer<typeof triggerRuleSchema>;
-
-interface OrchestrationSession {
-  id: string;
-  topic: string;
-  appendInstruction?: string;
-  agents: string[];
-  persona?: string;
-  skills: string[];
-  filePaths: string[];
-  turns: number;
-  triggerRules: TriggerRule[];
-  queue: string[];
-  history: AgentMessage[];
-  firedRules: string[];
-}
-
-const orchestrationSessions = new Map<string, OrchestrationSession>();
-
-function buildRuleKey(rule: TriggerRule): string {
-  return _buildRuleKey(rule);
-}
-
-function evaluatePseudoHooks(
-  lastAgent: string,
-  lastMessage: string,
-  triggerRules: TriggerRule[],
-  firedRules: string[]
-): { nextAgents: string[]; fired: string[]; reasons: string[] } {
-  return _evaluatePseudoHooks(lastAgent, lastMessage, triggerRules, firedRules);
-}
-
-function generateSessionId(): string {
-  const ts = new Date().toISOString().replace(/[:.]/g, "-");
-  return "orch-" + ts;
-}
 
 const disabledResourceFilter = createDisabledResourceFilter({
   loadGovernanceState,
@@ -430,58 +324,12 @@ async function isPresetDisabled(presetName: string): Promise<boolean> {
   return disabledResourceFilter.isPresetDisabled(presetName);
 }
 
-async function runChatTool({
-  topic,
-  filePaths,
-  agents,
-  persona,
-  skills,
-  turns,
-  maxContextChars,
-  appendInstruction
-}: {
-  topic: string;
-  filePaths?: string[];
-  agents?: string[];
-  persona?: string;
-  skills?: string[];
-  turns?: number;
-  maxContextChars?: number;
-  appendInstruction?: string;
-}) {
-  const requestedSkills = skills ?? [];
-  const autoSkills = requestedSkills.length === 0 ? await suggestSkillsFromTopic(topic, 3) : [];
-  const effectiveSkills = requestedSkills.length > 0 ? requestedSkills : autoSkills;
-  const { enabled: enabledSkills } = await filterDisabledSkills(effectiveSkills);
-
-  if (requestedSkills.length === 0 && autoSkills.length === 0) {
-    await emitSystemEvent("low_relevance_detected", {
-      source: "chat:auto-skill-selection",
-      topic,
-      reason: "no skills selected from topic"
-    });
-  }
-
-  const prompt = await buildChatPrompt(
-    topic,
-    agents ?? [],
-    persona,
-    enabledSkills,
-    filePaths ?? [],
-    turns ?? 6,
-    maxContextChars,
-    appendInstruction
-  );
-
-  return {
-    content: [
-      {
-        type: "text" as const,
-        text: prompt
-      }
-    ]
-  };
-}
+const runChatTool = createChatToolRunner({
+  listSkills: () => listMdFiles("skills"),
+  filterDisabledSkills,
+  emitSystemEvent: emitSystemEventCompat,
+  buildChatPrompt
+});
 
 const HISTORY_DIR = join(OUTPUTS_DIR, "history");
 const PRESETS_DIR = join(OUTPUTS_DIR, "presets");
@@ -516,14 +364,6 @@ const { saveOrchestrationSession, restoreOrchestrationSession } = createOrchestr
   maxSessionFiles: SESSION_MAX_FILES,
   retentionDays: SESSION_RETENTION_DAYS
 });
-
-// ============================================================
-// Resource Governance（スキル・ツール・プリセット管理）
-// ============================================================
-
-const GOVERNANCE_FILE = join(OUTPUTS_DIR, "resource-governance.json");
-const TOOL_PROPOSALS_DIR = join(OUTPUTS_DIR, "tool-proposals");
-const CUSTOM_TOOLS_DIR = join(OUTPUTS_DIR, "custom-tools");
 
 const { loadedCustomToolNames, registerCustomTool, unregisterCustomTool, loadCustomToolsFromDir } = createCustomToolRegistry({
   govTool,
@@ -562,6 +402,8 @@ const BUILTIN_TOOL_CATALOG = [
   "restore_orchestration_session",
   "list_orchestration_sessions",
   "record_agent_message",
+  "record_reasoning_step",
+  "get_trace_reasoning",
   "get_agent_log",
   "parse_and_record_chat",
   "get_system_events",
@@ -605,33 +447,13 @@ const { listSkillsCatalog, listPresetsCatalog, listToolsCatalog, resourceScore, 
   loadedCustomToolNames
 });
 
-function buildDefaultGovernanceState(): GovernanceState {
-  return _buildDefaultGovernanceState(DEFAULT_PROTECTED_TOOLS);
-}
-
-async function loadGovernanceState(): Promise<GovernanceState> {
-  return _loadGovernanceState(GOVERNANCE_FILE, ensureDir, DEFAULT_PROTECTED_TOOLS);
-}
-
-async function saveGovernanceState(state: GovernanceState): Promise<void> {
-  return _saveGovernanceState(GOVERNANCE_FILE, state);
-}
-
-function normalizeDisabledEntries(names: string[]): string[] {
-  return _normalizeDisabledEntries(names);
-}
-
-function normalizeProtectedTools(names: string[]): string[] {
-  return _normalizeProtectedTools(names, DEFAULT_PROTECTED_TOOLS);
-}
-
 const governanceEventAutomation = createGovernanceEventAutomationManager({
   loadGovernanceState,
   saveGovernanceState,
   normalizeResourceName,
   normalizeDisabledEntries,
   normalizeProtectedTools,
-  refreshDisabledToolsCache,
+  refreshDisabledToolsCache: () => disabledToolsCache.refresh("event-automation"),
   getDefaultEventAutomationConfig: () => buildDefaultGovernanceState().config.eventAutomation,
   summarizeError: summarizeValue
 });
@@ -724,7 +546,7 @@ registerAllToolsModule(
     filterDisabledSkills,
     emitSystemEvent: emitSystemEventCompat,
     buildChatPrompt: buildChatPromptCompat,
-    evaluatePseudoHooks,
+    evaluatePseudoHooks: evaluatePseudoHooksCore,
     orchestrationSessions,
     saveOrchestrationSession,
     saveSessionHistory,
@@ -778,56 +600,29 @@ registerAllToolsModule(
     validateAndCreateToolWithQuality,
     registerCustomTool,
     unregisterCustomTool,
-    refreshDisabledToolsCache,
+    refreshDisabledToolsCache: () => disabledToolsCache.refresh("tool-call"),
     appendOperationLog,
     emitEvent,
     resourceScore
   })
 );
 
-async function initializeServerRuntime(): Promise<void> {
-  logger.info("Runtime initialization started");
-
-  try {
-    await loadCustomToolsFromDir(CUSTOM_TOOLS_DIR);
-    logger.info("Custom tools loaded");
-  } catch (error) {
-    logger.warn("Failed to load custom tools. Continuing with core tools only.", error);
-  }
-
-  try {
-    await refreshDisabledToolsCache();
-    startDisabledToolsCacheSync(GOVERNANCE_FILE);
-    logger.info("Disabled tools cache initialized");
-  } catch (error) {
-    cachedDisabledTools = new Set();
-    logger.warn("Failed to initialize disabled tools cache. Using empty cache.", error);
-  }
-
-  try {
-    autoInitializeHandlers(handlersState);
-    logger.info(`Handlers auto-initialization complete (${handlersState.registeredHandlers} handlers)`);
-  } catch (error) {
-    logger.warn("Handler auto-initialization failed. Continuing without handlers.", error);
-  }
-}
-
 async function main(): Promise<void> {
-  await initializeServerRuntime();
+  await initializeServerRuntimeModule({
+    logger,
+    customToolsDir: CUSTOM_TOOLS_DIR,
+    handlersState,
+    loadCustomToolsFromDir,
+    refreshDisabledToolsCache: (reason?: string) => disabledToolsCache.refresh(reason ?? "manual"),
+    startDisabledToolsCacheSync: () => disabledToolsCache.startSync(),
+    resetDisabledToolsCache: () => disabledToolsCache.resetCache(),
+    autoInitializeHandlers
+  });
 
-  const transport = new StdioServerTransport();
-  try {
-    await server.connect(transport);
-    logger.info("MCP transport connected");
-  } catch (error) {
-    logger.error("Failed to connect MCP transport", error);
-    throw error;
-  }
+  await connectServerWithStdio(server, logger);
 }
 
-const isDirectRun = process.argv[1]
-  ? pathToFileURL(resolve(process.argv[1])).href === import.meta.url
-  : false;
+const isDirectRun = isDirectRunModule(import.meta.url, process.argv[1]);
 
 if (isDirectRun) {
   main().catch((error) => {

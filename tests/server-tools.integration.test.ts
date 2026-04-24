@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getCompletedTraces } from "../mcp/core/trace/trace-context.js";
 import { execFileSync } from "node:child_process";
 
 const serverTestOutputsDir = mkdtempSync(join(tmpdir(), "sf-ai-server-outputs-"));
@@ -65,13 +66,17 @@ test("server exposes expected core tool registrations", () => {
     "search_memory",
     "list_memory",
     "clear_memory",
+    "recommend_first_steps",
     "add_vector_record",
     "search_vector",
     "build_prompt",
     "get_context",
     "get_system_events",
     "get_event_automation_config",
-    "update_event_automation_config"
+    "update_event_automation_config",
+    "simulate_governance_change",
+    "record_reasoning_step",
+    "get_trace_reasoning",
   ]) {
     assert.ok(names.includes(required), `missing tool: ${required}`);
   }
@@ -187,6 +192,52 @@ test("apply_resource_actions writes audit trail metadata", async () => {
   assert.ok(content.includes("apply_resource_actions"));
 });
 
+test("reasoning trace tools record and visualize Think/Do/Check chain", async () => {
+  await callTool("deploy_org", { targetOrg: "trace-org", dryRun: true });
+  const deployTrace = getCompletedTraces(20).find((trace) => trace.toolName === "deploy_org");
+  assert.ok(deployTrace, "deploy_org trace should exist");
+
+  await callTool("record_reasoning_step", {
+    traceId: deployTrace!.traceId,
+    stage: "think",
+    message: "リスクを確認する",
+    agent: "architect"
+  });
+
+  await callTool("record_reasoning_step", {
+    traceId: deployTrace!.traceId,
+    stage: "do",
+    message: "チェック専用デプロイを実行する",
+    agent: "release-manager"
+  });
+
+  await callTool("record_reasoning_step", {
+    traceId: deployTrace!.traceId,
+    stage: "check",
+    message: "結果を検証して次アクションを決める",
+    agent: "qa-engineer"
+  });
+
+  const allView = parseFirstJson<{
+    traceId: string;
+    steps: Array<{ stage: string; message: string }>;
+    markdown: string;
+    mermaid: string;
+  }>(await callTool("get_trace_reasoning", {
+    traceId: deployTrace!.traceId,
+    format: "all"
+  }));
+
+  assert.equal(allView.traceId, deployTrace!.traceId);
+  assert.equal(allView.steps.length, 3);
+  assert.ok(allView.steps.some((step) => step.stage === "think"));
+  assert.ok(allView.steps.some((step) => step.stage === "do"));
+  assert.ok(allView.steps.some((step) => step.stage === "check"));
+  assert.ok(allView.markdown.includes("# Trace Reasoning"));
+  assert.ok(allView.markdown.includes("Think"));
+  assert.ok(allView.mermaid.includes("sequenceDiagram"));
+});
+
 test("list_agents returns JSON array with name and summary", async () => {
   const result = await callTool("list_agents", {});
   const payload = JSON.parse(result.content[0].text) as Array<{ name: string; summary: string }>;
@@ -194,6 +245,30 @@ test("list_agents returns JSON array with name and summary", async () => {
   assert.ok(payload.length > 0);
   assert.equal(typeof payload[0]?.name, "string");
   assert.equal(typeof payload[0]?.summary, "string");
+});
+
+test("recommend_first_steps returns picks and 3-step guidance", async () => {
+  const result = await callTool("recommend_first_steps", {
+    goal: "Apex trigger review",
+    limitPerType: 2
+  });
+  const payload = JSON.parse(result.content[0].text) as {
+    goal: string;
+    selected: {
+      agents: string[];
+      skills: string[];
+      personas: string[];
+      docs: string[];
+    };
+    firstSteps: Array<{ step: number; title: string; action: string }>;
+  };
+
+  assert.equal(payload.goal, "Apex trigger review");
+  assert.ok(Array.isArray(payload.selected.agents));
+  assert.ok(Array.isArray(payload.selected.skills));
+  assert.ok(Array.isArray(payload.selected.personas));
+  assert.ok(Array.isArray(payload.selected.docs));
+  assert.equal(payload.firstSteps.length, 3);
 });
 
 test("health_check returns operational summary", async () => {
@@ -424,6 +499,40 @@ test("orchestration evaluate_triggers can disable round-robin fallback", async (
 
   assert.deepEqual(evaluated.nextAgents, []);
   assert.equal(evaluated.usedRoundRobinFallback, false);
+});
+
+test("orchestration evaluate_triggers escalates when trust scoring falls below threshold", async () => {
+  const orchestrated = parseFirstJson<{
+    sessionId: string;
+  }>(await callTool("orchestrate_chat", {
+    topic: "security review escalation",
+    agents: ["architect", "qa-engineer", "security-engineer"],
+    triggerRules: []
+  }));
+
+  const evaluated = parseFirstJson<{
+    nextAgents: string[];
+    trustScoring?: {
+      enabled: boolean;
+      score?: number;
+      threshold?: number;
+      belowThreshold?: boolean;
+      escalatedAgents?: string[];
+    };
+  }>(await callTool("evaluate_triggers", {
+    sessionId: orchestrated.sessionId,
+    lastAgent: "architect",
+    lastMessage: "unrelated message with low context overlap",
+    fallbackRoundRobin: false,
+    enableTrustScoring: true,
+    trustThreshold: 0.95,
+    agentFeedback: "reject"
+  }));
+
+  assert.equal(evaluated.trustScoring?.enabled, true);
+  assert.equal(evaluated.trustScoring?.belowThreshold, true);
+  assert.ok((evaluated.trustScoring?.escalatedAgents?.length ?? 0) >= 1);
+  assert.ok(evaluated.nextAgents.length >= 1);
 });
 
 test("orchestration tools restore saved session automatically when memory is cleared", async () => {
@@ -681,4 +790,48 @@ test("error aggregate event auto-disables an unprotected failing tool", async ()
       governanceThresholdExceeded: configBefore.rules.governanceThresholdExceeded
     });
   }
+});
+
+test("simulate_governance_change evaluates delta without mutating governance state", async () => {
+  const before = parseFirstJson<{
+    config: {
+      maxCounts: { skills: number; tools: number; presets: number };
+      thresholds: { minUsageToKeep: number; bugSignalToFlag: number };
+    };
+    disabled: { tools: string[] };
+  }>(await callTool("get_resource_governance", {}));
+
+  const simulated = parseFirstJson<{
+    deltas: {
+      maxCounts: { tools: { before: number; after: number; diff: number } };
+      thresholds: { minUsageToKeep: { before: number; after: number; diff: number } };
+    };
+    current: { recommendationCount: number };
+    proposed: { recommendationCount: number };
+  }>(await callTool("simulate_governance_change", {
+    updateMaxCounts: {
+      tools: Math.max(1, before.config.maxCounts.tools - 1)
+    },
+    updateThresholds: {
+      minUsageToKeep: before.config.thresholds.minUsageToKeep + 1
+    },
+    previewLimit: 20
+  }));
+
+  assert.equal(typeof simulated.deltas.maxCounts.tools.diff, "number");
+  assert.equal(typeof simulated.deltas.thresholds.minUsageToKeep.diff, "number");
+  assert.equal(typeof simulated.current.recommendationCount, "number");
+  assert.equal(typeof simulated.proposed.recommendationCount, "number");
+
+  const after = parseFirstJson<{
+    config: {
+      maxCounts: { skills: number; tools: number; presets: number };
+      thresholds: { minUsageToKeep: number; bugSignalToFlag: number };
+    };
+    disabled: { tools: string[] };
+  }>(await callTool("get_resource_governance", {}));
+
+  assert.deepEqual(after.config.maxCounts, before.config.maxCounts);
+  assert.deepEqual(after.config.thresholds, before.config.thresholds);
+  assert.deepEqual(after.disabled.tools, before.disabled.tools);
 });

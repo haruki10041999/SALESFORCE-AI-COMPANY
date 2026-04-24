@@ -30,6 +30,16 @@ export interface TraceEntry {
   metadata: Record<string, unknown>;
 }
 
+export type ReasoningStage = "think" | "do" | "check";
+
+export interface ReasoningStep {
+  stage: ReasoningStage;
+  message: string;
+  timestamp: string;
+  agent?: string;
+  details?: string;
+}
+
 /** アクティブトレース（traceId → TraceEntry） */
 const activeTraces = new Map<string, TraceEntry>();
 
@@ -161,6 +171,134 @@ export function getActiveTraces(): TraceEntry[] {
 /** 特定 traceId のエントリを返す（完了済みも含む） */
 export function findTrace(traceId: string): TraceEntry | undefined {
   return activeTraces.get(traceId) ?? completedTraces.find((t) => t.traceId === traceId);
+}
+
+function normalizeReasoningSteps(value: unknown): ReasoningStep[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const normalized: ReasoningStep[] = [];
+  for (const step of value) {
+    if (!step || typeof step !== "object") {
+      continue;
+    }
+    const candidate = step as Partial<ReasoningStep>;
+    if (
+      (candidate.stage === "think" || candidate.stage === "do" || candidate.stage === "check") &&
+      typeof candidate.message === "string" &&
+      typeof candidate.timestamp === "string"
+    ) {
+      normalized.push({
+        stage: candidate.stage,
+        message: candidate.message,
+        timestamp: candidate.timestamp,
+        agent: typeof candidate.agent === "string" ? candidate.agent : undefined,
+        details: typeof candidate.details === "string" ? candidate.details : undefined
+      });
+    }
+  }
+
+  return normalized;
+}
+
+export function appendTraceReasoningStep(
+  traceId: string,
+  step: {
+    stage: ReasoningStage;
+    message: string;
+    agent?: string;
+    details?: string;
+  }
+): ReasoningStep[] {
+  const entry = findTrace(traceId);
+  if (!entry) {
+    throw new Error(`Trace not found: ${traceId}`);
+  }
+
+  const currentSteps = normalizeReasoningSteps(entry.metadata.reasoningSteps);
+  const newStep: ReasoningStep = {
+    stage: step.stage,
+    message: step.message,
+    timestamp: new Date().toISOString(),
+    agent: step.agent,
+    details: step.details
+  };
+
+  const nextSteps = [...currentSteps, newStep];
+  entry.metadata.reasoningSteps = nextSteps;
+  return nextSteps;
+}
+
+export function getTraceReasoningSteps(traceId: string): ReasoningStep[] {
+  const entry = findTrace(traceId);
+  if (!entry) {
+    return [];
+  }
+  return normalizeReasoningSteps(entry.metadata.reasoningSteps);
+}
+
+function stageLabel(stage: ReasoningStage): string {
+  if (stage === "think") return "Think";
+  if (stage === "do") return "Do";
+  return "Check";
+}
+
+export function renderTraceReasoningMarkdown(traceId: string): string {
+  const entry = findTrace(traceId);
+  if (!entry) {
+    return `# Trace Reasoning\n\nTrace not found: ${traceId}`;
+  }
+
+  const steps = getTraceReasoningSteps(traceId);
+  const lines: string[] = [];
+  lines.push("# Trace Reasoning");
+  lines.push("");
+  lines.push(`- traceId: ${entry.traceId}`);
+  lines.push(`- toolName: ${entry.toolName}`);
+  lines.push(`- status: ${entry.status}`);
+  lines.push(`- steps: ${steps.length}`);
+  lines.push("");
+
+  if (steps.length === 0) {
+    lines.push("No reasoning steps recorded.");
+    return lines.join("\n");
+  }
+
+  lines.push("## Sequence");
+  lines.push("");
+  for (const step of steps) {
+    const actor = step.agent ? ` (${step.agent})` : "";
+    lines.push(`- **${stageLabel(step.stage)}**${actor}: ${step.message}`);
+    if (step.details) {
+      lines.push(`  - details: ${step.details}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+export function renderTraceReasoningMermaid(traceId: string): string {
+  const entry = findTrace(traceId);
+  const steps = getTraceReasoningSteps(traceId);
+
+  const lines: string[] = [];
+  lines.push("sequenceDiagram");
+  lines.push("  participant Agent");
+  lines.push("  participant System");
+
+  if (!entry || steps.length === 0) {
+    lines.push("  Note over System: No reasoning steps recorded");
+    return lines.join("\n");
+  }
+
+  for (const step of steps) {
+    const actor = step.agent?.trim() ? step.agent.trim() : "Agent";
+    const escaped = step.message.replace(/\n/g, " ").replace(/:/g, "-");
+    lines.push(`  ${actor}->>System: ${stageLabel(step.stage)} | ${escaped}`);
+  }
+
+  return lines.join("\n");
 }
 
 export function configureTraceStorageForTest(filePath: string): void {

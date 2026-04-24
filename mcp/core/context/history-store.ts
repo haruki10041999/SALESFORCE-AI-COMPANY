@@ -33,21 +33,43 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
     retentionDays = 30
   } = deps;
 
+  function toDayFolder(isoTimestamp: string): string {
+    return isoTimestamp.slice(0, 10);
+  }
+
+  async function collectHistoryJsonFiles(dir: string): Promise<string[]> {
+    if (!existsSync(dir)) {
+      return [];
+    }
+
+    const entries = await fsPromises.readdir(dir, { withFileTypes: true });
+    const files: string[] = [];
+
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        files.push(...await collectHistoryJsonFiles(fullPath));
+        continue;
+      }
+      if (entry.isFile() && entry.name.endsWith(".json")) {
+        files.push(fullPath);
+      }
+    }
+
+    return files;
+  }
+
   async function deleteOldHistories(): Promise<{ deletedByAge: number; deletedByCount: number; remaining: number }> {
     if (!existsSync(historyDir)) {
       return { deletedByAge: 0, deletedByCount: 0, remaining: 0 };
     }
 
-    const files = await fsPromises.readdir(historyDir);
+    const files = await collectHistoryJsonFiles(historyDir);
     const sessions: Array<{ file: string; timestamp: number }> = [];
 
     for (const file of files) {
-      if (!file.endsWith(".json")) {
-        continue;
-      }
-
       try {
-        const raw = await fsPromises.readFile(join(historyDir, file), "utf-8");
+        const raw = await fsPromises.readFile(file, "utf-8");
         const parsed = JSON.parse(raw) as { timestamp?: string };
         const ts = parsed.timestamp ? new Date(parsed.timestamp).getTime() : 0;
         sessions.push({ file, timestamp: Number.isFinite(ts) ? ts : 0 });
@@ -63,7 +85,7 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
     for (const item of sessions) {
       if (item.timestamp > 0 && item.timestamp < ageThreshold) {
         try {
-          await fsPromises.unlink(join(historyDir, item.file));
+          await fsPromises.unlink(item.file);
           deletedByAge += 1;
         } catch {
           // ignore delete failures
@@ -71,11 +93,11 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
       }
     }
 
-    const remainingFiles = (await fsPromises.readdir(historyDir)).filter((file) => file.endsWith(".json"));
+    const remainingFiles = await collectHistoryJsonFiles(historyDir);
     const remainingSessions: Array<{ file: string; timestamp: number }> = [];
     for (const file of remainingFiles) {
       try {
-        const raw = await fsPromises.readFile(join(historyDir, file), "utf-8");
+        const raw = await fsPromises.readFile(file, "utf-8");
         const parsed = JSON.parse(raw) as { timestamp?: string };
         const ts = parsed.timestamp ? new Date(parsed.timestamp).getTime() : 0;
         remainingSessions.push({ file, timestamp: Number.isFinite(ts) ? ts : 0 });
@@ -88,12 +110,14 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
     const overflow = Math.max(0, remainingSessions.length - maxHistoryFiles);
     let deletedByCount = 0;
 
-    for (const item of remainingSessions.slice(-overflow)) {
-      try {
-        await fsPromises.unlink(join(historyDir, item.file));
-        deletedByCount += 1;
-      } catch {
-        // ignore delete failures
+    if (overflow > 0) {
+      for (const item of remainingSessions.slice(-overflow)) {
+        try {
+          await fsPromises.unlink(item.file);
+          deletedByCount += 1;
+        } catch {
+          // ignore delete failures
+        }
       }
     }
 
@@ -106,18 +130,21 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
 
   async function saveChatHistory(topic: string): Promise<string> {
     await ensureDir(historyDir);
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const nowIso = new Date().toISOString();
+    const timestamp = nowIso.replace(/[:.]/g, "-");
     const id = timestamp.split("T")[0] + "-" + timestamp.split("T")[1].slice(0, 6);
+    const dayDir = join(historyDir, toDayFolder(nowIso));
+    await ensureDir(dayDir);
 
     const session: ChatSession = {
       id,
-      timestamp: new Date().toISOString(),
+      timestamp: nowIso,
       topic,
       agents: [...new Set(agentLog.map((e) => e.agent))],
       entries: agentLog.filter((e) => e.topic === topic || !e.topic)
     };
 
-    const filePath = join(historyDir, id + ".json");
+    const filePath = join(dayDir, id + ".json");
     await fsPromises.writeFile(filePath, JSON.stringify(session, null, 2));
     await deleteOldHistories();
 
@@ -126,18 +153,21 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
 
   async function saveSessionHistory(topic: string, entries: AgentMessage[]): Promise<string> {
     await ensureDir(historyDir);
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const nowIso = new Date().toISOString();
+    const timestamp = nowIso.replace(/[:.]/g, "-");
     const id = timestamp.split("T")[0] + "-" + timestamp.split("T")[1].slice(0, 6);
+    const dayDir = join(historyDir, toDayFolder(nowIso));
+    await ensureDir(dayDir);
 
     const session: ChatSession = {
       id,
-      timestamp: new Date().toISOString(),
+      timestamp: nowIso,
       topic,
       agents: [...new Set(entries.map((e) => e.agent))],
       entries
     };
 
-    const filePath = join(historyDir, id + ".json");
+    const filePath = join(dayDir, id + ".json");
     await fsPromises.writeFile(filePath, JSON.stringify(session, null, 2));
     await deleteOldHistories();
 
@@ -149,17 +179,15 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
       return [];
     }
 
-    const files = await fsPromises.readdir(historyDir);
+    const files = await collectHistoryJsonFiles(historyDir);
     const sessions: ChatSession[] = [];
 
     for (const file of files) {
-      if (file.endsWith(".json")) {
-        try {
-          const content = await fsPromises.readFile(join(historyDir, file), "utf-8");
-          sessions.push(JSON.parse(content));
-        } catch {
-          // skip corrupted files
-        }
+      try {
+        const content = await fsPromises.readFile(file, "utf-8");
+        sessions.push(JSON.parse(content));
+      } catch {
+        // skip corrupted files
       }
     }
 
@@ -167,7 +195,22 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
   }
 
   async function restoreChatHistory(id: string): Promise<ChatSession | null> {
-    const filePath = join(historyDir, id + ".json");
+    const dayPrefix = id.slice(0, 10);
+    const candidatePaths = [
+      join(historyDir, dayPrefix, id + ".json"),
+      join(historyDir, id + ".json")
+    ];
+
+    let filePath = candidatePaths.find((candidate) => existsSync(candidate));
+    if (!filePath) {
+      const files = await collectHistoryJsonFiles(historyDir);
+      filePath = files.find((pathValue) => pathValue.endsWith(`\\${id}.json`) || pathValue.endsWith(`/${id}.json`));
+    }
+
+    if (!filePath) {
+      return null;
+    }
+
     try {
       const content = await fsPromises.readFile(filePath, "utf-8");
       const session = JSON.parse(content) as ChatSession;

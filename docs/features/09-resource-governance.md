@@ -88,6 +88,55 @@ auto_select_resources:
 
 ---
 
+## recommend_first_steps
+
+### 概要
+
+ユーザーの目的（`goal`）から、最初に着手しやすい候補を 4 軸で推薦します。
+
+- agents
+- skills
+- personas
+- docs/features
+
+あわせて、初動を迷わないための 3 ステップガイダンスを返します。
+
+### 入力パラメータ
+
+| パラメータ | 型 | デフォルト | 説明 |
+|---|---|---|---|
+| `goal` | string | — | 達成したい目的（例: `"Apex trigger review"`） |
+| `limitPerType` | number | `3` | 各カテゴリの返却件数上限（1〜5） |
+
+### 入力例
+
+```text
+recommend_first_steps:
+  goal: "Apex trigger review"
+  limitPerType: 3
+```
+
+### 出力例（抜粋）
+
+```json
+{
+  "goal": "Apex trigger review",
+  "selected": {
+    "agents": ["apex-developer", "qa-engineer"],
+    "skills": ["apex/apex-best-practices", "testing/apex-test-strategy"],
+    "personas": ["engineer", "detective"],
+    "docs": ["docs/features/01-static-analysis.md", "docs/features/11-metrics-benchmarks.md"]
+  },
+  "firstSteps": [
+    { "step": 1, "title": "担当エージェントを決める" },
+    { "step": 2, "title": "実装スキルを適用する" },
+    { "step": 3, "title": "関連仕様を確認する" }
+  ]
+}
+```
+
+---
+
 ## get_resource_governance
 
 ### 概要
@@ -181,6 +230,62 @@ review_resource_governance:
   updateThresholds:
     minUsageToKeep: 2
     bugSignalToFlag: 2
+```
+
+---
+
+## simulate_governance_change
+
+### 概要
+
+ガバナンス設定の変更案を dry-run で評価し、実適用前に影響範囲を確認します。
+設定は保存されず、副作用は発生しません。
+
+### 入力パラメータ
+
+| パラメータ | 型 | 説明 |
+|---|---|---|
+| `updateMaxCounts` | object | `{ skills?, tools?, presets? }` — 最大件数の変更案 |
+| `updateThresholds` | object | `{ minUsageToKeep?, bugSignalToFlag? }` — 無効化/削除候補の閾値変更案 |
+| `previewLimit` | number | 影響リソースの返却上限（1〜200、既定 50） |
+
+### 出力例（抜粋）
+
+```json
+{
+  "simulatedAt": "2026-04-24T09:00:00.000Z",
+  "deltas": {
+    "maxCounts": {
+      "tools": { "before": 150, "after": 120, "diff": -30 }
+    },
+    "thresholds": {
+      "minUsageToKeep": { "before": 2, "after": 3, "diff": 1 }
+    }
+  },
+  "impact": {
+    "recommendationDelta": { "added": 4, "removed": 1, "changed": 2 },
+    "impactedResources": [
+      {
+        "resourceType": "tools",
+        "name": "legacy_tool",
+        "before": { "recommended": false, "reasons": [] },
+        "after": { "recommended": true, "reasons": ["overflow"] }
+      }
+    ]
+  }
+}
+```
+
+### 入力例
+
+```text
+simulate_governance_change:
+  updateMaxCounts:
+    tools: 120
+  updateThresholds:
+    minUsageToKeep: 3
+    bugSignalToFlag: 2
+  previewLimit: 30
 ```
 
 ---

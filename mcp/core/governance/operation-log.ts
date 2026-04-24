@@ -1,6 +1,7 @@
 import { existsSync, promises as fsPromises } from "fs";
 import { dirname } from "path";
 import type { ResourceOperation } from "./governance-manager.js";
+import { maskUnknown } from "../logging/pii-masker.js";
 
 export interface OperationLogDeps {
   logFile: string;
@@ -28,7 +29,7 @@ export function createOperationLog(deps: OperationLogDeps) {
 
   async function appendOperationLog(op: ResourceOperation): Promise<void> {
     await ensureDir(dirname(logFile));
-    await fsPromises.appendFile(logFile, JSON.stringify(op) + "\n", "utf-8");
+    await fsPromises.appendFile(logFile, JSON.stringify(maskUnknown(op)) + "\n", "utf-8");
   }
 
   return { loadRecentOperations, appendOperationLog };

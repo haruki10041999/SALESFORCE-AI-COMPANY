@@ -50,9 +50,26 @@
 - ローカル要約: `npm run metrics:report -- --top 10`
 - ローカル可視化: `npm run metrics:dashboard`
 - HTML 出力: `outputs/reports/metrics-dashboard.html`
+- ベンチ実行: `npm run benchmark:run`
+- ベンチ出力: `outputs/reports/benchmark-suite.json`
 - GitHub Pages 公開: `Metrics Dashboard Publish` ワークフロー
 
-## 7. 提案ログ学習フィードバック
+## 7. ベンチスイート評価
+
+`benchmark-suite.json` では以下を確認する。
+
+- `overallScore`: 総合スコア（0〜100）
+- `grade`: `A/B/C/D` の評価ランク
+- `metricsSnapshot.successRate`: 成功率
+- `metricsSnapshot.p95DurationMs`: p95 遅延
+- `recommendations`: 優先改善提案
+
+運用目安:
+
+- `grade` が `B` 未満になった場合は、失敗率増加と遅延増加のどちらが主因かを `metricsSnapshot` で切り分ける。
+- `recommendations` に retry/timeout 見直しが出た場合は、外部依存呼び出しを優先して確認する。
+
+## 8. 提案ログ学習フィードバック
 
 `proposal_feedback_learn` は提案の採用/不採用を学習し、
 `search_resources` / `auto_select_resources` のスコアへ補正を適用します。

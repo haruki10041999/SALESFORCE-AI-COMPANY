@@ -1,5 +1,8 @@
 import { existsSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { createLogger } from "../logging/logger.js";
+
+const logger = createLogger("OutputsCleanup");
 
 export type CleanupOptions = {
   days: number;
@@ -88,7 +91,7 @@ export function cleanupDirectory(dirPath: string, thresholdDays: number, dryRun:
       console.log(`[cleanup][removed] ${filePath} (age=${days}d)`);
       removed += 1;
     } catch (error) {
-      console.warn(`[cleanup][warn] failed to remove ${filePath}: ${String(error)}`);
+      logger.warn("failed to remove file", { filePath, error: String(error) });
     }
   }
 

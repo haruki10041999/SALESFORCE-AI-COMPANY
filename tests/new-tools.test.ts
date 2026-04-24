@@ -160,3 +160,40 @@ test("metrics samples persist to disk", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("summarizeMetrics and benchmark suite remain stable with high trace volume", () => {
+  const root = mkdtempSync(join(tmpdir(), "sf-ai-trace-stress-test-"));
+  const filePath = join(root, "trace-log.jsonl");
+
+  try {
+    configureTraceStorageForTest(filePath);
+    clearTraceStorageForTest();
+
+    // Generate a high number of traces to emulate stress conditions.
+    for (let i = 0; i < 700; i += 1) {
+      const traceId = startTrace(`stress_tool_${i % 7}`);
+      if (i % 10 === 0) {
+        failTrace(traceId, new Error("stress error"));
+      } else {
+        endTrace(traceId);
+      }
+    }
+
+    const summary = summarizeMetrics({ limit: 1000 });
+    assert.ok(summary.completedCount > 0);
+    assert.ok(summary.completedCount <= 500);
+    assert.ok(summary.successRate >= 0 && summary.successRate <= 1);
+    assert.ok(summary.errorRate >= 0 && summary.errorRate <= 1);
+
+    const benchmark = runBenchmarkSuite({
+      scenarios: ["stress-chat", "stress-orchestration", "stress-governance"],
+      recentTraceLimit: 1000
+    });
+    assert.equal(typeof benchmark.overallScore, "number");
+    assert.ok(["A", "B", "C", "D"].includes(benchmark.grade));
+    assert.ok(benchmark.cases.length === 3);
+  } finally {
+    clearTraceStorageForTest();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

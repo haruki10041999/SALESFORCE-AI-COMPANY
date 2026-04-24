@@ -1,7 +1,7 @@
 # ログ・履歴ツール
 
 エージェント発言の記録・参照・会話履歴の保存/復元・Markdown エクスポート・トレンド分析を行うツール群です。
-記録はメモリ上のログ配列（`agentLog`）に保持され、`save_chat_history` で `outputs/history/` に永続化されます。
+記録はメモリ上のログ配列（`agentLog`）に保持され、`save_chat_history` で `outputs/history/YYYY-MM-DD/` に永続化されます。
 
 ---
 
@@ -53,6 +53,39 @@
   }
 ]
 ```
+
+---
+
+## record_reasoning_step
+
+### 概要
+
+`traceId` に対して Think / Do / Check の推論ステップを構造化記録します。
+
+### 入力パラメータ
+
+| パラメータ | 型 | 必須 | 説明 |
+|---|---|---|---|
+| `traceId` | string | ✓ | 対象トレース ID |
+| `stage` | string | ✓ | `think` / `do` / `check` |
+| `message` | string | ✓ | ステップ内容 |
+| `agent` | string | — | 実行したエージェント名 |
+| `details` | string | — | 補足情報 |
+
+---
+
+## get_trace_reasoning
+
+### 概要
+
+記録済み推論ステップを `json` / `markdown` / `mermaid`（または `all`）で取得します。
+
+### 入力パラメータ
+
+| パラメータ | 型 | 必須 | 説明 |
+|---|---|---|---|
+| `traceId` | string | ✓ | 対象トレース ID |
+| `format` | string | — | `json` / `markdown` / `mermaid` / `all` |
 
 ---
 
@@ -116,7 +149,7 @@ parse_and_record_chat:
 
 ### 概要
 
-現在のメモリログを `outputs/history/<id>.json` に保存します。
+現在のメモリログを `outputs/history/YYYY-MM-DD/<id>.json` に保存します。
 保存後は `history_saved` システムイベントが発行されます。
 
 ### 入力パラメータ

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, promises as fsPromises } from "fs";
 import { join, relative } from "path";
+import { getPromptCacheMaxEntries, getPromptCacheTtlSeconds } from "../config/runtime-config.js";
 
 interface BuildChatPromptDeps {
   root: string;
@@ -27,8 +28,8 @@ interface BuildChatPromptInput {
  * - PROMPT_CACHE_TTL_SECONDS: cache TTL in seconds (default: 60)
  */
 function getPromptCacheConfig(): { maxEntries: number; ttlMs: number } {
-  const maxEntries = Math.max(1, parseInt(process.env.PROMPT_CACHE_MAX_ENTRIES || "100", 10));
-  const ttlSeconds = Math.max(1, parseInt(process.env.PROMPT_CACHE_TTL_SECONDS || "60", 10));
+  const maxEntries = getPromptCacheMaxEntries();
+  const ttlSeconds = getPromptCacheTtlSeconds();
   return {
     maxEntries,
     ttlMs: ttlSeconds * 1000
@@ -37,6 +38,41 @@ function getPromptCacheConfig(): { maxEntries: number; ttlMs: number } {
 
 const promptCache = new Map<string, { prompt: string; createdAt: number }>();
 
+// Cache metrics for monitoring
+export interface PromptCacheMetrics {
+  hits: number;
+  misses: number;
+  evictions: number;
+  expirations: number;
+  size: number;
+  maxSize: number;
+}
+
+let cacheMetrics = {
+  hits: 0,
+  misses: 0,
+  evictions: 0,
+  expirations: 0
+};
+
+export function getPromptCacheMetrics(): PromptCacheMetrics {
+  const { maxEntries } = getPromptCacheConfig();
+  return {
+    ...cacheMetrics,
+    size: promptCache.size,
+    maxSize: maxEntries
+  };
+}
+
+export function resetPromptCacheMetrics(): void {
+  cacheMetrics = {
+    hits: 0,
+    misses: 0,
+    evictions: 0,
+    expirations: 0
+  };
+}
+
 function createPromptCacheKey(input: BuildChatPromptInput, root: string): string {
   return JSON.stringify({ root, ...input });
 }
@@ -44,13 +80,17 @@ function createPromptCacheKey(input: BuildChatPromptInput, root: string): string
 function getCachedPrompt(cacheKey: string): string | null {
   const cached = promptCache.get(cacheKey);
   if (!cached) {
+    cacheMetrics.misses++;
     return null;
   }
   const { ttlMs } = getPromptCacheConfig();
   if (Date.now() - cached.createdAt > ttlMs) {
     promptCache.delete(cacheKey);
+    cacheMetrics.misses++;
+    cacheMetrics.expirations++;
     return null;
   }
+  cacheMetrics.hits++;
   return cached.prompt;
 }
 
@@ -60,6 +100,7 @@ function setCachedPrompt(cacheKey: string, prompt: string): void {
     const oldestKey = promptCache.keys().next().value;
     if (oldestKey) {
       promptCache.delete(oldestKey);
+      cacheMetrics.evictions++;
     }
   }
   promptCache.set(cacheKey, { prompt, createdAt: Date.now() });
@@ -67,6 +108,57 @@ function setCachedPrompt(cacheKey: string, prompt: string): void {
 
 export function clearBuildChatPromptCache(): void {
   promptCache.clear();
+}
+
+/**
+ * Invalidate cache entries matching a pattern based on input attributes.
+ * Useful when specific agents, skills, or file paths change.
+ * @param pattern - Partial input object to match for invalidation
+ * @example
+ * invalidateBuildChatPromptCache({ agentNames: ["agent1"] });
+ */
+export function invalidateBuildChatPromptCache(pattern: Partial<BuildChatPromptInput>): void {
+  const keysToDelete: string[] = [];
+  for (const [key, value] of promptCache.entries()) {
+    try {
+      const cached = JSON.parse(key) as { root: string } & BuildChatPromptInput;
+      // Check if any pattern field matches
+      let matches = true;
+      for (const [patternKey, patternValue] of Object.entries(pattern)) {
+        if (patternKey === "agentNames" && Array.isArray(patternValue)) {
+          // Invalidate if ANY of the pattern agents are in the cached key
+          const hasAny = patternValue.some((agent: string) => 
+            (cached.agentNames || []).includes(agent)
+          );
+          if (!hasAny) matches = false;
+        } else if (patternKey === "skillNames" && Array.isArray(patternValue)) {
+          // Invalidate if ANY of the pattern skills are in the cached key
+          const hasAny = patternValue.some((skill: string) => 
+            (cached.skillNames || []).includes(skill)
+          );
+          if (!hasAny) matches = false;
+        } else if (patternKey === "personaName" && patternValue === cached.personaName) {
+          matches = true;
+        } else if (patternKey === "topic" && patternValue === cached.topic) {
+          matches = true;
+        } else if (patternKey === "filePaths" && Array.isArray(patternValue)) {
+          // Invalidate if ANY of the pattern paths are in the cached key
+          const hasAny = patternValue.some((path: string) => 
+            (cached.filePaths || []).includes(path)
+          );
+          if (!hasAny) matches = false;
+        }
+      }
+      if (matches) {
+        keysToDelete.push(key);
+      }
+    } catch {
+      // Skip invalid cache keys
+    }
+  }
+  for (const key of keysToDelete) {
+    promptCache.delete(key);
+  }
 }
 
 export async function buildChatPromptFromContext(

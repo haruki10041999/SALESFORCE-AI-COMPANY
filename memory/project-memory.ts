@@ -2,11 +2,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
+import { createLogger } from "../mcp/core/logging/logger.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_MEMORY_FILE = join(ROOT, "outputs", "memory.jsonl");
 
 const memory: string[] = [];
+const logger = createLogger("ProjectMemory");
 let storageFilePath = process.env.SF_AI_MEMORY_FILE ?? DEFAULT_MEMORY_FILE;
 let maxRecords = Number.parseInt(process.env.SF_AI_MEMORY_MAX_RECORDS ?? "2000", 10);
 let maxBytes = Number.parseInt(process.env.SF_AI_MEMORY_MAX_BYTES ?? `${1024 * 1024}`, 10);
@@ -40,7 +42,7 @@ function archivePayloadIfNeeded(payload: string): string {
     writeFileSync(archivePath, gzipSync(payload));
   } catch (error) {
     // Log archive write failures for operational visibility
-    console.warn(`[project-memory] archive failed: ${String(error)}`);
+    logger.warn("archive failed", { error: String(error) });
   }
 
   const keep = Math.max(10, Math.floor(maxRecords / 2));

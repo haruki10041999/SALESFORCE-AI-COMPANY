@@ -1,4 +1,5 @@
 import { getActiveTraces, getCompletedTraces } from "../core/trace/trace-context.js";
+import { getPromptCacheMetrics } from "../core/context/chat-prompt-builder.js";
 
 export type MetricsSummaryInput = {
   limit?: number;
@@ -12,6 +13,15 @@ export type MetricsSummaryResult = {
   averageDurationMs: number;
   p95DurationMs: number;
   slowest: Array<{ traceId: string; toolName: string; durationMs: number; status: "success" | "error" }>;
+  promptCache?: {
+    hits: number;
+    misses: number;
+    hitRate: number;
+    evictions: number;
+    expirations: number;
+    size: number;
+    maxSize: number;
+  };
 };
 
 function percentile(sorted: number[], p: number): number {
@@ -56,6 +66,11 @@ export function summarizeMetrics(input: MetricsSummaryInput = {}): MetricsSummar
   const successRate = completedCount === 0 ? 0 : Number((success / completedCount).toFixed(3));
   const errorRate = completedCount === 0 ? 0 : Number((errors / completedCount).toFixed(3));
 
+  // Get prompt cache metrics
+  const cacheMetrics = getPromptCacheMetrics();
+  const totalCacheOps = cacheMetrics.hits + cacheMetrics.misses;
+  const hitRate = totalCacheOps === 0 ? 0 : Number((cacheMetrics.hits / totalCacheOps).toFixed(3));
+
   return {
     activeCount: active.length,
     completedCount,
@@ -63,6 +78,15 @@ export function summarizeMetrics(input: MetricsSummaryInput = {}): MetricsSummar
     errorRate,
     averageDurationMs: avg,
     p95DurationMs: p95,
-    slowest
+    slowest,
+    promptCache: {
+      hits: cacheMetrics.hits,
+      misses: cacheMetrics.misses,
+      hitRate,
+      evictions: cacheMetrics.evictions,
+      expirations: cacheMetrics.expirations,
+      size: cacheMetrics.size,
+      maxSize: cacheMetrics.maxSize
+    }
   };
 }

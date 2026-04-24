@@ -17,4 +17,9 @@ export interface OrchestrationSession {
   queue: string[];
   history: AgentMessage[];
   firedRules: string[];
+  agentTrust: Record<string, {
+    accepted: number;
+    rejected: number;
+    feedbackSignal: number;
+  }>;
 }

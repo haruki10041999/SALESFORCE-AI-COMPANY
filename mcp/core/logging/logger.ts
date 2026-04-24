@@ -1,5 +1,7 @@
 export type LogLevel = "error" | "warn" | "info" | "debug";
 
+import { maskLogMessage, maskUnknown } from "./pii-masker.js";
+
 const LOG_LEVEL_ORDER: Record<LogLevel, number> = {
   error: 0,
   warn: 1,
@@ -36,22 +38,38 @@ export function createLogger(scope: string, configuredLevel?: string): Logger {
   return {
     error(message: string, ...args: unknown[]): void {
       if (shouldLog(level, "error")) {
-        console.error(formatLogPrefix("error", scope), message, ...args);
+        console.error(
+          formatLogPrefix("error", scope),
+          maskLogMessage(message),
+          ...args.map((arg) => maskUnknown(arg))
+        );
       }
     },
     warn(message: string, ...args: unknown[]): void {
       if (shouldLog(level, "warn")) {
-        console.warn(formatLogPrefix("warn", scope), message, ...args);
+        console.warn(
+          formatLogPrefix("warn", scope),
+          maskLogMessage(message),
+          ...args.map((arg) => maskUnknown(arg))
+        );
       }
     },
     info(message: string, ...args: unknown[]): void {
       if (shouldLog(level, "info")) {
-        console.info(formatLogPrefix("info", scope), message, ...args);
+        console.info(
+          formatLogPrefix("info", scope),
+          maskLogMessage(message),
+          ...args.map((arg) => maskUnknown(arg))
+        );
       }
     },
     debug(message: string, ...args: unknown[]): void {
       if (shouldLog(level, "debug")) {
-        console.debug(formatLogPrefix("debug", scope), message, ...args);
+        console.debug(
+          formatLogPrefix("debug", scope),
+          maskLogMessage(message),
+          ...args.map((arg) => maskUnknown(arg))
+        );
       }
     }
   };

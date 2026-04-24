@@ -40,6 +40,9 @@ let hasError = false;
 let warningCount = 0;
 
 log("INFO", `outputs dir: ${OUTPUTS_DIR}`);
+log("INFO", `AI_LOW_RELEVANCE_THRESHOLD=${process.env.AI_LOW_RELEVANCE_THRESHOLD ?? process.env.LOW_RELEVANCE_SCORE_THRESHOLD ?? "6"}`);
+log("INFO", `AI_PROMPT_CACHE_MAX_ENTRIES=${process.env.AI_PROMPT_CACHE_MAX_ENTRIES ?? process.env.PROMPT_CACHE_MAX_ENTRIES ?? "100"}`);
+log("INFO", `AI_PROMPT_CACHE_TTL_SECONDS=${process.env.AI_PROMPT_CACHE_TTL_SECONDS ?? process.env.PROMPT_CACHE_TTL_SECONDS ?? "60"}`);
 
 if (!existsSync(OUTPUTS_DIR)) {
   hasError = true;

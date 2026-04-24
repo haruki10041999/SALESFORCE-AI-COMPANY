@@ -19,6 +19,14 @@
 | `outputs/audit/` | 操作の監査ログ | 誰が何をしたか確認するとき |
 | `outputs/tool-proposals/` | 提案学習ログ | 推薦精度の分析をするとき |
 
+### `outputs/history/` の日別運用
+
+- チャット履歴は `outputs/history/YYYY-MM-DD/<historyId>.json` に保存されます。
+- 日次アーカイブは `npm run history:archive -- --date=YYYY-MM-DD` で実行します。
+- アーカイブ実行後は次が生成されます。
+	- `outputs/history/archive/YYYY-MM-DD.json`
+	- `outputs/history/archive/YYYY-MM-DD-summary.md`
+
 ## 削除してよいもの・だめなもの
 
 ### 基本ルール

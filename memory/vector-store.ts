@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
+import { createLogger } from "../mcp/core/logging/logger.js";
 
 export type MemoryRecord = {
   id: string;
@@ -17,6 +18,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_VECTOR_STORE_FILE = join(ROOT, "outputs", "vector-store.jsonl");
 
 const records: MemoryRecord[] = [];
+const logger = createLogger("VectorStore");
 let storageFilePath = process.env.SF_AI_VECTOR_STORE_FILE ?? DEFAULT_VECTOR_STORE_FILE;
 let maxRecords = Number.parseInt(process.env.SF_AI_VECTOR_MAX_RECORDS ?? "5000", 10);
 let maxBytes = Number.parseInt(process.env.SF_AI_VECTOR_MAX_BYTES ?? `${2 * 1024 * 1024}`, 10);
@@ -41,7 +43,7 @@ function applyRetention(): void {
 
   if (records.length > 10000 && !warnedLargeStore) {
     warnedLargeStore = true;
-    console.warn("[vector-store] records exceed 10000; consider raising storage limits carefully or pruning old entries.");
+    logger.warn("records exceed 10000; consider raising storage limits carefully or pruning old entries.");
   }
 }
 

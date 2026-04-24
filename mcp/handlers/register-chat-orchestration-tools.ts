@@ -3,6 +3,15 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { TriggerRule, AgentMessage, OrchestrationSession } from "../core/types/index.js";
 import type { RegisterGovToolDeps } from "./types.js";
+import {
+  evaluateAgentTrust,
+  rankEscalationCandidates
+} from "../core/quality/agent-trust-score.js";
+import {
+  getAgentTrustScoringEnabled,
+  getAgentTrustThreshold
+} from "../core/config/runtime-config.js";
+import { endTrace, failTrace, startTrace } from "../core/trace/trace-context.js";
 
 interface RegisterChatOrchestrationToolsDeps extends RegisterGovToolDeps {
   chatInputSchema: Record<string, unknown>;
@@ -160,7 +169,8 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
         triggerRules: triggerRules ?? [],
         queue: [...selectedAgents],
         history: [],
-        firedRules: []
+        firedRules: [],
+        agentTrust: {}
       };
       orchestrationSessions.set(sessionId, session);
 
@@ -196,15 +206,23 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
         lastAgent: z.string(),
         lastMessage: z.string(),
         triggerRules: z.array(triggerRuleSchema).optional(),
-        fallbackRoundRobin: z.boolean().optional()
+        fallbackRoundRobin: z.boolean().optional(),
+        enableTrustScoring: z.boolean().optional(),
+        trustThreshold: z.number().min(0).max(1).optional(),
+        agentFeedback: z.enum(["accept", "reject", "neutral"]).optional(),
+        maxEscalations: z.number().int().min(1).max(3).optional()
       }
     },
-    async ({ sessionId, lastAgent, lastMessage, triggerRules, fallbackRoundRobin }: {
+    async ({ sessionId, lastAgent, lastMessage, triggerRules, fallbackRoundRobin, enableTrustScoring, trustThreshold, agentFeedback, maxEscalations }: {
       sessionId?: string;
       lastAgent: string;
       lastMessage: string;
       triggerRules?: TriggerRule[];
       fallbackRoundRobin?: boolean;
+      enableTrustScoring?: boolean;
+      trustThreshold?: number;
+      agentFeedback?: "accept" | "reject" | "neutral";
+      maxEscalations?: number;
     }) => {
       let rules = triggerRules ?? [];
       let session: OrchestrationSession | undefined;
@@ -226,12 +244,84 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
 
       const hookResult = evaluatePseudoHooks(lastAgent, lastMessage, rules, firedRules);
       let nextAgents = [...hookResult.nextAgents];
+      let escalatedAgents: string[] = [];
+      const trustScoringEnabled = enableTrustScoring ?? getAgentTrustScoringEnabled();
+      const effectiveThreshold = trustThreshold ?? getAgentTrustThreshold();
+      let trustTraceId: string | null = null;
+      let trustEvaluation: ReturnType<typeof evaluateAgentTrust> | null = null;
 
       if (session && (fallbackRoundRobin ?? true) && nextAgents.length === 0 && session.agents.length > 0) {
         const idx = session.agents.indexOf(lastAgent);
         const nextIndex = idx >= 0 ? (idx + 1) % session.agents.length : 0;
         roundRobinNext = session.agents[nextIndex];
         nextAgents = [roundRobinNext];
+      }
+
+      if (session) {
+        const currentTrust = session.agentTrust[lastAgent] ?? {
+          accepted: 0,
+          rejected: 0,
+          feedbackSignal: 0
+        };
+
+        if (agentFeedback === "accept") {
+          currentTrust.accepted += 1;
+          currentTrust.feedbackSignal = Math.min(1, currentTrust.feedbackSignal + 0.25);
+        } else if (agentFeedback === "reject") {
+          currentTrust.rejected += 1;
+          currentTrust.feedbackSignal = Math.max(-1, currentTrust.feedbackSignal - 0.25);
+        } else if (nextAgents.length > 0) {
+          currentTrust.accepted += 1;
+        } else {
+          currentTrust.rejected += 1;
+        }
+
+        if (trustScoringEnabled) {
+          trustTraceId = startTrace("agent_trust_evaluation", {
+            sessionId: session.id,
+            lastAgent
+          });
+          try {
+            trustEvaluation = evaluateAgentTrust({
+              topic: session.topic,
+              message: lastMessage,
+              history: {
+                accepted: currentTrust.accepted,
+                rejected: currentTrust.rejected
+              },
+              feedbackSignal: currentTrust.feedbackSignal,
+              threshold: effectiveThreshold
+            });
+
+            if (trustEvaluation.belowThreshold && session.agents.length > 1) {
+              const ranked = rankEscalationCandidates(
+                session.agents,
+                session.topic,
+                lastMessage,
+                [lastAgent, ...nextAgents]
+              );
+              const escalations = ranked.slice(0, maxEscalations ?? 1);
+              if (escalations.length > 0) {
+                escalatedAgents = escalations;
+                nextAgents = [...nextAgents, ...escalations];
+              }
+            }
+
+            endTrace(trustTraceId, {
+              sessionId: session.id,
+              lastAgent,
+              trustScore: trustEvaluation.score,
+              trustThreshold: trustEvaluation.threshold,
+              belowThreshold: trustEvaluation.belowThreshold,
+              factors: trustEvaluation.factors,
+              escalatedAgents
+            });
+          } catch (error) {
+            failTrace(trustTraceId, error);
+          }
+        }
+
+        session.agentTrust[lastAgent] = currentTrust;
       }
 
       if (session) {
@@ -253,7 +343,20 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
         nextAgents,
         reasons: hookResult.reasons,
         usedRoundRobinFallback: roundRobinNext !== null,
-        queueLength: session ? session.queue.length : null
+        queueLength: session ? session.queue.length : null,
+        trustScoring: trustEvaluation
+          ? {
+            enabled: true,
+            score: trustEvaluation.score,
+            threshold: trustEvaluation.threshold,
+            belowThreshold: trustEvaluation.belowThreshold,
+            reasons: trustEvaluation.reasons,
+            escalatedAgents
+          }
+          : {
+            enabled: trustScoringEnabled,
+            escalatedAgents
+          }
       });
 
       return {
@@ -266,7 +369,20 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
                 nextAgents,
                 reasons: hookResult.reasons,
                 usedRoundRobinFallback: roundRobinNext !== null,
-                queueLength: session ? session.queue.length : null
+                queueLength: session ? session.queue.length : null,
+                trustScoring: trustEvaluation
+                  ? {
+                    enabled: true,
+                    score: trustEvaluation.score,
+                    threshold: trustEvaluation.threshold,
+                    belowThreshold: trustEvaluation.belowThreshold,
+                    reasons: trustEvaluation.reasons,
+                    escalatedAgents
+                  }
+                  : {
+                    enabled: trustScoringEnabled,
+                    escalatedAgents
+                  }
               },
               null,
               2

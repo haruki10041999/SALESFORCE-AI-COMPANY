@@ -1,6 +1,7 @@
 ﻿import { z } from "zod";
 import { join, resolve } from "node:path";
 import type { GovernanceState, GovernedResourceType } from "../core/governance/governance-state.js";
+import { simulateGovernanceChange } from "../tools/simulate-governance-change.js";
 import {
   appendProposalFeedback,
   buildProposalFeedbackModel,
@@ -304,6 +305,64 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
               resourceLimits: state.config.resourceLimits,
               recommendations
             }, null, 2)
+          }
+        ]
+      };
+    }
+  );
+
+  govTool(
+    "simulate_governance_change",
+    {
+      title: "ガバナンス変更シミュレーション",
+      description: "ガバナンス設定変更を dry-run 評価し、影響リソースと現状との差分を返します。",
+      inputSchema: {
+        updateMaxCounts: z.object({
+          skills: z.number().int().min(1).max(200).optional(),
+          tools: z.number().int().min(1).max(200).optional(),
+          presets: z.number().int().min(1).max(200).optional()
+        }).optional(),
+        updateThresholds: z.object({
+          minUsageToKeep: z.number().int().min(0).max(100).optional(),
+          bugSignalToFlag: z.number().int().min(0).max(100).optional()
+        }).optional(),
+        previewLimit: z.number().int().min(1).max(200).optional()
+      }
+    },
+    async ({
+      updateMaxCounts,
+      updateThresholds,
+      previewLimit
+    }: {
+      updateMaxCounts?: { skills?: number; tools?: number; presets?: number };
+      updateThresholds?: { minUsageToKeep?: number; bugSignalToFlag?: number };
+      previewLimit?: number;
+    }) => {
+      const state = await loadGovernanceState();
+      const counts = await getCatalogCounts(state);
+      const catalogs: Record<GovernedResourceType, string[]> = {
+        skills: await listSkillsCatalog(),
+        tools: listToolsCatalog(state),
+        presets: await listPresetsCatalog()
+      };
+
+      const simulated = simulateGovernanceChange({
+        state,
+        catalogs,
+        counts,
+        resourceScore,
+        patch: {
+          updateMaxCounts,
+          updateThresholds
+        },
+        previewLimit
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(simulated, null, 2)
           }
         ]
       };

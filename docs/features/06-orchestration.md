@@ -94,6 +94,10 @@ orchestrate_chat:
 | `lastAgent` | string | ✓ | 直前に発言したエージェント名 |
 | `lastMessage` | string | ✓ | 直前の発言内容 |
 | `fallbackRoundRobin` | boolean | — | トリガーが発火しなかった場合に次のエージェントをラウンドロビンで追加するか |
+| `enableTrustScoring` | boolean | — | エージェント信頼スコアを有効化するか（既定: 無効） |
+| `trustThreshold` | number | — | 信頼スコアの閾値（0.0〜1.0, 既定: 0.55） |
+| `agentFeedback` | string | — | 現ターンの明示フィードバック（`accept` / `reject` / `neutral`） |
+| `maxEscalations` | number | — | 低信頼時に追加するエスカレーション候補数（1〜3） |
 
 ### 出力フィールド
 
@@ -102,6 +106,7 @@ orchestrate_chat:
 | `triggered` | string[] | 新たにキューに追加されたエージェント名 |
 | `reasons` | string[] | 各トリガーの理由 |
 | `queue` | string[] | 更新後のエージェントキュー |
+| `trustScoring` | object | 信頼スコア、閾値、エスカレーション結果 |
 
 ### 入力例
 
@@ -111,6 +116,9 @@ evaluate_triggers:
   lastAgent: "architect"
   lastMessage: "この実装には追加のテストが必要です"
   fallbackRoundRobin: true
+  enableTrustScoring: true
+  trustThreshold: 0.7
+  agentFeedback: "reject"
 ```
 
 ---

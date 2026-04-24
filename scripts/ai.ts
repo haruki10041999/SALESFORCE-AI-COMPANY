@@ -39,6 +39,21 @@ const COMMANDS: Record<string, CliCommand> = {
     script: "metrics:dashboard",
     description: "メトリクス可視化 HTML を生成"
   },
+  "history:archive": {
+    script: "history:archive",
+    description: "日別チャット履歴をアーカイブし要約を生成",
+    passThroughArgs: true
+  },
+  "test:matrix": {
+    script: "test:matrix",
+    description: "ツールとテストの対応表を出力",
+    passThroughArgs: true
+  },
+  "logs:remask": {
+    script: "logs:remask",
+    description: "既存ログのPIIを再マスク",
+    passThroughArgs: true
+  },
   "metrics:seed": {
     script: "metrics:seed",
     description: "サンプルメトリクスを投入"
