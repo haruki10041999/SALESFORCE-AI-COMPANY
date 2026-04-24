@@ -133,9 +133,8 @@ test("property: computeAdoptionRate is in [0,1]", () => {
     fc.property(
       fc.nat(50),
       fc.nat(50),
-      fc.float({ min: -1, max: 1, noNaN: true }),
-      (accepted, rejected, feedback) => {
-        const rate = computeAdoptionRate({ accepted, rejected, feedbackSignal: feedback });
+      (accepted, rejected) => {
+        const rate = computeAdoptionRate({ accepted, rejected });
         return rate >= 0 && rate <= 1;
       }
     ),
@@ -167,7 +166,8 @@ test("property: evaluateAgentTrust score always in [0,1]", () => {
         const result = evaluateAgentTrust({
           topic,
           message,
-          history: { accepted, rejected, feedbackSignal: signal },
+          history: { accepted, rejected },
+          feedbackSignal: signal,
           threshold,
           synergyBonus: synergy
         });
@@ -189,13 +189,13 @@ test("property: synergyBonus monotonically increases (or keeps) trust score", ()
         const without = evaluateAgentTrust({
           topic,
           message: topic,
-          history: { accepted, rejected, feedbackSignal: 0 },
+          history: { accepted, rejected },
           threshold: 0.5
         });
         const withBonus = evaluateAgentTrust({
           topic,
           message: topic,
-          history: { accepted, rejected, feedbackSignal: 0 },
+          history: { accepted, rejected },
           threshold: 0.5,
           synergyBonus: base
         });
