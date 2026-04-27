@@ -9,6 +9,7 @@
 - **全体像**: README（このファイル）
 - **アーキテクチャ**: [docs/system-architecture-with-uml.md](docs/system-architecture-with-uml.md)
 - **ドキュメント索引**: [docs/documentation-map.md](docs/documentation-map.md)
+- **学習の仕組み**: [docs/learning-guide.md](docs/learning-guide.md)
 
 ## 🏗️ システム構成
 
@@ -158,6 +159,7 @@ npm run metrics:dashboard
 - 開発者向け: [docs/developer-guide.md](docs/developer-guide.md)
 - 運用担当者向け: [docs/operations-guide.md](docs/operations-guide.md)
 - 技術仕様: [docs/architecture.md](docs/architecture.md)
+- 学習の仕組み: [docs/learning-guide.md](docs/learning-guide.md)
 
 ## 🐛 トラブルシューティング
 

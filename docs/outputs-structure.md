@@ -115,9 +115,9 @@ npm run outputs:version -- restore --snapshot <snapshot-id>
 | `outputs/sessions/<sessionId>.json` | JSON | `orchestrate_chat` 開始時 + `evaluate_triggers` / `dequeue_next_agent` で更新 | `mcp/core/context/orchestration-session-store.ts` |
 | `outputs/presets/<name>/v<n>.json`, `latest.json` | JSON | `create_preset` / `update_preset` 実行時 | `mcp/core/context/preset-store.ts` |
 | `outputs/audit/*.jsonl` | JSONL (追記) | `apply_resource_actions` の監査ログ書き込み時 | `mcp/handlers/register-resource-action-tools.ts` |
-| `outputs/tool-proposals/*.jsonl` / `proposal-model.json` | JSONL + JSON | 提案フィードバック (`record_resource_signal` など) 実行時 | `mcp/core/resource/proposal-feedback.ts` |
-| `outputs/skill-rating/*.jsonl` / model | JSONL + JSON | スキル評価フィードバック更新時 | `mcp/core/resource/skill-rating.ts` |
-| `outputs/query-skill-incremental.jsonl` / model | JSONL + JSON | `auto_select_resources` 等の漸進学習時 | `mcp/core/resource/query-skill-incremental.ts` |
+| `outputs/tool-proposals/proposal-feedback.jsonl` / `proposal-feedback-model.json` | JSONL + JSON | `proposal_feedback_learn` 実行時 | `mcp/core/resource/proposal-feedback.ts` |
+| `outputs/reports/skill-rating.jsonl` / `skill-rating.json` / `skill-rating.md` | JSONL + JSON + Markdown | `record_skill_rating` / `get_skill_rating_report` 実行時 | `mcp/core/resource/skill-rating.ts`, `mcp/handlers/register-resource-search-tools.ts` |
+| `outputs/tool-proposals/query-skill-feedback.jsonl` / `query-skill-model.json` | JSONL + JSON | `proposal_feedback_learn` 実行時。skills 提案の `topic` を query として漸進学習 | `mcp/core/resource/query-skill-incremental.ts`, `mcp/handlers/register-resource-governance-tools.ts` |
 | `outputs/agent-trust-histories.json` | JSON | `agent_ab_test` の trust 反映時 / `applyAbTestOutcome` 呼び出し時 | `mcp/core/quality/agent-trust-store.ts` |
 | `outputs/dashboards/observability.{html,md,json}` | 各形式 | `observability_dashboard` ツール実行時のみ (TASK-044) | `mcp/handlers/register-analytics-tools.ts` |
 | `outputs/reports/benchmark-suite.json` | JSON | `npm run benchmark:run` または `benchmark_suite` ツール実行時 | `scripts/benchmark-suite.ts` |
