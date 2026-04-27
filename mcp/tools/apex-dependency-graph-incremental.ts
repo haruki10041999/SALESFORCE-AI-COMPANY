@@ -54,7 +54,7 @@ export type ApexDependencyGraphIncrementalResult = ApexDependencyGraphResult & {
   };
 };
 
-type CachePayload = {
+export type CachePayload = {
   generatedAt: string;
   rootDir: string;
   files: FileFingerprint[];

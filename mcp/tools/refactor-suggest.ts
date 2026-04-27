@@ -9,17 +9,24 @@
  *  - deep-nesting:       任意行のインデント深度が `maxNestingDepth` 超
  *  - duplicate-literal:  同一文字列リテラルが `minLiteralOccurrences` 回以上
  *  - magic-number:       `0`/`1`/`-1` 以外の数値リテラルが `minMagicOccurrences` 回以上
+ *  - god-class:          F-12 単一クラスのメソッド数が `maxMethodsPerClass` 超
+ *  - soql-dml-overload:  F-12 単一ファイルの SOQL+DML 合計が `maxSoqlDmlPerFile` 超
  *
  * すべて正規表現ベースの軽量解析であり、AST 解析の精度は持たない代わりに
  * 高速で依存もない。ガバナンス通過後に重い静的解析へエスカレーションする
- * 「一次フィルタ」として位置づける。
+ * 「一次フィルタ」として位置づける。F-12 では Apex AST (`analyzeApexSource`)
+ * を併用してより精度の高いシグナル (god-class / soql-dml-overload) を加える。
  */
+
+import { analyzeApexSource } from "../core/parsers/apex-ast.js";
 
 export type RefactorSuggestionKind =
   | "long-method"
   | "deep-nesting"
   | "duplicate-literal"
-  | "magic-number";
+  | "magic-number"
+  | "god-class"
+  | "soql-dml-overload";
 
 export type RefactorSuggestion = {
   kind: RefactorSuggestionKind;
@@ -39,6 +46,10 @@ export type RefactorSuggestInput = {
   maxNestingDepth?: number;
   minLiteralOccurrences?: number;
   minMagicOccurrences?: number;
+  /** F-12: 単一クラスのメソッド数上限 (既定 20)。AST が利用可能な場合のみ評価。 */
+  maxMethodsPerClass?: number;
+  /** F-12: ファイル単位の SOQL+DML 合計上限 (既定 15)。AST 失敗時はスキップ。 */
+  maxSoqlDmlPerFile?: number;
 };
 
 export type RefactorSuggestResult = {
@@ -52,7 +63,9 @@ const DEFAULTS = {
   maxMethodLines: 60,
   maxNestingDepth: 4,
   minLiteralOccurrences: 3,
-  minMagicOccurrences: 3
+  minMagicOccurrences: 3,
+  maxMethodsPerClass: 20,
+  maxSoqlDmlPerFile: 15
 };
 
 const METHOD_HEADER_REGEX =
@@ -173,20 +186,25 @@ export function suggestRefactors(input: RefactorSuggestInput): RefactorSuggestRe
   const maxNestingDepth = input.maxNestingDepth ?? DEFAULTS.maxNestingDepth;
   const minLiteralOccurrences = input.minLiteralOccurrences ?? DEFAULTS.minLiteralOccurrences;
   const minMagicOccurrences = input.minMagicOccurrences ?? DEFAULTS.minMagicOccurrences;
+  const maxMethodsPerClass = input.maxMethodsPerClass ?? DEFAULTS.maxMethodsPerClass;
+  const maxSoqlDmlPerFile = input.maxSoqlDmlPerFile ?? DEFAULTS.maxSoqlDmlPerFile;
 
   const lines = input.source.split(/\r?\n/);
   const suggestions: RefactorSuggestion[] = [
     ...detectLongMethods(lines, maxMethodLines),
     ...detectDeepNesting(lines, maxNestingDepth),
     ...detectDuplicateLiterals(input.source, minLiteralOccurrences),
-    ...detectMagicNumbers(input.source, minMagicOccurrences)
+    ...detectMagicNumbers(input.source, minMagicOccurrences),
+    ...detectAstSmells(input.source, maxMethodsPerClass, maxSoqlDmlPerFile)
   ];
 
   const counts: Record<RefactorSuggestionKind, number> = {
     "long-method": 0,
     "deep-nesting": 0,
     "duplicate-literal": 0,
-    "magic-number": 0
+    "magic-number": 0,
+    "god-class": 0,
+    "soql-dml-overload": 0
   };
   for (const s of suggestions) counts[s.kind] += 1;
 
@@ -196,4 +214,44 @@ export function suggestRefactors(input: RefactorSuggestInput): RefactorSuggestRe
     suggestionsByKind: counts,
     suggestions
   };
+}
+
+/**
+ * F-12: AST ベースの構造シグナル抽出。
+ *  - god-class: 単一クラスのメソッド数が閾値超
+ *  - soql-dml-overload: ファイル単位の SOQL+DML 合計が閾値超 (Service 分離 / Selector パターン推奨)
+ * AST 解析失敗時 (Apex 以外 / 構文壊れ) は空配列を返し、ヒューリスティックのみで継続する。
+ */
+function detectAstSmells(
+  source: string,
+  maxMethodsPerClass: number,
+  maxSoqlDmlPerFile: number
+): RefactorSuggestion[] {
+  const out: RefactorSuggestion[] = [];
+  try {
+    const ast = analyzeApexSource(source);
+    if (ast.units.length === 0) return out;
+    for (const unit of ast.units) {
+      if (unit.kind === "class" && unit.methods.length > maxMethodsPerClass) {
+        out.push({
+          kind: "god-class",
+          severity: "high",
+          message: `クラス ${unit.name} のメソッド数 (${unit.methods.length}) が閾値 ${maxMethodsPerClass} を超えています。責務分割を検討してください。`,
+          details: { className: unit.name, methodCount: unit.methods.length, threshold: maxMethodsPerClass }
+        });
+      }
+    }
+    const total = ast.soqlCount + ast.dmlCount;
+    if (total > maxSoqlDmlPerFile) {
+      out.push({
+        kind: "soql-dml-overload",
+        severity: total > maxSoqlDmlPerFile * 1.5 ? "high" : "medium",
+        message: `SOQL/DML 操作の合計 (${total}) が閾値 ${maxSoqlDmlPerFile} を超えています。Selector / Service パターンへの分離を推奨します。`,
+        details: { soqlCount: ast.soqlCount, dmlCount: ast.dmlCount, threshold: maxSoqlDmlPerFile }
+      });
+    }
+  } catch {
+    // 非 Apex / 構文壊れ等は無視
+  }
+  return out;
 }

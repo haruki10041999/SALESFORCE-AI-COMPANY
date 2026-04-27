@@ -5,6 +5,8 @@ import { getPromptCacheMaxEntries, getPromptCacheTtlSeconds } from "../config/ru
 import { renderPersonaStyleSection } from "./persona-style-registry.js";
 import { renderSpeechStyleSection } from "./speech-style-registry.js";
 import { allocateCategoryBudgets } from "./context-budget.js";
+import { guardUntrustedText } from "../prompt/injection-guard.js";
+import { createLogger } from "../logging/logger.js";
 import {
   loadPromptCacheFromDisk,
   appendPromptCacheEntry,
@@ -12,6 +14,8 @@ import {
   rewritePromptCacheFile,
   type PersistedCacheEntry
 } from "./prompt-cache-persistence.js";
+
+const promptInjectionLogger = createLogger("PromptInjectionGuard");
 
 interface BuildChatPromptDeps {
   root: string;
@@ -294,6 +298,31 @@ export async function buildChatPromptFromContext(
   input: BuildChatPromptInput,
   deps: BuildChatPromptDeps
 ): Promise<string> {
+  // F-04: 外部入力 (topic / appendInstruction) を sanitize モードで保護。
+  // ANSI / 制御文字 / ゼロ幅 BiDi を除去し、block 級パターンは警告ログへ。
+  const sanitizedTopic = guardUntrustedText(input.topic ?? "", { mode: "sanitize" });
+  const sanitizedAppend = input.appendInstruction
+    ? guardUntrustedText(input.appendInstruction, { mode: "sanitize" })
+    : null;
+  const allFindings = [
+    ...sanitizedTopic.scan.findings,
+    ...(sanitizedAppend?.scan.findings ?? [])
+  ];
+  if (allFindings.length > 0) {
+    const ids = [...new Set(allFindings.map((f) => f.patternId))].join(",");
+    const sev = sanitizedTopic.scan.maxSeverity === "block" || sanitizedAppend?.scan.maxSeverity === "block"
+      ? "block"
+      : "warn";
+    promptInjectionLogger.warn(
+      `prompt injection findings (severity=${sev}, patterns=${ids})`
+    );
+  }
+  const safeInput: BuildChatPromptInput = {
+    ...input,
+    topic: sanitizedTopic.text,
+    ...(sanitizedAppend ? { appendInstruction: sanitizedAppend.text } : {})
+  };
+
   const {
     topic,
     agentNames,
@@ -304,7 +333,7 @@ export async function buildChatPromptFromContext(
     maxContextChars,
     appendInstruction,
     includeProjectContext
-  } = input;
+  } = safeInput;
   const {
     root,
     findMdFilesRecursive,
@@ -313,7 +342,7 @@ export async function buildChatPromptFromContext(
     getMdFileAsync
   } = deps;
 
-  const cacheKey = createPromptCacheKey(input, root);
+  const cacheKey = createPromptCacheKey(safeInput, root);
   const cachedPrompt = getCachedPrompt(cacheKey);
   if (cachedPrompt) {
     return cachedPrompt;
@@ -461,6 +490,6 @@ export async function buildChatPromptFromContext(
   sections.push(`## タスク\n\nトピック: 「${topic}」\n\n${turnInstruction}\n\nルール:\n- 関連コードがある場合は根拠として参照する\n- 各エージェントの専門性と適用スキルに基づいて回答する\n- 不明点は推測を避け、必要な前提を明示する\n- 重要な設計判断や懸念点を簡潔に示す\n- ペルソナがある場合はその文体で回答する\n- 発言形式は必ず「**agent-name**: 発言内容」を使う（誰の発言か判別できる形にする）${extraInstruction}`);
 
   const prompt = sections.join("\n\n---\n\n");
-  setCachedPrompt(cacheKey, prompt, input);
+  setCachedPrompt(cacheKey, prompt, safeInput);
   return prompt;
 }

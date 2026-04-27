@@ -9,17 +9,24 @@ on:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [22]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
       - name: Install dependencies
@@ -28,19 +35,34 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Lint core layers
+        run: npm run lint:core-layers
+
+      - name: Lint outputs schema
+        run: npm run lint:outputs
+
       - name: Selective test run
+        if: matrix.os == 'ubuntu-latest'
         run: npm run test:selective -- --base origin/main --head HEAD
 
+      - name: Full test (Windows safety net)
+        if: matrix.os == 'windows-latest'
+        run: npm test
+
       - name: Tool test matrix
+        if: matrix.os == 'ubuntu-latest'
         run: npm run test:matrix -- --fail-on-missing
 
       - name: Generate tool manifest
+        if: matrix.os == 'ubuntu-latest'
         run: npm run docs:manifest
 
       - name: Check tool compatibility
+        if: matrix.os == 'ubuntu-latest'
         run: npm run tools:compat -- --baseline-ref origin/main --fail-on-breaking
 
       - name: Verify tool manifest integrity
+        if: matrix.os == 'ubuntu-latest'
         run: |
           if ! node -e "JSON.parse(require('fs').readFileSync('docs/internal/tool-manifest.json', 'utf-8'))" 2>/dev/null; then
             echo "❌ tool-manifest.json is invalid JSON"
@@ -49,9 +71,11 @@ jobs:
           echo "✅ tool-manifest.json integrity verified"
 
       - name: Run benchmark suite
+        if: matrix.os == 'ubuntu-latest'
         run: npm run benchmark:run -- --limit 200
 
       - name: Verify benchmark output
+        if: matrix.os == 'ubuntu-latest'
         run: |
           if [ ! -f "outputs/reports/benchmark-suite.json" ]; then
             echo "❌ benchmark-suite.json not found"
@@ -60,4 +84,5 @@ jobs:
           echo "✅ benchmark-suite.json generated"
 
       - name: Dependency audit
+        if: matrix.os == 'ubuntu-latest'
         run: npm run audit:deps

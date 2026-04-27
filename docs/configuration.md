@@ -10,11 +10,21 @@
 | 変数名 | 何に使うか | 既定値 |
 |---|---|---|
 | `SF_AI_OUTPUTS_DIR` | 実行ログや履歴の保存場所 | `outputs/` |
+| `SF_AI_HISTORY_SQLITE` | 履歴ストアを SQLite へ切り替える（`true`/`false`） | `false` |
+| `SF_AI_STATE_DB_PATH` | SQLite DB ファイルの保存先（`SF_AI_HISTORY_SQLITE=true` 時） | `outputs/state.sqlite` |
 | `LOG_LEVEL` | ログの詳しさ（`error` / `warn` / `info` / `debug`） | `info` |
 | `SF_AI_LOCALE` | エラーメッセージ等のローカライズ言語（`ja` / `en`） | `ja` |
 | `AI_LOW_RELEVANCE_THRESHOLD` | 低関連度判定のしきい値（高いほど厳格） | `6` |
 | `AI_AGENT_TRUST_SCORING_ENABLED` | エージェント信頼スコアによる自動エスカレーションを有効化 | `false` |
 | `AI_AGENT_TRUST_THRESHOLD` | 信頼スコアの閾値（0.0〜1.0） | `0.55` |
+
+補足:
+
+- SQLite 実装は `sql.js` を利用しています（native addon 不要）
+- 既定の DB ファイル名は `state.sqlite` で統一しています
+- 既存 JSONL/history から移行する場合は `npm run state:migrate-sqlite`
+- 互換 JSONL を再出力する場合は `npm run state:export-jsonl -- --out-dir <dir>`
+- 再出力時に元 JSONL 件数と突合する場合は `--verify-source-dir <outputsDir>` を付与（不一致時は終了コード 1）
 
 ## よくある利用パターン
 
@@ -66,6 +76,8 @@ LOG_LEVEL=debug SF_AI_DEBUG_VERBOSE_PROMPT=true npm run mcp:dev
 | 変数名 | 用途 | デフォルト値 |
 |---|---|---|
 | `SF_AI_OUTPUTS_DIR` | イベント・履歴・セッション・ガバナンス・生成物の出力ベースディレクトリ | `outputs/` |
+| `SF_AI_HISTORY_SQLITE` | 履歴ストアを SQLite (`sql.js`) に切り替えるフラグ（`true`/`false`） | `false` |
+| `SF_AI_STATE_DB_PATH` | SQLite DB ファイルパス（`SF_AI_HISTORY_SQLITE=true` 時に利用） | `outputs/state.sqlite` |
 | `SF_AI_OUTPUTS_BACKUP_DIR` | outputs 世代バックアップの保存先ディレクトリ | `outputs/backups` |
 | `SF_AI_OUTPUTS_BACKUP_KEEP` | 保持する snapshot 世代数（古い世代から削除） | `5` |
 | `SF_AI_MEMORY_FILE` | プロジェクトメモリストアの JSONL ファイルパス | `outputs/memory.jsonl` |

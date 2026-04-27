@@ -26,6 +26,18 @@ export const CORE_LAYER_MAP: Readonly<Record<string, CoreLayer>> = Object.freeze
   config: "data",
   resource: "data",
   skill: "data",
+  // Declarative tool spec is a passive zod schema + loader for JSON tool
+  // definitions. It belongs to the data tier so other tiers may import it.
+  declarative: "data",
+  // F-04: prompt utilities (injection guard / quality rubric / template).
+  // Pure helpers with no side effects beyond returning new strings.
+  prompt: "data",
+  // T-OLLAMA-01: HTTP client for local Ollama server. Stateless adapter that
+  // wraps fetch with retry/timeout. No business decisions live here.
+  llm: "data",
+  // F-08/F-09: AST parsers (Apex via @apexdevtools/apex-parser, Flow via
+  // fast-xml-parser). Pure parser modules with no side effects.
+  parsers: "data",
   // Logger / PII masker / progress formatter / trace context act as
   // cross-cutting utilities that any layer may import without coupling
   // upstream business logic, so they are pinned to the data tier.

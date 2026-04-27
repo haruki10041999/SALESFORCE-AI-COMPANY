@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Golden Prompt Test Case",
+  "type": "object",
+  "required": ["name", "input", "fixtures", "expected"],
+  "properties": {
+    "name": { "type": "string" },
+    "description": { "type": "string" },
+    "input": {
+      "type": "object",
+      "required": [
+        "topic",
+        "agentNames",
+        "personaName",
+        "skillNames",
+        "filePaths",
+        "turns"
+      ],
+      "properties": {
+        "topic": { "type": "string" },
+        "agentNames": { "type": "array", "items": { "type": "string" } },
+        "personaName": { "type": ["string", "null"] },
+        "skillNames": { "type": "array", "items": { "type": "string" } },
+        "filePaths": { "type": "array", "items": { "type": "string" } },
+        "turns": { "type": "integer", "minimum": 1 },
+        "maxContextChars": { "type": ["integer", "null"] },
+        "appendInstruction": { "type": ["string", "null"] },
+        "includeProjectContext": { "type": "boolean" }
+      }
+    },
+    "fixtures": {
+      "type": "object",
+      "required": ["markdown", "files"],
+      "properties": {
+        "contextFiles": { "type": "array", "items": { "type": "string" } },
+        "markdown": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "files": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "properties": {
+        "mustContain": { "type": "array", "items": { "type": "string" } },
+        "mustNotContain": { "type": "array", "items": { "type": "string" } },
+        "sectionOrder": { "type": "array", "items": { "type": "string" } },
+        "minLengthChars": { "type": "integer", "minimum": 0 },
+        "maxLengthChars": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

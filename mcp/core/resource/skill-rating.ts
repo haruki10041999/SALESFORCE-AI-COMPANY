@@ -1,5 +1,6 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname } from "node:path";
+import { appendTextFileAtomic, writeTextFileAtomic } from "../persistence/unit-of-work.js";
 
 export type SkillRatingEntry = {
   skill: string;
@@ -53,7 +54,7 @@ export async function appendSkillRatings(logFilePath: string, entries: SkillRati
   }
   await fsPromises.mkdir(dirname(logFilePath), { recursive: true });
   const lines = entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
-  await fsPromises.appendFile(logFilePath, lines, "utf-8");
+  await appendTextFileAtomic(logFilePath, lines);
 }
 
 export async function loadSkillRatings(logFilePath: string): Promise<SkillRatingEntry[]> {
@@ -170,7 +171,7 @@ export function buildSkillRatingModel(
 
 export async function saveSkillRatingModel(modelFilePath: string, model: SkillRatingModel): Promise<void> {
   await fsPromises.mkdir(dirname(modelFilePath), { recursive: true });
-  await fsPromises.writeFile(modelFilePath, JSON.stringify(model, null, 2), "utf-8");
+  await writeTextFileAtomic(modelFilePath, JSON.stringify(model, null, 2));
 }
 
 export function renderSkillRatingMarkdown(model: SkillRatingModel): string {

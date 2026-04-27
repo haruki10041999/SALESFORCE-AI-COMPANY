@@ -2,10 +2,20 @@
 import type { RegisterGovToolDeps } from "./types.js";
 import { createLogger } from "../core/logging/logger.js";
 import { tunePromptTemplates } from "../tools/tune-prompt-templates.js";
+import {
+  evaluateQualityRubric,
+  evaluateHeuristicRubric,
+  DEFAULT_RUBRIC_CRITERIA
+} from "../core/llm/quality-rubric.js";
 
 interface RegisterVectorPromptToolsDeps extends RegisterGovToolDeps {
   addRecord: (record: { id: string; text: string; tags: string[] }) => void;
   searchByKeyword: (query: string) => Array<{ id: string; text: string; tags?: string[] }>;
+  /** F-11: vector backend (ngram/ollama) 経由の async 検索。tfidf 固定時は省略可。 */
+  searchByKeywordAsync?: (
+    query: string,
+    options?: { limit?: number; minScore?: number }
+  ) => Promise<Array<{ id: string; text: string; tags?: string[]; score?: number }>>;
   buildPrompt: (agent: { name: string; content: string }, task: string) => string;
   evaluatePromptMetrics: (prompt: string, skills?: string[], triggerKeywords?: string[]) => {
     lengthChars: number;
@@ -86,7 +96,7 @@ function buildDiagnostics(metrics: {
 }
 
 export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): void {
-  const { govTool, addRecord, searchByKeyword, buildPrompt, evaluatePromptMetrics } = deps;
+  const { govTool, addRecord, searchByKeyword, searchByKeywordAsync, buildPrompt, evaluatePromptMetrics } = deps;
   const logger = createLogger("VectorPromptTools");
   const verbosePromptDebug = process.env.SF_AI_DEBUG_VERBOSE_PROMPT === "true";
 
@@ -119,12 +129,17 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
       }
     },
     async ({ query }: { query: string }) => {
-      const results = searchByKeyword(query);
+      // F-11: SF_AI_VECTOR_BACKEND が ngram/ollama の場合は async 経路を使う
+      const backend = (process.env.SF_AI_VECTOR_BACKEND ?? "tfidf").toLowerCase();
+      const results =
+        backend !== "tfidf" && searchByKeywordAsync
+          ? await searchByKeywordAsync(query)
+          : searchByKeyword(query);
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify({ query, count: results.length, results }, null, 2)
+            text: JSON.stringify({ query, count: results.length, backend, results }, null, 2)
           }
         ]
       };
@@ -218,6 +233,46 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
       retireScoreGap?: number;
     }) => {
       const result = tunePromptTemplates(templates, { minSamples, promoteThreshold, retireScoreGap });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  // F-10: Quality Rubric を MCP ツールとして公開。
+  // judge=true で Ollama judge (qwen2.5:3b) を呼び出し、unavailable / parse 失敗時は heuristic にフォールバック。
+  govTool(
+    "evaluate_quality_rubric",
+    {
+      title: "応答品質ルーブリック評価",
+      description:
+        "応答テキストを relevance/completeness/actionability/safety/structure の 5 観点で 0..5 にスコア化します。judge=true で Ollama judge を呼び、未起動時は heuristic で代替します。",
+      inputSchema: {
+        response: z.string().min(1),
+        topic: z.string().optional(),
+        judge: z.boolean().optional(),
+        model: z.string().optional()
+      }
+    },
+    async ({ response, topic, judge, model }: {
+      response: string;
+      topic?: string;
+      judge?: boolean;
+      model?: string;
+    }) => {
+      const useJudge = judge === true;
+      const result = useJudge
+        ? await evaluateQualityRubric(response, {
+            ...(topic !== undefined ? { topic } : {}),
+            ...(model !== undefined ? { model } : {}),
+            fallbackOnFailure: true
+          })
+        : evaluateHeuristicRubric(response, DEFAULT_RUBRIC_CRITERIA);
+      logger.debug("evaluate_quality_rubric completed", {
+        method: result.method,
+        overallScore: result.overallScore,
+        criteriaCount: result.criteria.length
+      });
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
       };

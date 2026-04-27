@@ -1,0 +1,49 @@
+{
+  "$schema": "./_schema.json",
+  "name": "basic-architect-review",
+  "description": "標準チャット: architect agent + apex skill + project context",
+  "input": {
+    "topic": "Apex Trigger Pattern Review",
+    "agentNames": ["architect"],
+    "personaName": null,
+    "skillNames": ["apex/apex-best-practices"],
+    "filePaths": [],
+    "turns": 3,
+    "maxContextChars": null,
+    "appendInstruction": null,
+    "includeProjectContext": true
+  },
+  "fixtures": {
+    "contextFiles": ["context/project.md"],
+    "markdown": {
+      "agents/architect": "# Architect Agent\n責務: アーキテクチャ判断と全体整合性",
+      "skills/apex/apex-best-practices": "# Apex Best Practices\n- Trigger は 1 オブジェクト 1 トリガー"
+    },
+    "files": {
+      "context/project.md": "# Project Context\nSalesforce 開発支援 MCP サーバ",
+      "prompt-engine/discussion-framework.md": "# Discussion Framework\n- 議論規約にもとづいて返信する"
+    }
+  },
+  "expected": {
+    "mustContain": [
+      "## プロジェクトコンテキスト",
+      "## 参加エージェント定義",
+      "## 適用スキル",
+      "## ディスカッション規約",
+      "Apex Trigger Pattern Review",
+      "architect"
+    ],
+    "mustNotContain": [
+      "## 添付ファイル",
+      "## レビュー観点"
+    ],
+    "sectionOrder": [
+      "## プロジェクトコンテキスト",
+      "## 参加エージェント定義",
+      "## 適用スキル",
+      "## ディスカッション規約"
+    ],
+    "minLengthChars": 200,
+    "maxLengthChars": 30000
+  }
+}

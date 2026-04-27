@@ -1,0 +1,38 @@
+{
+  "$schema": "./_schema.json",
+  "name": "review-mode-by-files",
+  "description": "ファイルパスを与えるとレビュー観点が注入されること",
+  "input": {
+    "topic": "コードレビュー",
+    "agentNames": ["qa-engineer"],
+    "personaName": null,
+    "skillNames": [],
+    "filePaths": ["src/MyController.cls"],
+    "turns": 2,
+    "maxContextChars": null,
+    "appendInstruction": null,
+    "includeProjectContext": false
+  },
+  "fixtures": {
+    "contextFiles": [],
+    "markdown": {
+      "agents/qa-engineer": "# QA Engineer\n品質保証担当"
+    },
+    "files": {
+      "src/MyController.cls": "public class MyController {\n  public void run() {}\n}"
+    }
+  },
+  "expected": {
+    "mustContain": [
+      "## 参加エージェント定義",
+      "qa-engineer",
+      "## コードコンテキスト",
+      "MyController"
+    ],
+    "mustNotContain": [
+      "## プロジェクトコンテキスト"
+    ],
+    "minLengthChars": 100,
+    "maxLengthChars": 30000
+  }
+}

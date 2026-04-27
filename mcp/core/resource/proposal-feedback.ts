@@ -1,5 +1,6 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname } from "node:path";
+import { appendTextFileAtomic, writeTextFileAtomic } from "../persistence/unit-of-work.js";
 
 export type FeedbackResourceType = "skills" | "tools" | "presets";
 export type FeedbackDecision =
@@ -82,7 +83,7 @@ export async function appendProposalFeedback(logFilePath: string, entries: Propo
 
   await fsPromises.mkdir(dirname(logFilePath), { recursive: true });
   const lines = entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
-  await fsPromises.appendFile(logFilePath, lines, "utf-8");
+  await appendTextFileAtomic(logFilePath, lines);
 }
 
 export async function loadProposalFeedbackLog(logFilePath: string): Promise<ProposalFeedbackEntry[]> {
@@ -207,7 +208,7 @@ export function buildProposalFeedbackModel(
 
 export async function saveProposalFeedbackModel(modelFilePath: string, model: ProposalFeedbackModel): Promise<void> {
   await fsPromises.mkdir(dirname(modelFilePath), { recursive: true });
-  await fsPromises.writeFile(modelFilePath, JSON.stringify(model, null, 2), "utf-8");
+  await writeTextFileAtomic(modelFilePath, JSON.stringify(model, null, 2));
 }
 
 export async function loadProposalFeedbackModel(modelFilePath: string): Promise<ProposalFeedbackModel | null> {

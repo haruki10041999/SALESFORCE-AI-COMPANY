@@ -1,6 +1,7 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname } from "node:path";
 import type { AgentTrustHistory } from "./agent-trust-score.js";
+import { writeTextFileAtomic } from "../persistence/unit-of-work.js";
 
 export type AgentTrustOutcome = "accepted" | "rejected";
 
@@ -49,7 +50,7 @@ export async function saveAgentTrustHistories(
     updatedAt: new Date().toISOString(),
     histories: data.histories
   };
-  await fsPromises.writeFile(filePath, JSON.stringify(payload, null, 2), "utf-8");
+  await writeTextFileAtomic(filePath, JSON.stringify(payload, null, 2));
 }
 
 export function getAgentHistory(file: AgentTrustHistoriesFile, agent: string): AgentTrustHistory {

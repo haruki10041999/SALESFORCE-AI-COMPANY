@@ -1,6 +1,7 @@
 import { existsSync, promises as fsPromises } from "fs";
 import { join } from "path";
 import type { ChatPreset, StoredPreset } from "../types/index.js";
+import { FileUnitOfWork } from "../persistence/unit-of-work.js";
 
 export type { ChatPreset, StoredPreset };
 
@@ -48,8 +49,11 @@ export function createPresetStore(deps: PresetStoreDeps) {
 
     const versionFilePath = join(versionDir, `v${nextVersion}.json`);
     const latestFilePath = join(presetsDir, slug + ".json");
-    await fsPromises.writeFile(versionFilePath, JSON.stringify(versionedPreset, null, 2), "utf-8");
-    await fsPromises.writeFile(latestFilePath, JSON.stringify(versionedPreset, null, 2), "utf-8");
+    const payload = JSON.stringify(versionedPreset, null, 2);
+    const unitOfWork = new FileUnitOfWork();
+    await unitOfWork.stageFileWrite(versionFilePath, payload);
+    await unitOfWork.stageFileWrite(latestFilePath, payload);
+    await unitOfWork.commit();
   }
 
   async function listPresetsData(): Promise<StoredPreset[]> {

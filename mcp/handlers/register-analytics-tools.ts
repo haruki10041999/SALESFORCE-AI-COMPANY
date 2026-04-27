@@ -19,6 +19,8 @@ import {
 } from "../core/resource/synergy-model.js";
 import { scoreAgentSynergy } from "../tools/agent-synergy-score.js";
 import { drillDownDashboard } from "../core/observability/dashboard-drill-down.js";
+import { estimatePromptCost } from "../../prompt-engine/prompt-evaluator.js";
+import { recordUserFeedback, computeFeedbackMetrics, loadFeedbackForSession } from "../core/learning/feedback-manager.js";
 
 interface RegisterAnalyticsToolsDeps extends RegisterGovToolDeps {
   agentLog: AgentMessage[];
@@ -144,6 +146,147 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
       }
     }
     return [...duplicates].sort();
+  }
+
+  async function loadPricingBudgets(): Promise<{
+    currency: string;
+    dailyLimit: number;
+    monthlyLimit: number;
+  }> {
+    const pricingPath = resolve(outputsDir, "pricing.json");
+    try {
+      const raw = await fsPromises.readFile(pricingPath, "utf-8");
+      const parsed = JSON.parse(raw) as {
+        defaults?: { currency?: string };
+        budgets?: {
+          daily?: { limit?: number };
+          monthly?: { limit?: number };
+        };
+      };
+      return {
+        currency: parsed.defaults?.currency ?? "USD",
+        dailyLimit: parsed.budgets?.daily?.limit ?? 10000,
+        monthlyLimit: parsed.budgets?.monthly?.limit ?? 200000
+      };
+    } catch {
+      return {
+        currency: "USD",
+        dailyLimit: 10000,
+        monthlyLimit: 200000
+      };
+    }
+  }
+
+  function generateTriggerRuleRecommendations(
+    events: SystemEventRecord[],
+    minSupport: number,
+    minConfidence: number
+  ): Array<{ whenAgent: string; thenAgent: string; confidence: number; support: number; reason: string; once: boolean }> {
+    const transitionCounts = new Map<string, number>();
+    const fromCounts = new Map<string, number>();
+
+    for (const event of events) {
+      const payload = event.payload ?? {};
+      const lastAgent = typeof payload.lastAgent === "string" ? payload.lastAgent : null;
+      const nextAgents = Array.isArray(payload.nextAgents) ? payload.nextAgents.filter((v) => typeof v === "string") as string[] : [];
+      if (!lastAgent || nextAgents.length === 0) continue;
+
+      fromCounts.set(lastAgent, (fromCounts.get(lastAgent) ?? 0) + nextAgents.length);
+      for (const nextAgent of nextAgents) {
+        const key = `${lastAgent}=>${nextAgent}`;
+        transitionCounts.set(key, (transitionCounts.get(key) ?? 0) + 1);
+      }
+    }
+
+    const recommendations: Array<{ whenAgent: string; thenAgent: string; confidence: number; support: number; reason: string; once: boolean }> = [];
+    for (const [key, support] of transitionCounts.entries()) {
+      if (support < minSupport) continue;
+      const [whenAgent, thenAgent] = key.split("=>");
+      const totalFrom = fromCounts.get(whenAgent) ?? 1;
+      const confidence = support / totalFrom;
+      if (confidence < minConfidence) continue;
+      recommendations.push({
+        whenAgent,
+        thenAgent,
+        confidence: Number(confidence.toFixed(4)),
+        support,
+        reason: `auto-tuned from ${support} turn_complete transitions`,
+        once: false
+      });
+    }
+
+    return recommendations.sort((a, b) => b.confidence - a.confidence || b.support - a.support);
+  }
+
+  type AgentAbHistoryRun = {
+    winner?: { overall?: string };
+    comparison?: string;
+    runs?: {
+      agentA?: { agent?: string; qualityScore?: number; durationMs?: number };
+      agentB?: { agent?: string; qualityScore?: number; durationMs?: number };
+    };
+    generatedAt?: string;
+  };
+
+  function summarizeAbHistory(runs: AgentAbHistoryRun[]) {
+    const perAgent = new Map<string, { runs: number; wins: number; totalQuality: number; totalLatency: number }>();
+    const byComparison = new Map<string, { runs: number; winnerCounts: Record<string, number> }>();
+
+    for (const run of runs) {
+      const a = run.runs?.agentA;
+      const b = run.runs?.agentB;
+      const winner = run.winner?.overall;
+      if (!a?.agent || !b?.agent) continue;
+      const aAgent = a.agent;
+      const bAgent = b.agent;
+
+      const pairKey = run.comparison ?? `${aAgent} vs ${bAgent}`;
+      const pairStats = byComparison.get(pairKey) ?? { runs: 0, winnerCounts: {} };
+      pairStats.runs += 1;
+      if (winner) {
+        pairStats.winnerCounts[winner] = (pairStats.winnerCounts[winner] ?? 0) + 1;
+      }
+      byComparison.set(pairKey, pairStats);
+
+      const participants: Array<{ agent: string; qualityScore?: number; durationMs?: number }> = [
+        { agent: aAgent, qualityScore: a.qualityScore, durationMs: a.durationMs },
+        { agent: bAgent, qualityScore: b.qualityScore, durationMs: b.durationMs }
+      ];
+
+      for (const side of participants) {
+        const stats = perAgent.get(side.agent) ?? { runs: 0, wins: 0, totalQuality: 0, totalLatency: 0 };
+        stats.runs += 1;
+        stats.totalQuality += side.qualityScore ?? 0;
+        stats.totalLatency += side.durationMs ?? 0;
+        if (winner === side.agent) stats.wins += 1;
+        perAgent.set(side.agent, stats);
+      }
+    }
+
+    const agentRanking = [...perAgent.entries()]
+      .map(([agent, s]) => ({
+        agent,
+        runs: s.runs,
+        wins: s.wins,
+        winRate: s.runs > 0 ? Number((s.wins / s.runs).toFixed(4)) : 0,
+        avgQuality: s.runs > 0 ? Number((s.totalQuality / s.runs).toFixed(2)) : 0,
+        avgLatencyMs: s.runs > 0 ? Number((s.totalLatency / s.runs).toFixed(2)) : 0
+      }))
+      .sort((x, y) => y.winRate - x.winRate || y.avgQuality - x.avgQuality);
+
+    const comparisons = [...byComparison.entries()]
+      .map(([comparison, s]) => ({
+        comparison,
+        runs: s.runs,
+        winnerCounts: s.winnerCounts
+      }))
+      .sort((x, y) => y.runs - x.runs);
+
+    return {
+      totalRuns: runs.length,
+      agentRanking,
+      comparisons
+    };
   }
 
   govTool(
@@ -789,6 +932,289 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
       });
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+    // F-25: ユーザーフィードバック記録
+    govTool(
+      "tune_trigger_rules",
+      {
+        title: "トリガールール自動調整",
+        description: "turn_complete イベント履歴から遷移傾向を抽出し、トリガールール候補を提案します。",
+        inputSchema: {
+          eventLimit: z.number().int().min(50).max(5000).optional(),
+          minSupport: z.number().int().min(1).max(500).optional(),
+          minConfidence: z.number().min(0).max(1).optional(),
+          apply: z.boolean().optional()
+        }
+      },
+      async ({ eventLimit, minSupport, minConfidence, apply }: { eventLimit?: number; minSupport?: number; minConfidence?: number; apply?: boolean }) => {
+        const limit = eventLimit ?? 1000;
+        const support = minSupport ?? 3;
+        const confidence = minConfidence ?? 0.6;
+        const events = await loadSystemEvents(limit, "turn_complete");
+        const recommendations = generateTriggerRuleRecommendations(events, support, confidence);
+        const outputDir = resolve(outputsDir, "reports", "trigger-tuning");
+        await ensureDir(outputDir);
+        const reportPath = join(outputDir, "latest.json");
+
+        const report = {
+          generatedAt: new Date().toISOString(),
+          sourceEventCount: events.length,
+          minSupport: support,
+          minConfidence: confidence,
+          recommendations
+        };
+        await fsPromises.writeFile(reportPath, JSON.stringify(report, null, 2), "utf-8");
+
+        let appliedPath: string | null = null;
+        if (apply) {
+          const triggerRulesPath = resolve(outputsDir, "trigger-rules.json");
+          const rules = recommendations.map((r) => ({
+            whenAgent: r.whenAgent,
+            thenAgent: r.thenAgent,
+            reason: r.reason,
+            once: r.once
+          }));
+          await fsPromises.writeFile(triggerRulesPath, JSON.stringify({ updatedAt: new Date().toISOString(), rules }, null, 2), "utf-8");
+          appliedPath = triggerRulesPath;
+        }
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              reportPath,
+              recommendationCount: recommendations.length,
+              topRecommendations: recommendations.slice(0, 10),
+              appliedPath
+            }, null, 2)
+          }]
+        };
+      }
+    );
+
+    govTool(
+      "evaluate_cost_sla",
+      {
+        title: "コストSLA評価",
+        description: "Prompt 推定コストが日次/月次予算SLAを満たすか評価します。",
+        inputSchema: {
+          prompt: z.string().min(1),
+          modelName: z.string().optional(),
+          outputTokenEstimate: z.number().optional(),
+          expectedDailyRequests: z.number().int().min(1).optional(),
+          expectedMonthlyRequests: z.number().int().min(1).optional(),
+          dailyBudget: z.number().min(0).optional(),
+          monthlyBudget: z.number().min(0).optional()
+        }
+      },
+      async ({ prompt, modelName, outputTokenEstimate, expectedDailyRequests, expectedMonthlyRequests, dailyBudget, monthlyBudget }: {
+        prompt: string;
+        modelName?: string;
+        outputTokenEstimate?: number;
+        expectedDailyRequests?: number;
+        expectedMonthlyRequests?: number;
+        dailyBudget?: number;
+        monthlyBudget?: number;
+      }) => {
+        const rawMetrics = evaluatePromptMetrics(prompt);
+        const metrics = {
+          estimatedTokens: rawMetrics.estimatedTokens,
+          lengthChars: 0,
+          lineCount: 0,
+          containsProjectContext: rawMetrics.containsProjectContext,
+          containsAgentsSection: rawMetrics.containsAgentsSection,
+          containsSkillsSection: rawMetrics.containsSkillsSection,
+          containsTaskSection: rawMetrics.containsTaskSection,
+          matchedSkillCount: 0,
+          totalSkillCount: 0,
+          matchedTriggerCount: 0,
+          totalTriggerCount: 0,
+          skillCoverageRate: rawMetrics.skillCoverageRate,
+          triggerMatchRate: rawMetrics.triggerMatchRate
+        };
+        const estimate = estimatePromptCost(metrics, modelName ?? "mistral", outputTokenEstimate);
+        const budgets = await loadPricingBudgets();
+        const dailyReq = expectedDailyRequests ?? 100;
+        const monthlyReq = expectedMonthlyRequests ?? 3000;
+        const effDailyBudget = dailyBudget ?? budgets.dailyLimit;
+        const effMonthlyBudget = monthlyBudget ?? budgets.monthlyLimit;
+
+        const projectedDailyCost = estimate.totalCost * dailyReq;
+        const projectedMonthlyCost = estimate.totalCost * monthlyReq;
+
+        const result = {
+          model: estimate.model,
+          currency: estimate.currency ?? budgets.currency,
+          requestCost: estimate.totalCost,
+          projections: {
+            expectedDailyRequests: dailyReq,
+            projectedDailyCost,
+            dailyBudget: effDailyBudget,
+            dailyBudgetRemaining: effDailyBudget - projectedDailyCost,
+            dailySlaPass: projectedDailyCost <= effDailyBudget,
+            expectedMonthlyRequests: monthlyReq,
+            projectedMonthlyCost,
+            monthlyBudget: effMonthlyBudget,
+            monthlyBudgetRemaining: effMonthlyBudget - projectedMonthlyCost,
+            monthlySlaPass: projectedMonthlyCost <= effMonthlyBudget
+          }
+        };
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+        };
+      }
+    );
+
+    govTool(
+      "analyze_ab_test_history",
+      {
+        title: "A/Bテスト履歴分析",
+        description: "agent_ab_test の runs.jsonl を集計して勝率と品質傾向を分析します。",
+        inputSchema: {
+          reportDir: z.string().optional(),
+          minRuns: z.number().int().min(1).max(1000).optional()
+        }
+      },
+      async ({ reportDir, minRuns }: { reportDir?: string; minRuns?: number }) => {
+        const dir = reportDir ? resolve(reportDir) : resolve(outputsDir, "reports", "agent-ab-test");
+        const runsPath = join(dir, "runs.jsonl");
+        const content = await fsPromises.readFile(runsPath, "utf-8");
+        const allRuns = content
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0)
+          .map((line) => JSON.parse(line) as AgentAbHistoryRun);
+        const summary = summarizeAbHistory(allRuns);
+        const effectiveMinRuns = minRuns ?? 1;
+        const filteredRanking = summary.agentRanking.filter((row) => row.runs >= effectiveMinRuns);
+
+        const analysisPath = join(dir, "analysis-latest.json");
+        await fsPromises.writeFile(analysisPath, JSON.stringify({
+          generatedAt: new Date().toISOString(),
+          sourceRunsPath: runsPath,
+          minRuns: effectiveMinRuns,
+          totalRuns: summary.totalRuns,
+          agentRanking: filteredRanking,
+          comparisons: summary.comparisons
+        }, null, 2), "utf-8");
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              analysisPath,
+              totalRuns: summary.totalRuns,
+              topAgents: filteredRanking.slice(0, 10),
+              comparisons: summary.comparisons.slice(0, 10)
+            }, null, 2)
+          }]
+        };
+      }
+    );
+
+    govTool(
+      "record_user_feedback",
+      {
+        title: "ユーザーフィードバック記録",
+        description: "チャットセッションの品質に対するユーザーの評価 (👍/👎) を記録します。",
+        inputSchema: {
+          sessionId: z.string().min(1).describe("関連するチャットセッション ID"),
+          rating: z.enum(["thumbs-up", "thumbs-down", "neutral"]).describe("評価: thumbs-up, thumbs-down, neutral"),
+          agentName: z.string().optional().describe("対応エージェント名"),
+          comment: z.string().optional().describe("ユーザーのコメント"),
+          qualityScore: z.number().min(0).max(1).optional().describe("品質スコア (0-1)"),
+          tags: z.array(z.string()).optional().describe("カテゴリタグ")
+        }
+      },
+      async (input: {
+        sessionId: string;
+        rating: "thumbs-up" | "thumbs-down" | "neutral";
+        agentName?: string;
+        comment?: string;
+        qualityScore?: number;
+        tags?: string[];
+      }) => {
+        const feedback = await recordUserFeedback(input);
+        return {
+          content: [{ type: "text", text: JSON.stringify({ success: true, feedbackId: feedback.feedbackId, timestamp: feedback.timestamp }, null, 2) }]
+        };
+      }
+    );
+
+    // F-25: フィードバックメトリクス取得
+    govTool(
+      "get_feedback_metrics",
+      {
+        title: "フィードバックメトリクス",
+        description: "記録されたユーザーフィードバックの集計統計を取得します。",
+        inputSchema: {
+          sessionId: z.string().optional().describe("特定セッションに限定 (省略時は全体)")
+        }
+      },
+      async ({ sessionId }: { sessionId?: string }) => {
+        const metrics = await computeFeedbackMetrics(sessionId);
+        return {
+          content: [{ type: "text", text: JSON.stringify(metrics, null, 2) }]
+        };
+      }
+    );
+
+    // F-25: セッション別フィードバック取得
+    govTool(
+      "get_session_feedback",
+      {
+        title: "セッションフィードバック",
+        description: "特定のチャットセッションに対する全フィードバック記録を取得します。",
+        inputSchema: {
+          sessionId: z.string().min(1).describe("チャットセッション ID")
+        }
+      },
+      async ({ sessionId }: { sessionId: string }) => {
+        const feedback = await loadFeedbackForSession(sessionId);
+        return {
+          content: [{ type: "text", text: JSON.stringify({ sessionId, feedbackCount: feedback.length, records: feedback }, null, 2) }]
+        };
+      }
+    );
+
+  // F-23: トークン推定ベースのコスト見積
+  govTool(
+    "estimate_prompt_cost",
+    {
+      title: "Prompt コスト見積",
+      description: "Prompt のトークン数とモデルレート から推定コストを計算します。",
+      inputSchema: {
+        prompt: z.string().min(1),
+        modelName: z.string().optional().describe("使用 LLM モデル (既定: mistral)"),
+        outputTokenEstimate: z.number().optional().describe("出力トークン予測 (既定: 入力の 0.3 倍)")
+      }
+    },
+    async ({ prompt, modelName, outputTokenEstimate }: { prompt: string; modelName?: string; outputTokenEstimate?: number }) => {
+      // deps から受け取った evaluatePromptMetrics を使用
+      const rawMetrics = evaluatePromptMetrics(prompt);
+      // deps の返却型は PromptMetrics のサブセット。costEstimate 計算に必要なフィールドのみ使用
+      const metrics = {
+        estimatedTokens: rawMetrics.estimatedTokens,
+        lengthChars: 0,
+        lineCount: 0,
+        containsProjectContext: rawMetrics.containsProjectContext,
+        containsAgentsSection: rawMetrics.containsAgentsSection,
+        containsSkillsSection: rawMetrics.containsSkillsSection,
+        containsTaskSection: rawMetrics.containsTaskSection,
+        matchedSkillCount: 0,
+        totalSkillCount: 0,
+        matchedTriggerCount: 0,
+        totalTriggerCount: 0,
+        skillCoverageRate: rawMetrics.skillCoverageRate,
+        triggerMatchRate: rawMetrics.triggerMatchRate
+      };
+      const costEstimate = estimatePromptCost(metrics, modelName ?? "mistral", outputTokenEstimate);
+      return {
+        content: [{ type: "text", text: JSON.stringify(costEstimate, null, 2) }]
       };
     }
   );

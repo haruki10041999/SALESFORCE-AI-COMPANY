@@ -5,6 +5,7 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname } from "node:path";
 import { buildEmptyOrgCatalog, type OrgCatalog } from "./org-catalog.js";
+import { FileUnitOfWork } from "../persistence/unit-of-work.js";
 
 export async function loadOrgCatalog(filePath: string): Promise<OrgCatalog> {
   if (!existsSync(filePath)) return buildEmptyOrgCatalog();
@@ -20,5 +21,7 @@ export async function loadOrgCatalog(filePath: string): Promise<OrgCatalog> {
 
 export async function saveOrgCatalog(filePath: string, catalog: OrgCatalog): Promise<void> {
   await fsPromises.mkdir(dirname(filePath), { recursive: true });
-  await fsPromises.writeFile(filePath, JSON.stringify(catalog, null, 2), "utf-8");
+  const unitOfWork = new FileUnitOfWork();
+  await unitOfWork.stageFileWrite(filePath, JSON.stringify(catalog, null, 2));
+  await unitOfWork.commit();
 }

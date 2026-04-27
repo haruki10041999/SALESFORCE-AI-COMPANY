@@ -68,6 +68,11 @@ interface BuildRegisterAllToolsDepsOptions {
   toPosixPath: (pathValue: string) => string;
   addRecord: (record: { id: string; text: string; tags: string[] }) => void;
   searchByKeyword: (query: string) => Array<{ id: string; text: string; tags?: string[] }>;
+  /** F-11: vector backend (ngram/ollama) 経由の async 検索 */
+  searchByKeywordAsync?: (
+    query: string,
+    options?: { limit?: number; minScore?: number }
+  ) => Promise<Array<{ id: string; text: string; tags?: string[]; score?: number }>>;
   buildPrompt: (agent: { name: string; content: string }, task: string) => string;
   evaluatePromptMetrics: RegisterAllToolsDeps["evaluatePromptMetrics"];
   presetsDir: string;
@@ -213,6 +218,7 @@ export function buildRegisterAllToolsDeps(options: BuildRegisterAllToolsDepsOpti
     toPosixPath: options.toPosixPath,
     addRecord: options.addRecord,
     searchByKeyword: options.searchByKeyword,
+    ...(options.searchByKeywordAsync ? { searchByKeywordAsync: options.searchByKeywordAsync } : {}),
     buildPrompt: options.buildPrompt,
     evaluatePromptMetrics: options.evaluatePromptMetrics,
     presetsDir: options.presetsDir,

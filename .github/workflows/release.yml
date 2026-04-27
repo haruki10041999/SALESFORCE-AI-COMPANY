@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (例: v1.2.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Generate tool manifest
+        run: npm run docs:manifest
+
+      - name: Generate tools doc
+        run: npm run docs:tools
+
+      - name: Pack release archive
+        run: |
+          mkdir -p release-staging
+          cp -r dist agents skills personas context prompt-engine docs README.md package.json package-lock.json release-staging/
+          tar -czf "salesforce-ai-company-${{ steps.tag.outputs.value }}.tar.gz" -C release-staging .
+
+      - name: Extract changelog section
+        id: changelog
+        run: |
+          node -e "
+            const fs = require('fs');
+            const tag = process.env.TAG.replace(/^v/, '');
+            const md = fs.readFileSync('docs/CHANGELOG.md', 'utf-8');
+            const re = new RegExp('##\\\\s*\\\\[?' + tag.replace(/\\./g, '\\\\.') + '[\\\\s\\\\S]*?(?=\\n##\\\\s*\\\\[|$)');
+            const m = md.match(re);
+            const body = m ? m[0] : '## ' + tag + '\\n\\n(no changelog entry)';
+            fs.writeFileSync('release-notes.md', body);
+          "
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.value }}
+          name: ${{ steps.tag.outputs.value }}
+          body_path: release-notes.md
+          files: salesforce-ai-company-${{ steps.tag.outputs.value }}.tar.gz
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.value, '-') }}

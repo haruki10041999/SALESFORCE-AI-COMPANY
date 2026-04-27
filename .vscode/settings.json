@@ -99,6 +99,38 @@
         "/^\\$broken=@\\(\\); Get-ChildItem -Recurse -File -Include \\*\\.ts,\\*\\.md,\\*\\.json -Path mcp,scripts,tests,docs,skills,agents,personas,prompt-engine,context,README\\.md \\| ForEach-Object \\{ \\$b=\\[IO\\.File\\]::ReadAllBytes\\(\\$_\\.FullName\\); \\$enc=\\[Text\\.UTF8Encoding\\]::new\\(\\$false,\\$true\\); try \\{ \\[void\\]\\$enc\\.GetString\\(\\$b\\) \\} catch \\{ \\$broken \\+= \\$_\\.FullName \\} \\}; \\$broken$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^npm install$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/prompt-golden\\.test\\.ts 2>&1 \\| Select-Object -Last 40$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/ollama-health\\.test\\.ts 2>&1 \\| Select-Object -Last 25$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/quality-rubric\\.test\\.ts 2>&1 \\| Select-Object -Last 25$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/apex-ast\\.test\\.ts 2>&1 \\| Select-Object -Last 30$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/flow-ast\\.test\\.ts 2>&1 \\| Select-Object -Last 20$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Add-Content tests/ollama-client\\.test\\.ts -Value \"`n\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx tsc --noEmit 2>&1 \\| Select-Object -First 30$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }

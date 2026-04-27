@@ -1,5 +1,6 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname } from "node:path";
+import { appendTextFileAtomic, writeTextFileAtomic } from "../persistence/unit-of-work.js";
 
 export const QUERY_SKILL_MODEL_VERSION = "query-skill-v1";
 
@@ -53,7 +54,7 @@ export async function appendQuerySkillFeedback(
   if (entries.length === 0) return;
   await fsPromises.mkdir(dirname(logFilePath), { recursive: true });
   const lines = entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
-  await fsPromises.appendFile(logFilePath, lines, "utf-8");
+  await appendTextFileAtomic(logFilePath, lines);
 }
 
 export async function loadQuerySkillFeedbackLog(logFilePath: string): Promise<QuerySkillFeedbackEntry[]> {
@@ -162,7 +163,7 @@ export async function saveQuerySkillIncrementalModel(
   model: QuerySkillIncrementalModel
 ): Promise<void> {
   await fsPromises.mkdir(dirname(modelFilePath), { recursive: true });
-  await fsPromises.writeFile(modelFilePath, JSON.stringify(model, null, 2), "utf-8");
+  await writeTextFileAtomic(modelFilePath, JSON.stringify(model, null, 2));
 }
 
 export async function loadQuerySkillIncrementalModel(

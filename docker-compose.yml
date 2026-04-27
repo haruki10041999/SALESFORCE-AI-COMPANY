@@ -1,0 +1,88 @@
+# 依存スタック (MCP 本体はホストで起動)
+#
+# 推奨利用パターン:
+#
+#   # 全サービス起動 (Ollama + 観測性)
+#   docker compose up -d
+#
+#   # 観測性のみ (Ollama を Docker で起動しない場合)
+#   docker compose up -d jaeger prometheus grafana
+#
+#   # 全停止
+#   docker compose down
+#
+# エンドポイント:
+#   - Jaeger UI:     http://localhost:16686
+#   - Prometheus UI: http://localhost:9090
+#   - Grafana UI:    http://localhost:3000  (admin/admin)
+#   - Ollama API:    http://localhost:11434
+#
+# MCP サーバ側 (.env):
+#   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+#   PROMETHEUS_METRICS_PORT=9464
+#   OLLAMA_BASE_URL=http://localhost:11434
+
+services:
+  # ---- Ollama (LLM / Embedding 既定提供) -----------------------------------
+  # 既定で起動。ホストにネイティブ Ollama を入れている場合は事前停止すること
+  # (ポート 11434 競合)。
+  ollama:
+    image: ollama/ollama:0.21.2
+    container_name: sfai-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    # GPU を使いたい場合 (NVIDIA + Docker Desktop GPU サポート有効時):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # ---- Observability -------------------------------------------------------
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: sfai-jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: sfai-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:11.6.14
+    container_name: sfai-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  grafana-data:
+  ollama-data:

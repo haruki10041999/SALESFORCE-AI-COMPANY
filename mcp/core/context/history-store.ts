@@ -1,5 +1,12 @@
 import { existsSync, promises as fsPromises } from "fs";
 import { join } from "path";
+import {
+  DEFAULT_SQLITE_STATE_FILE,
+  SQLiteStateStore,
+  isSqliteDriverAvailable,
+  type HistorySessionRecord
+} from "../persistence/sqlite-store.js";
+import { FileUnitOfWork } from "../persistence/unit-of-work.js";
 
 export interface AgentMessage {
   agent: string;
@@ -22,6 +29,10 @@ interface CreateHistoryStoreDeps {
   agentLog: AgentMessage[];
   maxHistoryFiles?: number;
   retentionDays?: number;
+  sqlite?: {
+    enabled?: boolean;
+    dbPath?: string;
+  };
 }
 
 export function createHistoryStore(deps: CreateHistoryStoreDeps) {
@@ -30,8 +41,19 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
     ensureDir,
     agentLog,
     maxHistoryFiles = 200,
-    retentionDays = 30
+    retentionDays = 30,
+    sqlite
   } = deps;
+  const sqliteEnabled = sqlite?.enabled === true && isSqliteDriverAvailable();
+  const sqliteDbPath = sqlite?.dbPath ?? join(historyDir, "..", DEFAULT_SQLITE_STATE_FILE);
+  let sqliteStorePromise: Promise<SQLiteStateStore> | null = null;
+
+  async function getSqliteStore(): Promise<SQLiteStateStore> {
+    if (!sqliteStorePromise) {
+      sqliteStorePromise = SQLiteStateStore.open({ dbPath: sqliteDbPath });
+    }
+    return sqliteStorePromise;
+  }
 
   function toDayFolder(isoTimestamp: string): string {
     return isoTimestamp.slice(0, 10);
@@ -60,6 +82,10 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
   }
 
   async function deleteOldHistories(): Promise<{ deletedByAge: number; deletedByCount: number; remaining: number }> {
+    if (sqliteEnabled) {
+      return deleteOldHistoriesSqlite(await getSqliteStore(), maxHistoryFiles, retentionDays);
+    }
+
     if (!existsSync(historyDir)) {
       return { deletedByAge: 0, deletedByCount: 0, remaining: 0 };
     }
@@ -129,12 +155,9 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
   }
 
   async function saveChatHistory(topic: string): Promise<string> {
-    await ensureDir(historyDir);
     const nowIso = new Date().toISOString();
     const timestamp = nowIso.replace(/[:.]/g, "-");
     const id = timestamp.split("T")[0] + "-" + timestamp.split("T")[1].slice(0, 6);
-    const dayDir = join(historyDir, toDayFolder(nowIso));
-    await ensureDir(dayDir);
 
     const session: ChatSession = {
       id,
@@ -144,20 +167,31 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
       entries: agentLog.filter((e) => e.topic === topic || !e.topic)
     };
 
-    const filePath = join(dayDir, id + ".json");
-    await fsPromises.writeFile(filePath, JSON.stringify(session, null, 2));
-    await deleteOldHistories();
+    if (sqliteEnabled) {
+      const store = await getSqliteStore();
+      store.executeInTransaction(() => {
+        store.upsertHistorySession(sessionToRecord(session));
+        deleteOldHistoriesSqlite(store, maxHistoryFiles, retentionDays);
+      });
+    } else {
+      const dayDir = join(historyDir, toDayFolder(nowIso));
+      const filePath = join(dayDir, id + ".json");
+      const unitOfWork = new FileUnitOfWork();
+      await ensureDir(historyDir);
+      await ensureDir(dayDir);
+      await unitOfWork.stageFileWrite(filePath, JSON.stringify(session, null, 2));
+      await unitOfWork.commit();
+      await deleteOldHistories();
+      return id;
+    }
 
     return id;
   }
 
   async function saveSessionHistory(topic: string, entries: AgentMessage[]): Promise<string> {
-    await ensureDir(historyDir);
     const nowIso = new Date().toISOString();
     const timestamp = nowIso.replace(/[:.]/g, "-");
     const id = timestamp.split("T")[0] + "-" + timestamp.split("T")[1].slice(0, 6);
-    const dayDir = join(historyDir, toDayFolder(nowIso));
-    await ensureDir(dayDir);
 
     const session: ChatSession = {
       id,
@@ -167,14 +201,33 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
       entries
     };
 
-    const filePath = join(dayDir, id + ".json");
-    await fsPromises.writeFile(filePath, JSON.stringify(session, null, 2));
-    await deleteOldHistories();
+    if (sqliteEnabled) {
+      const store = await getSqliteStore();
+      store.executeInTransaction(() => {
+        store.upsertHistorySession(sessionToRecord(session));
+        deleteOldHistoriesSqlite(store, maxHistoryFiles, retentionDays);
+      });
+    } else {
+      const dayDir = join(historyDir, toDayFolder(nowIso));
+      const filePath = join(dayDir, id + ".json");
+      const unitOfWork = new FileUnitOfWork();
+      await ensureDir(historyDir);
+      await ensureDir(dayDir);
+      await unitOfWork.stageFileWrite(filePath, JSON.stringify(session, null, 2));
+      await unitOfWork.commit();
+      await deleteOldHistories();
+      return id;
+    }
 
     return id;
   }
 
   async function loadChatHistories(): Promise<ChatSession[]> {
+    if (sqliteEnabled) {
+      const store = await getSqliteStore();
+      return store.listHistorySessions().map(recordToSession);
+    }
+
     if (!existsSync(historyDir)) {
       return [];
     }
@@ -195,6 +248,18 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
   }
 
   async function restoreChatHistory(id: string): Promise<ChatSession | null> {
+    if (sqliteEnabled) {
+      const store = await getSqliteStore();
+      const session = store.getHistorySessionById(id);
+      if (!session) {
+        return null;
+      }
+      const mapped = recordToSession(session);
+      agentLog.length = 0;
+      agentLog.push(...mapped.entries);
+      return mapped;
+    }
+
     const dayPrefix = id.slice(0, 10);
     const candidatePaths = [
       join(historyDir, dayPrefix, id + ".json"),
@@ -228,5 +293,49 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
     loadChatHistories,
     restoreChatHistory,
     deleteOldHistories
+  };
+}
+
+function deleteOldHistoriesSqlite(store: SQLiteStateStore, maxHistoryFiles = 200, retentionDays = 30): {
+  deletedByAge: number;
+  deletedByCount: number;
+  remaining: number;
+} {
+  const ageThreshold = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+  const deletedByAge = store.deleteHistoryOlderThan(ageThreshold);
+  const deletedByCount = store.pruneHistoryMaxCount(maxHistoryFiles);
+  return {
+    deletedByAge,
+    deletedByCount,
+    remaining: store.countHistorySessions()
+  };
+}
+
+function sessionToRecord(session: ChatSession): HistorySessionRecord {
+  return {
+    id: session.id,
+    timestamp: session.timestamp,
+    topic: session.topic,
+    agents: session.agents,
+    entries: session.entries
+  };
+}
+
+function recordToSession(record: HistorySessionRecord): ChatSession {
+  const entries = (record.entries ?? []).map((entry) => {
+    const value = entry as Partial<AgentMessage>;
+    return {
+      agent: typeof value.agent === "string" ? value.agent : "unknown",
+      message: typeof value.message === "string" ? value.message : "",
+      timestamp: typeof value.timestamp === "string" ? value.timestamp : new Date().toISOString(),
+      ...(typeof value.topic === "string" ? { topic: value.topic } : {})
+    };
+  });
+  return {
+    id: record.id,
+    timestamp: record.timestamp,
+    topic: record.topic,
+    agents: record.agents,
+    entries
   };
 }

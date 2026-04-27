@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { SafeFilePathSchema, runSchemaValidation } from "../core/quality/resource-validation.js";
+import { analyzeApexSource, type ApexAnalysis } from "../core/parsers/apex-ast.js";
 
 export type ApexFileAnalysis = {
   path: string;
@@ -15,6 +16,8 @@ export type ApexFileAnalysis = {
   missingCrudFlsCheck: boolean;
   testClassDetected: boolean;
   hasAsyncMethod: boolean;
+  /** F-08: AST 解析結果 (パース成功時のみ詳細を含む) */
+  ast?: ApexAnalysis;
 };
 
 /**
@@ -87,6 +90,15 @@ export function analyzeApex(filePath: string): ApexFileAnalysis {
   const sourceKind = /\.trigger$/i.test(filePath) ? "trigger" : /\.cls$/i.test(filePath) ? "class" : "unknown";
   const probableTestNames = [`${entityName}Test`, `${entityName}Tests`];
 
+  // F-08: AST 解析を補助情報として付与 (失敗しても heuristic を維持)
+  let astResult: ApexAnalysis | undefined;
+  try {
+    const ast = analyzeApexSource(src);
+    if (ast.units.length > 0) astResult = ast;
+  } catch {
+    // AST 失敗時は heuristic のみで継続
+  }
+
   return {
     path: filePath,
     entityName,
@@ -100,7 +112,8 @@ export function analyzeApex(filePath: string): ApexFileAnalysis {
     hasSoqlInjectionRisk: (hasDynamicSoqlConcat || hasStringFormatDynamicSoql) && !hasEscapeSingleQuotes,
     missingCrudFlsCheck: hasDml && !hasCrudGuard,
     testClassDetected: /@IsTest\b/i.test(src),
-    hasAsyncMethod: /@future\b|implements\s+Queueable|implements\s+Schedulable/i.test(src)
+    hasAsyncMethod: /@future\b|implements\s+Queueable|implements\s+Schedulable/i.test(src),
+    ...(astResult ? { ast: astResult } : {})
   };
 }
 

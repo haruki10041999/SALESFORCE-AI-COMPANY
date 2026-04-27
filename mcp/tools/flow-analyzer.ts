@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { SafeFilePathSchema, runSchemaValidation } from "../core/quality/resource-validation.js";
+import { analyzeFlowAst, type FlowAnalysis } from "../core/parsers/flow-ast.js";
 
 export type FlowFileAnalysis = {
   path: string;
@@ -12,6 +13,8 @@ export type FlowFileAnalysis = {
   hasApexAction: boolean;
   hasScheduledPath: boolean;
   riskHints: string[];
+  /** F-09: AST ベースの追加情報 (well-formed XML 時のみ) */
+  ast?: FlowAnalysis;
 };
 
 function countTag(source: string, tagName: string): number {
@@ -50,6 +53,21 @@ export function analyzeFlow(filePath: string): FlowFileAnalysis {
     riskHints.push("Scheduled path を含むため、重複実行と遅延実行時の整合性を確認してください。");
   }
 
+  // F-09: AST ベースの補助解析 (well-formed XML 時のみ詳細を保持)
+  let astTry: FlowAnalysis | undefined;
+  try {
+    const ast = analyzeFlowAst(src);
+    if (ast.isWellFormed) {
+      astTry = ast;
+      // AST が正しく取れた場合は追加リスクヒント (orphan defaultConnector 等) を統合
+      for (const h of ast.riskHints) {
+        if (!riskHints.includes(h)) riskHints.push(h);
+      }
+    }
+  } catch {
+    // AST 失敗時は regex のみで継続
+  }
+
   return {
     path: filePath,
     decisionCount,
@@ -60,6 +78,7 @@ export function analyzeFlow(filePath: string): FlowFileAnalysis {
     subflowCount,
     hasApexAction,
     hasScheduledPath,
-    riskHints
+    riskHints,
+    ...(astTry ? { ast: astTry } : {})
   };
 }

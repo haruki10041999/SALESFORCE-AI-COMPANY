@@ -106,6 +106,18 @@ export function recordMetric(sample: ToolMetricSample): void {
     samples.splice(0, samples.length - MAX_SAMPLES);
   }
   saveToDisk();
+  // T-OBS-02: Prometheus にも fan-out (動的 import で no-op フォールバック)
+  void import("../core/observability/prometheus-metrics.js")
+    .then((m) => {
+      m.recordToolExecutionForPrometheus({
+        toolName: sample.toolName,
+        status: sample.status === "success" ? "success" : "error",
+        durationMs: sample.durationMs
+      });
+    })
+    .catch(() => {
+      // module 解決失敗時は静かに無視
+    });
 }
 
 function percentile(sorted: number[], p: number): number {

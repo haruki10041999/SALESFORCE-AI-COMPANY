@@ -20,6 +20,7 @@
  * 戻り値は JSON と Markdown の両方を含み、レポート保存先は呼び出し側で制御する。
  */
 import { ensureGitRepoAndRefs, getDiffFiles, runGit, validateRef, type DiffFile } from "./git-diff-helpers.js";
+import { diffApexSignatures, type ApexSignatureDiffResult } from "../core/apex/signature-diff.js";
 
 export type ChangelogCategory =
   | "Apex Class"
@@ -46,6 +47,11 @@ export type ApexChangelogInput = {
   maxCommits?: number;
   /** Override category detection by extending the path map. */
   categoryOverrides?: Partial<Record<string, ChangelogCategory>>;
+  /**
+   * TASK-A14: When true, run AST-level signature diff on modified/deleted Apex .cls files
+   * and populate `breakingChanges` in the result.
+   */
+  includeSignatureDiff?: boolean;
 };
 
 export type ApexChangelogResult = {
@@ -54,6 +60,8 @@ export type ApexChangelogResult = {
   totalFiles: number;
   byCategory: Record<ChangelogCategory, ChangelogEntry[]>;
   highlights: string[];
+  /** TASK-A14: AST-level breaking change summary (populated when includeSignatureDiff=true). */
+  breakingChanges?: ApexSignatureDiffResult[];
   markdown: string;
 };
 
@@ -162,6 +170,21 @@ function renderMarkdown(result: Omit<ApexChangelogResult, "markdown">): string {
     lines.push("");
   }
 
+  // TASK-A14: breaking change summary
+  if (result.breakingChanges && result.breakingChanges.length > 0) {
+    const totalBreaking = result.breakingChanges.reduce((sum, r) => sum + r.breakingCount, 0);
+    lines.push(`## Breaking Changes (${totalBreaking})`);
+    lines.push("");
+    lines.push("| class | kind | detail |");
+    lines.push("|---|---|---|");
+    for (const r of result.breakingChanges) {
+      for (const c of r.changes.filter((ch) => ch.isBreaking)) {
+        lines.push(`| [${r.className}](${r.referenceUrl}) | ${c.kind} | ${c.detail} |`);
+      }
+    }
+    lines.push("");
+  }
+
   for (const category of Object.keys(result.byCategory) as ChangelogCategory[]) {
     const entries = result.byCategory[category];
     if (entries.length === 0) continue;
@@ -195,12 +218,38 @@ export function generateApexChangelog(input: ApexChangelogInput): ApexChangelogR
   const byCategory = bucketise(entries);
   const highlights = collectHighlights(input.repoPath, comparison, input.maxCommits ?? 50);
 
+  // TASK-A14: AST-level signature diff for modified/deleted Apex classes
+  let breakingChanges: ApexSignatureDiffResult[] | undefined;
+  if (input.includeSignatureDiff) {
+    breakingChanges = [];
+    const apexEntries = entries.filter(
+      (e) => e.category === "Apex Class" && (e.status === "modified" || e.status === "deleted")
+    );
+    for (const entry of apexEntries) {
+      let beforeSrc: string | null = null;
+      let afterSrc: string | null = null;
+      try {
+        beforeSrc = runGit(input.repoPath, ["show", `${input.baseRef}:${entry.path}`]);
+      } catch { /* file may not exist in base */ }
+      if (entry.status === "modified") {
+        try {
+          afterSrc = runGit(input.repoPath, ["show", `${headRef}:${entry.path}`]);
+        } catch { /* file may not exist in head */ }
+      }
+      const fileName = entry.path.replace(/^.*[\\/]/, "").replace(/\.cls$/i, "");
+      const diff = diffApexSignatures(beforeSrc, afterSrc, fileName);
+      if (diff.changes.length > 0) breakingChanges.push(diff);
+    }
+    if (breakingChanges.length === 0) breakingChanges = undefined;
+  }
+
   const partial: Omit<ApexChangelogResult, "markdown"> = {
     comparison,
     generatedAt: new Date().toISOString(),
     totalFiles: entries.length,
     byCategory,
-    highlights
+    highlights,
+    breakingChanges
   };
 
   return { ...partial, markdown: renderMarkdown(partial) };

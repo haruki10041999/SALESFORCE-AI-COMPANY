@@ -68,6 +68,11 @@ const COMMANDS: Record<string, CliCommand> = {
     description: "outputs の世代バックアップ/復元",
     passThroughArgs: true
   },
+  "learning:replay": {
+    script: "learning:replay",
+    description: "過去チャット履歴を再評価してレポート化",
+    passThroughArgs: true
+  },
   scaffold: {
     script: "scaffold",
     description: "agent/skill の雛形を生成",
@@ -91,6 +96,7 @@ function printUsage(error?: string): void {
   console.error("\nExamples:");
   console.error("  npm run ai -- dev");
   console.error("  npm run ai -- outputs:cleanup -- --dry-run");
+  console.error("  npm run ai -- learning:replay -- --limit 20");
 }
 
 function resolveNpmCommand(): string {

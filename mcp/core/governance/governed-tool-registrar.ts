@@ -6,6 +6,7 @@ import { addMemory } from "../../../memory/project-memory.js";
 import { addRecord as addVectorRecord } from "../../../memory/vector-store.js";
 import { buildProgressBanner } from "../progress/progress-formatter.js";
 import { appendExecutionOrigin, buildExecutionOriginRecord } from "./outputs-origin.js";
+import { checkToolAccess } from "./rbac-policy.js";
 
 const PROGRESS_BANNER_SKIP_TOOLS = new Set([
   // 進捗表示の意味が薄い軽量ツール (応答が JSON のみで構造化されているもの含む)
@@ -126,11 +127,43 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
     registerTool(name, config, async (input: unknown) => {
       const startedAt = new Date();
       const traceId = startTrace(name, { input: summarizeValue(input) });
+      // T-OBS-01: OTel span 開始 (no-op when OTEL_ENABLED!=true)
+      void import("../observability/otel-tracer.js")
+        .then((m) => m.notifyOtelTraceStart(traceId, name))
+        .catch(() => {});
       await emitSystemEvent("tool_before_execute", {
         toolName: name,
         traceId,
         input: summarizeValue(input)
       });
+
+      const access = await checkToolAccess(outputsDir, normalizeResourceName(name), process.env.SF_AI_ROLE);
+      if (!access.allowed) {
+        await emitSystemEvent("tool_after_execute", {
+          toolName: name,
+          traceId,
+          success: false,
+          blockedByRbac: true,
+          role: access.role,
+          reason: access.reason ?? "rbac denied"
+        });
+        endTrace(traceId, { blockedByRbac: true, role: access.role });
+        recordMetric({
+          toolName: name,
+          traceId,
+          startedAt: startedAt.toISOString(),
+          durationMs: Date.now() - startedAt.getTime(),
+          status: "error"
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `RBAC denied: tool='${name}', role='${access.role}', reason='${access.reason ?? "not allowed"}'`
+            }
+          ]
+        };
+      }
 
       if (isToolDisabled(normalizeResourceName(name))) {
         await emitSystemEvent("tool_after_execute", {
@@ -141,6 +174,9 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
           error: "tool disabled"
         });
         endTrace(traceId, { blockedByDisable: true });
+        void import("../observability/otel-tracer.js")
+          .then((m) => m.notifyOtelTraceEnd(traceId, { "sfai.disabled": true }))
+          .catch(() => {});
         recordMetric({
           toolName: name,
           traceId,
@@ -180,6 +216,9 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
             retried: attempt > 0
           });
           endTrace(traceId, { success: true, attempts: attempt + 1 });
+          void import("../observability/otel-tracer.js")
+            .then((m) => m.notifyOtelTraceEnd(traceId, { "sfai.attempts": attempt + 1 }))
+            .catch(() => {});
           recordMetric({
             toolName: name,
             traceId,
@@ -211,6 +250,9 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
             });
             await registerToolFailure(name, error);
             failTrace(traceId, error);
+            void import("../observability/otel-tracer.js")
+              .then((m) => m.notifyOtelTraceFail(traceId, error))
+              .catch(() => {});
             recordMetric({
               toolName: name,
               traceId,

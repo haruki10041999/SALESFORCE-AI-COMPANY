@@ -32,6 +32,7 @@ export function registerChatDomain(deps: Deps): void {
     isPresetDisabled,
     addRecord,
     searchByKeyword,
+    searchByKeywordAsync,
     buildPrompt,
     evaluatePromptMetrics
   } = deps;
@@ -77,6 +78,7 @@ export function registerChatDomain(deps: Deps): void {
     govTool,
     addRecord,
     searchByKeyword,
+    ...(searchByKeywordAsync ? { searchByKeywordAsync } : {}),
     buildPrompt,
     evaluatePromptMetrics
   });

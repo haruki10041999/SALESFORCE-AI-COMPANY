@@ -1,0 +1,33 @@
+{
+  "$schema": "./_schema.json",
+  "name": "persona-injection",
+  "description": "persona と発話スタイルが注入される",
+  "input": {
+    "topic": "セキュリティチェックの計画",
+    "agentNames": ["security-engineer"],
+    "personaName": "samurai",
+    "skillNames": [],
+    "filePaths": [],
+    "turns": 1,
+    "maxContextChars": null,
+    "appendInstruction": null,
+    "includeProjectContext": false
+  },
+  "fixtures": {
+    "contextFiles": [],
+    "markdown": {
+      "agents/security-engineer": "# Security Engineer\nセキュリティ専門家",
+      "personas/samurai": "# Samurai Persona\n武士の心得を以て臨む"
+    },
+    "files": {}
+  },
+  "expected": {
+    "mustContain": [
+      "## 参加エージェント定義",
+      "security-engineer",
+      "## ペルソナ"
+    ],
+    "minLengthChars": 100,
+    "maxLengthChars": 30000
+  }
+}

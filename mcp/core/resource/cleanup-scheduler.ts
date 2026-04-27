@@ -17,6 +17,7 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { writeTextFileAtomic } from "../persistence/unit-of-work.js";
 
 export type CleanupScheduleStatus = "active" | "paused";
 export type CleanupScheduleAction = "dry-run" | "apply";
@@ -218,7 +219,7 @@ export async function saveCleanupSchedules(
     version: CLEANUP_SCHEDULES_FILE_VERSION,
     updatedAt: new Date().toISOString()
   };
-  await fsPromises.writeFile(filePath, JSON.stringify(payload, null, 2), "utf-8");
+  await writeTextFileAtomic(filePath, JSON.stringify(payload, null, 2));
 }
 
 export interface CreateCleanupScheduleInput {

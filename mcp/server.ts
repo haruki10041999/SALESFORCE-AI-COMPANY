@@ -52,7 +52,7 @@ import {
 // Memory / Prompt-Engine / Statistics
 // ============================================================
 import { addMemory, searchMemory, listMemory, clearMemory } from "../memory/project-memory.js";
-import { addRecord, searchByKeyword } from "../memory/vector-store.js";
+import { addRecord, searchByKeyword, searchByKeywordAsync } from "../memory/vector-store.js";
 import { buildPrompt } from "../prompt-engine/prompt-builder.js";
 import { evaluatePromptMetrics } from "../prompt-engine/prompt-evaluator.js";
 import {
@@ -79,6 +79,7 @@ import { createCatalogHelpers } from "./core/context/catalog-helpers.js";
 import { createHistoryStore } from "./core/context/history-store.js";
 import { createOrchestrationSessionStore } from "./core/context/orchestration-session-store.js";
 import { createPromptRenderer } from "./core/context/prompt-rendering.js";
+import { DEFAULT_SQLITE_STATE_FILE } from "./core/persistence/sqlite-store.js";
 import type { CustomToolDefinition as RegistryCustomToolDefinition } from "./core/resource/custom-tool-registry.js";
 import { evaluatePseudoHooks as evaluatePseudoHooksCore } from "./core/orchestration/pseudo-hooks.js";
 import { createChatToolRunner, generateSessionId } from "./core/orchestration/chat-tool-runner.js";
@@ -293,6 +294,10 @@ const runChatTool = createChatToolRunner({
 });
 
 const HISTORY_DIR = join(OUTPUTS_DIR, "history");
+const STATE_DB_PATH = process.env.SF_AI_STATE_DB_PATH
+  ? resolve(process.env.SF_AI_STATE_DB_PATH)
+  : join(OUTPUTS_DIR, DEFAULT_SQLITE_STATE_FILE);
+const USE_SQLITE_HISTORY = (process.env.SF_AI_HISTORY_SQLITE ?? "false").toLowerCase() === "true";
 const PRESETS_DIR = join(OUTPUTS_DIR, "presets");
 const SESSIONS_DIR = join(OUTPUTS_DIR, "sessions");
 const HISTORY_RETENTION_DAYS = 30;
@@ -312,7 +317,11 @@ const { saveChatHistory, saveSessionHistory, loadChatHistories, restoreChatHisto
   ensureDir,
   agentLog,
   maxHistoryFiles: HISTORY_MAX_FILES,
-  retentionDays: HISTORY_RETENTION_DAYS
+  retentionDays: HISTORY_RETENTION_DAYS,
+  sqlite: {
+    enabled: USE_SQLITE_HISTORY,
+    dbPath: STATE_DB_PATH
+  }
 });
 const { saveOrchestrationSession, restoreOrchestrationSession } = createOrchestrationSessionStore<OrchestrationSession>({
   sessionsDir: SESSIONS_DIR,
@@ -384,6 +393,13 @@ const BUILTIN_TOOL_CATALOG = [
   "record_skill_rating",
   "get_skill_rating_report",
   "agent_ab_test",
+  "analyze_ab_test_history",
+  "tune_trigger_rules",
+  "evaluate_cost_sla",
+  "record_user_feedback",
+  "get_feedback_metrics",
+  "get_session_feedback",
+  "estimate_prompt_cost",
   "proposal_feedback_learn",
   "smart_chat",
   "analyze_chat_trends",
@@ -401,6 +417,7 @@ const BUILTIN_TOOL_CATALOG = [
   "search_vector",
   "build_prompt",
   "evaluate_prompt_metrics",
+  "evaluate_quality_rubric",
   "get_context"
 ];
 
@@ -536,6 +553,7 @@ registerServerTools({
     toPosixPath,
     addRecord,
     searchByKeyword,
+    searchByKeywordAsync,
     buildPrompt,
     evaluatePromptMetrics,
     presetsDir: PRESETS_DIR,

@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Logger } from "./core/logging/logger.js";
 import type { HandlersState } from "./handlers/auto-init.js";
+import { evaluateOllamaStartup } from "./core/llm/ollama-health.js";
 
 interface RuntimeInitDeps {
   logger: Logger;
@@ -43,6 +44,30 @@ export async function initializeServerRuntime(deps: RuntimeInitDeps): Promise<vo
     deps.logger.info(`Handlers auto-initialization complete (${deps.handlersState.registeredHandlers} handlers)`);
   } catch (error) {
     deps.logger.warn("Handler auto-initialization failed. Continuing without handlers.", error);
+  }
+
+  // T-OLLAMA-05: 起動時に Ollama 可用性を評価し、ポリシーに従って fallback / abort を決定する。
+  try {
+    const { policy, availability, decision } = await evaluateOllamaStartup();
+    if (decision.kind === "use-ollama") {
+      deps.logger.info(
+        `Ollama available (provider=${policy.embeddingProvider}, model=${policy.embeddingModel}, models=${decision.models.length})`
+      );
+    } else if (decision.kind === "fallback-ngram") {
+      deps.logger.info(
+        `Ollama fallback to ngram (reason=${decision.reason}, status=${availability.status})`
+      );
+    } else {
+      deps.logger.error(
+        `Ollama required but unavailable: ${decision.reason}. Aborting startup (set OLLAMA_REQUIRED=false to allow fallback).`
+      );
+      throw new Error(`Ollama required but unavailable: ${decision.reason}`);
+    }
+  } catch (error) {
+    if (process.env.OLLAMA_REQUIRED === "true") {
+      throw error;
+    }
+    deps.logger.warn("Ollama health evaluation failed. Continuing with ngram fallback.", error);
   }
 }
 

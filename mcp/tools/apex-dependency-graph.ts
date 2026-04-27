@@ -154,19 +154,38 @@ function buildMermaid(nodes: ApexDependencyNode[], edges: ApexDependencyEdge[]):
     return lines.join("\n");
   }
 
+  // A2: node type ごとに Mermaid classDef で色分けし視認性を向上
+  lines.push("  classDef cls fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a");
+  lines.push("  classDef trig fill:#fef9c3,stroke:#ca8a04,color:#78350f");
+  lines.push("  classDef flow fill:#dcfce7,stroke:#16a34a,color:#14532d");
+  lines.push("  classDef perm fill:#fce7f3,stroke:#db2777,color:#831843");
+  lines.push("  classDef intg fill:#f3e8ff,stroke:#9333ea,color:#581c87");
+
+  const styleMap: Record<ApexNodeKind, string> = {
+    class: "cls",
+    trigger: "trig",
+    flow: "flow",
+    permissionset: "perm",
+    integration: "intg"
+  };
+
   for (const node of nodes) {
-    const id = `${node.kind}_${node.name}`;
+    const id = `${node.kind}_${node.name.replace(/[^A-Za-z0-9_]/g, "_")}`;
     const label = `${node.name} (${node.kind})`;
-    lines.push(`  ${id}[\"${label}\"]`);
+    lines.push(`  ${id}["${label}"]`);
+  }
+  // apply per-node class for colour
+  for (const node of nodes) {
+    const id = `${node.kind}_${node.name.replace(/[^A-Za-z0-9_]/g, "_")}`;
+    lines.push(`  class ${id} ${styleMap[node.kind] ?? "cls"}`);
   }
 
   for (const edge of edges) {
-    const fromNode = nodes.find((node) => node.name === edge.from);
-    const toNode = nodes.find((node) => node.name === edge.to);
+    const fromNode = nodes.find((n) => n.name === edge.from);
+    const toNode = nodes.find((n) => n.name === edge.to);
     if (!fromNode || !toNode) continue;
-
-    const fromId = `${fromNode.kind}_${fromNode.name}`;
-    const toId = `${toNode.kind}_${toNode.name}`;
+    const fromId = `${fromNode.kind}_${fromNode.name.replace(/[^A-Za-z0-9_]/g, "_")}`;
+    const toId = `${toNode.kind}_${toNode.name.replace(/[^A-Za-z0-9_]/g, "_")}`;
     lines.push(`  ${fromId} --> ${toId}`);
   }
 

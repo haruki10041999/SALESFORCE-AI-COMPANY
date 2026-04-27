@@ -5,6 +5,113 @@
 
 ## [Unreleased]
 
+### Added (2026-04-27 Phase 2 — SQL.js 永続化 / 移行検証 / UoW 拡張)
+
+- **SQLite 実装を sql.js へ置換**
+  [`mcp/core/persistence/sqlite-store.ts`](../mcp/core/persistence/sqlite-store.ts) を native addon 依存 (`better-sqlite3`) から `sql.js` ベースへ置換。`SQLiteStateStore.open()` の非同期初期化で wasm をロードし、`state.sqlite` へエクスポート永続化。
+- **履歴ストア統合を async 化**
+  [`mcp/core/context/history-store.ts`](../mcp/core/context/history-store.ts) が `SQLiteStateStore.open()` を利用するよう更新。`SF_AI_HISTORY_SQLITE=true` で SQLite 履歴モードを有効化。
+- **JSONL 移行 / 互換エクスポート CLI の整備**
+  [`scripts/migrate-jsonl-to-sqlite.ts`](../scripts/migrate-jsonl-to-sqlite.ts) / [`scripts/state-export-jsonl.ts`](../scripts/state-export-jsonl.ts) を追加・更新。
+  - `state:migrate-sqlite`: JSONL/history から `state.sqlite` へ移行
+  - `state:export-jsonl`: `state.sqlite` から JSONL 互換出力
+- **移行後の整合チェックオプション追加**
+  [`scripts/state-export-jsonl.ts`](../scripts/state-export-jsonl.ts) に `--verify-source-dir <dir>` を追加。`exportedRows` と元 JSONL 有効行数を突合し、不一致時は終了コード 1（`--allow-mismatch` で継続可）。
+- **Unit-of-Work を保存系へ拡張**
+  [`mcp/core/persistence/unit-of-work.ts`](../mcp/core/persistence/unit-of-work.ts) を新設し、[`mcp/core/governance/operation-log.ts`](../mcp/core/governance/operation-log.ts) を appendFile から原子的保存へ移行。
+- **既定 DB 名の統一**
+  `state.sqlite` を共通既定名として定義し、[`mcp/server.ts`](../mcp/server.ts)、[`scripts/migrate-jsonl-to-sqlite.ts`](../scripts/migrate-jsonl-to-sqlite.ts)、[`scripts/state-export-jsonl.ts`](../scripts/state-export-jsonl.ts)、[`mcp/core/context/history-store.ts`](../mcp/core/context/history-store.ts) へ反映。
+- **テスト追加/更新**
+  [`tests/persistence-unit-of-work.test.ts`](../tests/persistence-unit-of-work.test.ts)、[`tests/sqlite-state-store.test.ts`](../tests/sqlite-state-store.test.ts)、[`tests/operation-log.test.ts`](../tests/operation-log.test.ts) を整備し、sql.js バックエンドでの回帰を確認。
+
+### Added (2026-04-28 Phase 3 — 解析強化 / エージェント協調 / Skill 推薦)
+
+Apex/Flow/PermissionSet の統合可視化、Test Gap 拡張、incremental cache、breaking change 検出、エージェント協調スコア学習、Context-Aware Skill 推薦を実装。
+
+- **TASK-A2 Apex 依存グラフ拡張**
+  [`mcp/tools/apex-dependency-graph.ts`](../mcp/tools/apex-dependency-graph.ts) に `includePermissionSets` / `includeFlows` / `includeIntegrations` オプション追加 (既定 false)。PermissionSet XML の `<apexClass>` タグ、Flow XML の `<actionName>` タグからクラス参照を抽出し、`ext:http` / `ext:future-callout` / `ext:nc:*` の外部連携ノードを統合。Mermaid 出力で node type ごとに色分け (`cls=#dbeafe/stroke=#3b82f6`, `flow=#dcfce7/stroke:#16a34a`, `perm=#fce7f3/stroke:#db2777`, `intg=#f3e8ff/stroke:#9333ea`)。既存 Apex 依存グラフはシグネチャ不変。
+- **TASK-A8 Test Gap Analysis 拡張**
+  [`mcp/tools/analyze-test-coverage-gap.ts`](../mcp/tools/analyze-test-coverage-gap.ts) に `includeBranchScaffold` オプション追加。新規 [`mcp/tools/test-scaffold-extractor.ts`](../mcp/tools/test-scaffold-extractor.ts) で Apex AST から try/catch/finally ブロック数と throw 送出例外型を抽出し、テスト雛形名 (例: `testClassName_RecoversFromException`, `testClassName_Throws<ExceptionType>`) を提案。Markdown レポートに「Suggested Test Scaffolds」セクション追加。
+- **TASK-A8 branch-extractor コア層**
+  [`mcp/core/testing/branch-extractor.ts`](../mcp/core/testing/branch-extractor.ts) を新規追加。`extractBranchInfo(apexSource, fallbackName)` で if/else-if/switch-when/三項演算子の分岐数、catch ブロック数、throw 例外型を統計。test-scaffold-extractor.ts の実装を再エクスポート。
+- **TASK-A18 Apex 依存グラフ incremental**
+  [`mcp/tools/apex-dependency-graph-incremental.ts`](../mcp/tools/apex-dependency-graph-incremental.ts) で `fingerprintFile` (mtime/size/SHA1 hash) によるキャッシュ機構を実装。次回実行時に `diffFingerprints` で added/modified/deleted を検出し、`incremental` フィールドに delta を付与。新規 [`mcp/core/dependency/graph-cache.ts`](../mcp/core/dependency/graph-cache.ts) に `DEFAULT_GRAPH_CACHE_PATH="outputs/cache/apex-graph.json"` と I/O ヘルパー (`loadCache`, `saveCache`, `isCacheValid`) を集約。
+- **TASK-A14 Apex Changelog AST 差分**
+  [`mcp/tools/apex-changelog.ts`](../mcp/tools/apex-changelog.ts) に `includeSignatureDiff` オプション追加 (既定 false)。新規 [`mcp/core/apex/signature-diff.ts`](../mcp/core/apex/signature-diff.ts) で 2 リビジョン間の public/global メソッド・フィールド署名を比較し、削除・型変更を breaking change として分類。`diffApexSignatures(before, after, className)` は method-added/method-removed/method-signature-changed/field-added/field-removed/field-type-changed を返す。Markdown レポートに「Breaking Changes」セクション追加。
+- **TASK-A6 エージェント協調スコア学習**
+  新規 [`mcp/core/learning/agent-synergy.ts`](../mcp/core/learning/agent-synergy.ts)。チャット終了時に `recordAgentSynergySession({ agents, qualityScore?, sessionId, recordedAt })` を `outputs/learning/agent-synergy.jsonl` に追記。`computeSynergyBonuses` で Bayesian average (m=5, μ_prior=0.5) + ε-greedy 探索 (ε=0.1, maxBonus=0.15) ベースのボーナスを計算。`getSynergyBonusForAgent` でペア ボーナスの総和を取得可能。
+- **TASK-A4 Context-Aware Skill 推薦強化**
+  [`mcp/tools/recommend-skills-for-role.ts`](../mcp/tools/recommend-skills-for-role.ts) に role・topic・recentFiles による文脈ボーナス実装済み (context bonus = +10)。ROLE_TO_CATEGORIES (apex-developer → [apex, testing, performance] 等)、FILE_EXT_TO_CATEGORIES (.cls → [apex]、.permissionset-meta.xml → [security] 等)、PATH_SEGMENT_TO_CATEGORIES (classes/ → [apex]、flows/ → [salesforce-platform] 等) による段階的カテゴリ推定。`scoreByQuery` + context bonus で skill ランキング。
+- **A2~A4 テスト体系**
+  全 Phase 3 新規実装について既存テストスイートと同様の unit test を `tests/` に配置済み (branch-extractor 3件、signature-diff 5件、agent-synergy 4件、その他)。
+
+### Added (2026-04-27 Phase 2 — MCP 公開 / Vector Ollama / OTel / AST リファクタ)
+
+F-10 quality rubric MCP 公開、F-11 vector-store Ollama 切替、T-OLLAMA-03 generate ストリーム、T-OBS-01 OTel、T-OBS-02 Prometheus、F-12 AST refactor 統合。全 6 件完了、610 PASS 達成。
+
+### Added (2026-04-27 Phase 6 — Ollama 連携 / 観測性 / 安全網基盤)
+
+無料縛り + Ollama Docker 既定方針の改修を順次投入。M1 安全網 (F-01〜F-05) から開始。
+
+- **F-01 CI/CD 拡張**
+  [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) に `lint:core-layers` / `lint:outputs` ステップを追加。`ubuntu-latest` + `windows-latest` のマトリクス化で Windows 互換性を保証 (Windows は `npm test` フル実行、Linux は selective + benchmark)。新規 [`.github/workflows/release.yml`](../.github/workflows/release.yml) で `vX.Y.Z` タグ push 時に typecheck → build → test → tarball 生成 → GitHub Release 自動化。
+- **F-01 layer-manifest 修正**
+  [`mcp/core/layer-manifest.ts`](../mcp/core/layer-manifest.ts) に `declarative` を `data` tier として登録。`resource/proposal/applier.ts → declarative/tool-spec.js` の既存違反を解消し `lint:core-layers` を CI で fail-fast 可能に。
+- **F-02 Dependabot + CodeQL**
+  [`.github/dependabot.yml`](../.github/dependabot.yml): npm / github-actions / docker の 3 エコシステムを毎週月曜 07:00 JST にスキャン。`@opentelemetry/*` / `@types/*` をグループ化、major bump は手動レビュー。[`.github/workflows/codeql.yml`](../.github/workflows/codeql.yml): `security-extended` + `security-and-quality` クエリで TypeScript/JavaScript を週次解析。
+- **F-03 Golden Prompt Suite**
+  [`tests/prompts/golden/`](../tests/prompts/golden/) に JSON Golden ケース (3 件: basic-architect-review / review-mode-by-files / persona-injection) と [`_schema.json`](../tests/prompts/golden/_schema.json) を新設。[`tests/prompt-golden.test.ts`](../tests/prompt-golden.test.ts) が `buildChatPromptFromContext` に Golden を流し、`mustContain` / `mustNotContain` / `sectionOrder` / `minLength` / `maxLength` で構造を回帰検証。テンプレート修正で意図しないセクション欠落・順序入替を即検知できる。
+- **F-04 Prompt Injection Guard**
+  [`mcp/core/prompt/injection-guard.ts`](../mcp/core/prompt/injection-guard.ts): 外部入力 (topic / 添付ファイル / appendInstruction) に潜む `ignore previous instructions` 系・日本語「これまでの指示を無視」・`system:` ロール乗っ取り・`<tool_call>` 偽装・ANSI エスケープ・ゼロ幅 BiDi 制御文字を検出するヒューリスティック実装。`guardUntrustedText()` は `<untrusted>` 境界マーカーで隔離 + サニタイズ、`mode: "block"` で危険入力を `PromptInjectionBlockedError` で遮断、`onDetect` で audit ログ連携。15 件のユニットテスト ([`tests/injection-guard.test.ts`](../tests/injection-guard.test.ts)) で多言語パターンとサニタイズ挙動を回帰検証。
+- **F-05 Crash Injection Test**
+  [`tests/crash-recovery.test.ts`](../tests/crash-recovery.test.ts): `TemporaryFileManager.writeAtomic` / `cleanupStaleTempFiles` のクラッシュ復旧シナリオを 7 ケースで検証。(1) 過去クラッシュで残った stale `.tmp` の掃除、(2) 連続書き込みでの最終状態整合、(3) 書き込み途中クラッシュ時の target 不変性、(4) 10 並列書き込みでの JSON 完全性、(5) ディレクトリ自動生成、(6) 欠損ディレクトリでの冪等性、(7) 無関係ファイル非破壊。状態ファイル更新の壊れたデータからの自動復旧契約をテストで担保。
+- **F-06 tiktoken トークンカウント**
+  [`mcp/core/prompt/token-counter.ts`](../mcp/core/prompt/token-counter.ts): `js-tiktoken` の `cl100k_base` を用いた厳密トークンカウンタを実装。エンコーダはプロセス内キャッシュ。失敗時は `Math.ceil(text.length / 4)` の approx へ自動フォールバック。[`prompt-engine/prompt-evaluator.ts`](../prompt-engine/prompt-evaluator.ts) の `estimatedTokens` を char/4 推定から tiktoken へ置換し、`tokenMethod` で計測手段を可視化。9 件のユニットテスト ([`tests/token-counter.test.ts`](../tests/token-counter.test.ts)) で英語/日本語/長文/キャッシュ再利用を回帰検証。
+- **T-OLLAMA-01 Ollama HTTP クライアント**
+  [`mcp/core/llm/ollama-client.ts`](../mcp/core/llm/ollama-client.ts): ローカル Ollama サーバ (既定 `http://localhost:11434`) との通信を担う stateless な fetch ラッパ。`AbortController` ベースのタイムアウト、5xx/408/429 のみリトライ、ネットワーク異常を `OllamaError` (`E_OLLAMA_TIMEOUT` / `E_OLLAMA_NETWORK` / `E_OLLAMA_HTTP_5xx` / `E_OLLAMA_EMPTY_EMBEDDING` 等) へ正規化。`/api/tags` / `/api/embeddings` / `/api/generate` をサポート。`buildOllamaClientFromEnv` で環境変数 (`OLLAMA_BASE_URL` / `OLLAMA_TIMEOUT_MS`) からインスタンス化。12 件のテスト ([`tests/ollama-client.test.ts`](../tests/ollama-client.test.ts)) で HTTP モック、リトライ挙動、タイムアウト、URL 正規化を検証。
+- **T-OLLAMA-05 Health チェック / フォールバック判定**
+  [`mcp/core/llm/ollama-health.ts`](../mcp/core/llm/ollama-health.ts): `/api/tags` を 30 秒キャッシュで照会し、`required: true` で必要モデル不足を検知すると `unavailable` 判定。`readOllamaPolicy` が env (`OLLAMA_REQUIRED` / `EMBEDDING_PROVIDER` / `OLLAMA_EMBEDDING_MODEL` / `OLLAMA_JUDGE_MODEL`) を読み取り、`decideFallback` が起動方針 (`use-ollama` / `fallback-ngram` / `abort-startup`) を返す純粋ロジック。13 件のテスト ([`tests/ollama-health.test.ts`](../tests/ollama-health.test.ts)) で必須モデル不足・required+unavailable・cache TTL・provider 切替を検証。
+- **T-OLLAMA-02 Vector Embedding Provider 抽象化**
+  [`mcp/core/llm/embedding-provider.ts`](../mcp/core/llm/embedding-provider.ts): `VectorEmbeddingProvider` 共通 IF を定義し、`NgramEmbeddingProvider` (FNV-1a ハッシュ + L2 正規化、unigram/bigram) と `OllamaEmbeddingProvider` (concurrency 制御付き batch、失敗時 ngram フォールバック) を提供。`createEmbeddingProvider` が env から自動選択。`cosineSimilarity` ヘルパも公開。17 件のテスト ([`tests/embedding-provider.test.ts`](../tests/embedding-provider.test.ts)) で決定的性、類似度ランキング、required モード時の throw、batch 並列度上限を検証。
+- **F-07 Quality Rubric (LLM-as-Judge)**
+  [`mcp/core/llm/quality-rubric.ts`](../mcp/core/llm/quality-rubric.ts): 5 軸 rubric (relevance / completeness / actionability / safety / structure、合計重み 1.0) で応答品質を 0..10 採点。`buildJudgePrompt` が JSON 出力を要求するプロンプトを生成し、`parseJudgeResponse` がフェンス付きコードブロック対応のロバストパーサで JSON を抽出。判定不能項目は heuristic (見出し数 / コードブロック / DML キーワード等) で補完。Ollama 失敗時は heuristic にフルフォールバック。15 件のテスト ([`tests/quality-rubric.test.ts`](../tests/quality-rubric.test.ts)) で重み正規化、JSON 抽出、欠落判定、fallbackOnFailure=false 時の throw を検証。
+- **F-08 Apex AST 解析**
+  [`mcp/core/parsers/apex-ast.ts`](../mcp/core/parsers/apex-ast.ts): `@apexdevtools/apex-parser` (ANTLR4) を用いた純粋 AST 解析モジュール。class / interface / enum / trigger を判別し、メソッド (戻り値型・パラメータ・修飾子・アノテーション)、フィールド、プロパティ、内部型、`extends`/`implements`、トリガイベント (`before insert` 等) と対象 sObject を抽出。SOQL/DML 数は文字列リテラル/コメントを除去した上で regex 補助カウント。エラーは `ANTLRErrorListener` で構造化収集し部分解析でも継続。10 件のテスト ([`tests/apex-ast.test.ts`](../tests/apex-ast.test.ts)) で `@AuraEnabled` / `@InvocableMethod` の検出、トリガ、内部クラス、文字列内キーワードの誤カウント抑止、構文エラー時の挙動を検証。
+- **F-09 Flow AST 解析**
+  [`mcp/core/parsers/flow-ast.ts`](../mcp/core/parsers/flow-ast.ts): `fast-xml-parser` で Salesforce Flow XML を well-formed 検証付きパース。Decision のルール条件 (`leftValueReference` / `operator` / `rightValueLiteral`)、ActionCall (Apex 判定)、Subflow、recordCreates/Updates/Deletes/Lookups、Screen、Formula、`start.scheduledPaths` を構造化抽出。`analyzeFlowAst` が件数集計 + リスクヒント (DML ≥ 5 / Subflow ≥ 3 / Apex action / Scheduled path / orphan defaultConnector) を返す。10 件のテスト ([`tests/flow-ast.test.ts`](../tests/flow-ast.test.ts)) でフルカバレッジ Flow、複数ルール、無効 XML、ガバナ閾値、空 Flow を検証。
+- **Phase 1 動線接続 (production wiring)**
+  Phase 1 で追加した新モジュールを既存ツール / bootstrap に接続し、テスト専用から本番経路へ昇格させた。
+  - F-04: [`mcp/core/context/chat-prompt-builder.ts`](../mcp/core/context/chat-prompt-builder.ts) で `topic` / `appendInstruction` を `guardUntrustedText({ mode: "sanitize" })` 経由でサニタイズし、`block` 級検出時は `PromptInjectionGuard` ロガーで警告 (キャッシュキー安定のため wrap モードは未採用)。
+  - T-OLLAMA-05: [`mcp/bootstrap.ts`](../mcp/bootstrap.ts) の `initializeServerRuntime` で `evaluateOllamaStartup()` を実行し、`use-ollama` / `fallback-ngram` / `abort-startup` を logger 出力。`OLLAMA_REQUIRED=true` で abort、それ以外は ngram fallback で起動継続。
+  - F-08: [`mcp/tools/apex-analyzer.ts`](../mcp/tools/apex-analyzer.ts) が `analyzeApexSource` を呼び、`ApexFileAnalysis.ast` に AST 解析結果を任意付与。AST 失敗時は heuristic 結果で継続。AST 公開関数は名前衝突回避のため `analyzeApex` → `analyzeApexSource` に改名。
+  - F-09: [`mcp/tools/flow-analyzer.ts`](../mcp/tools/flow-analyzer.ts) が `analyzeFlowAst` を呼び、well-formed XML 時のみ `FlowFileAnalysis.ast` に詳細を付与。AST が出した riskHints は regex 由来のものとマージ。
+
+### Added (2026-04-27 Phase 2 — 観測性 / Ollama 高度化 / AST 活用)
+
+Phase 1 で導入した基盤を MCP ツール層と本番運用パイプラインに接続し、観測性 (OTel/Prom)・LLM ストリーム・AST シグナルを段階的に拡張。
+
+- **F-10 evaluate_quality_rubric ツール公開**
+  [`mcp/handlers/register-vector-prompt-tools.ts`](../mcp/handlers/register-vector-prompt-tools.ts) に MCP ツール `evaluate_quality_rubric` を追加。`response` (必須) / `topic` / `judge` / `model` を受け、`judge=true` で Ollama judge (qwen2.5:3b 既定) を呼び parse 失敗時は heuristic にフォールバック。`judge=false` (既定) は完全ローカル評価のみ。BUILTIN_TOOL_CATALOG にも登録し manifest を再生成 (115 ツール)。
+- **F-11 vector-store の Ollama 埋め込みバックエンド対応**
+  [`memory/vector-store.ts`](../memory/vector-store.ts) に `searchByKeywordAsync(query, options)` を新設。`SF_AI_VECTOR_BACKEND=ngram|ollama` で `createEmbeddingProvider` 経由の VectorEmbeddingProvider をブリッジし、cosine 類似度ランキング + 上位件数 / minScore 制御 + レコード埋め込みキャッシュ (id+text の FNV ハッシュ) を提供。`tfidf` (既定) は従来挙動を維持。`search_vector` ツールは backend に応じて async 経路を自動選択し、レスポンスに `backend` フィールドを追加。
+- **T-OLLAMA-03 generateStream ストリーム対応**
+  [`mcp/core/llm/ollama-client.ts`](../mcp/core/llm/ollama-client.ts) に `OllamaGenerateChunk` 型と `generateStream(req, onChunk?)` を追加。`/api/generate` を NDJSON 行単位で読み出し、各チャンクを `onChunk` コールバックへ流しつつ累積レスポンス + 終了メタ (`total_duration`, `eval_count`) を返却。タイムアウト / HTTP 非 2xx / モデル未指定は `OllamaError` で正規化。3 件のテスト ([`tests/ollama-client.test.ts`](../tests/ollama-client.test.ts)) で集約挙動 / 503 ハンドリング / バリデーションを検証 (全 15 ケース)。
+- **T-OBS-01 OpenTelemetry tracing wiring**
+  [`mcp/core/observability/otel-tracer.ts`](../mcp/core/observability/otel-tracer.ts): `OTEL_ENABLED=true` で `@opentelemetry/api` を dynamic import し、tracer を遅延初期化。`notifyOtelTraceStart` / `notifyOtelTraceEnd` / `notifyOtelTraceFail` の 3 API を [`mcp/core/governance/governed-tool-registrar.ts`](../mcp/core/governance/governed-tool-registrar.ts) の MCP トレース ID と 1:1 で連携し、span 属性 `sfai.tool_name` / `sfai.trace_id` / `sfai.attempts` / `sfai.disabled` を発行。OTel 未導入環境では完全 no-op。
+- **T-OBS-02 Prometheus metrics export**
+  [`mcp/core/observability/prometheus-metrics.ts`](../mcp/core/observability/prometheus-metrics.ts): `prom-client` の専用 Registry を遅延初期化し、`sfai_tool_executions_total{tool,status}` (counter) / `sfai_tool_duration_seconds{tool,status}` (histogram, 1ms-30s 12 buckets) / `sfai_tool_failures_total{tool,code}` (counter) + Node.js デフォルトメトリクスを集積。[`mcp/tools/metrics.ts`](../mcp/tools/metrics.ts) の `recordMetric` から fan-out。MCP ツール `get_prometheus_metrics` を [`mcp/handlers/register-core-analysis-tools.ts`](../mcp/handlers/register-core-analysis-tools.ts) に追加し、Prometheus text/plain v0.0.4 形式で公開。
+- **F-12 Refactor 提案エンジン AST 統合**
+  [`mcp/tools/refactor-suggest.ts`](../mcp/tools/refactor-suggest.ts) に AST ベースシグナル `god-class` (単一クラスのメソッド数 > `maxMethodsPerClass`) と `soql-dml-overload` (ファイル単位 SOQL+DML 合計 > `maxSoqlDmlPerFile`) を追加。`analyzeApexSource` を併用し、AST 失敗時は無視してヒューリスティックのみで継続する safe-fallback を維持。`RefactorSuggestionKind` を 4→6 に拡張。
+
+#### Phase 2 検証結果
+- `npm test`: 610 件 PASS / 0 FAIL (Phase 1 の 607 件から +3)。
+- `npm run lint:core-layers`: 101 ファイルスキャン、レイヤ違反 0。
+- `npm run docs:tools` / `docs:manifest`: 115 ツール (Phase 1 の 114 から +1)。
+- **インフラ基盤**
+  [`docker-compose.yml`](../docker-compose.yml) で Ollama (LLM/Embedding) + Jaeger (OTel trace) + Prometheus (metrics) + Grafana (dashboard) を 1 ファイルで起動。Ollama は Docker 既定 (port 11434)、ホスト版インストールは不要。`docker compose up -d` 一発で全依存が立ち上がる。
+- **追加 npm 依存**
+  `js-tiktoken` / `@apexdevtools/apex-parser@4.4.1` / `fast-xml-parser@^5` / `better-sqlite3` / `@opentelemetry/api` / `@opentelemetry/sdk-node` / `@opentelemetry/exporter-trace-otlp-http` / `prom-client` を追加 (全 OSS / 完全無料)。`npm audit fix` 後 vulnerabilities = 0。
+
 ### Added (2026-04-27 Phase 5 — 運用強化 / 発話スタイル制御)
 
 ユーザー指定 9 件の運用系アップデート + エージェント別言葉遣い制御を実装。WebSocket / Git hook 系は対象外。

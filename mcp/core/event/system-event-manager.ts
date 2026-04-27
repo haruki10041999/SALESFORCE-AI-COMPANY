@@ -1,6 +1,7 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { join } from "node:path";
 import { maskUnknown } from "../logging/pii-masker.js";
+import { appendTextFileAtomic } from "../persistence/unit-of-work.js";
 
 export type SystemEventName =
   | "session_start"
@@ -158,7 +159,7 @@ export function createSystemEventManager(deps: CreateSystemEventManagerDeps) {
   async function appendSystemEvent(record: SystemEventRecord): Promise<void> {
     const line = JSON.stringify(maskUnknown(record)) + "\n";
     await rotateEventLogIfNeeded(line);
-    await fsPromises.appendFile(eventLogFile, line, "utf-8");
+    await appendTextFileAtomic(eventLogFile, line);
   }
 
   async function emitSystemEvent(event: SystemEventName, payload: Record<string, unknown>): Promise<void> {

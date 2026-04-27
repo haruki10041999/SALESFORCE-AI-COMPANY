@@ -2,6 +2,7 @@ import { existsSync, promises as fsPromises } from "fs";
 import { dirname } from "path";
 import type { ResourceOperation } from "./governance-manager.js";
 import { maskUnknown } from "../logging/pii-masker.js";
+import { FileUnitOfWork } from "../persistence/unit-of-work.js";
 
 export interface OperationLogDeps {
   logFile: string;
@@ -29,7 +30,10 @@ export function createOperationLog(deps: OperationLogDeps) {
 
   async function appendOperationLog(op: ResourceOperation): Promise<void> {
     await ensureDir(dirname(logFile));
-    await fsPromises.appendFile(logFile, JSON.stringify(maskUnknown(op)) + "\n", "utf-8");
+    const current = existsSync(logFile) ? await fsPromises.readFile(logFile, "utf-8") : "";
+    const unitOfWork = new FileUnitOfWork();
+    await unitOfWork.stageFileWrite(logFile, current + JSON.stringify(maskUnknown(op)) + "\n");
+    await unitOfWork.commit();
   }
 
   return { loadRecentOperations, appendOperationLog };

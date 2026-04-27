@@ -80,6 +80,21 @@ npm run outputs:version -- wipe --keep-backups
 - 既定では wipe 前に snapshot が 1 つ追加で作られる
 - どのリポジトリ起点の実行だったかは `outputs/execution-origins.jsonl` を見る
 
+4. SQLite 履歴モードを使う場合の整合チェック
+
+```bash
+# JSONL/history -> state.sqlite
+npm run state:migrate-sqlite
+
+# state.sqlite -> JSONL 互換出力 + 元 JSONL との行数突合
+npm run state:export-jsonl -- --out-dir outputs/exported-jsonl --verify-source-dir outputs
+```
+
+見るポイント:
+
+- `verification.matched` が `true`
+- 不一致時は終了コード 1（必要なら `--allow-mismatch` で出力継続）
+
 ## トラブル時の手順
 
 1. まず `doctor` を実行
@@ -105,6 +120,11 @@ npm run outputs:version -- restore --snapshot <snapshot-id>
 ```bash
 npm run doctor
 ```
+
+5. SQL.js 検証用 DB の整理（必要時）
+
+- 検証で `outputs/state-sqljs.sqlite` など一時 DB を作成した場合、運用 DB を `state.sqlite` に統一したら不要ファイルを整理する
+- 削除前に `npm run outputs:version -- backup` で snapshot を作成する
 
 ## どのファイルを見るか
 

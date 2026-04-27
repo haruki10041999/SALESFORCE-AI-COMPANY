@@ -1,0 +1,67 @@
+version: 2
+
+updates:
+  # ---- npm dependencies -----------------------------------------------------
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 5
+    versioning-strategy: increase-if-necessary
+    labels:
+      - dependencies
+      - npm
+    groups:
+      opentelemetry:
+        patterns:
+          - "@opentelemetry/*"
+      types:
+        patterns:
+          - "@types/*"
+        update-types:
+          - minor
+          - patch
+      production-minor:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      development-minor:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Major bumps reviewed manually to avoid breaking changes.
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+
+  # ---- GitHub Actions versions ---------------------------------------------
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+
+  # ---- Docker base images ---------------------------------------------------
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - docker

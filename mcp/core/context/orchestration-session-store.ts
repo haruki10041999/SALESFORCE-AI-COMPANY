@@ -1,5 +1,6 @@
 import { promises as fsPromises } from "fs";
 import { join } from "path";
+import { FileUnitOfWork } from "../persistence/unit-of-work.js";
 
 interface OrchestrationSessionShape {
   id: string;
@@ -109,7 +110,9 @@ export function createOrchestrationSessionStore<TSession extends OrchestrationSe
 
     await ensureDir(sessionsDir);
     const filePath = join(sessionsDir, sessionId + ".json");
-    await fsPromises.writeFile(filePath, JSON.stringify(session, null, 2), "utf-8");
+    const unitOfWork = new FileUnitOfWork();
+    await unitOfWork.stageFileWrite(filePath, JSON.stringify(session, null, 2));
+    await unitOfWork.commit();
     await deleteOldSessions();
 
     return {
