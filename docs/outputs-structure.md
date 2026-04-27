@@ -99,6 +99,62 @@ npm run outputs:version -- restore --snapshot <snapshot-id>
 「いつ書き換わるか」をツール / コマンド単位で整理した一覧です。
 障害調査や差分確認時に、どこを見れば変化が見えるかの目安になります。
 
+## 自動で保存されるもの / されないもの
+
+ここでは「通常のツール実行の中で自動的に残るもの」と、「明示的にそのツールやコマンドを呼んだ時だけ作られるもの」を分けて見られるようにしています。
+
+### 自動で保存されるもの
+
+通常のツール実行やチャット実行に伴って、自動で更新されるものです。
+
+| パス | 自動保存の条件 | 備考 |
+|------|----------------|------|
+| `outputs/execution-origins.jsonl` | 各ツール実行の成功/失敗ごと | どのリポジトリ起点の実行かを追跡 |
+| `outputs/events/system-events.jsonl` | `emitSystemEvent` が発火した時 | chat / orchestrate / governance / cleanup など |
+| `outputs/events/system-events.<stamp>.<nonce>.jsonl` | イベントログ rotate 時 | 自動ローテーション |
+| `outputs/events/trace-log.jsonl` | 各ツール終端で trace flush | chat / orchestrate / 各種ツール終端 |
+| `outputs/events/metrics-samples.jsonl` | 各ツール終了時 | メトリクス sample を flush |
+| `outputs/history/YYYY-MM-DD/<id>.json` | `record_agent_message` / `parse_and_record_chat` 実行時 | 履歴記録系ツールの実行で自動保存 |
+| `outputs/sessions/<sessionId>.json` | `orchestrate_chat` 開始時や session 更新時 | evaluate / dequeue でも更新 |
+| `outputs/resource-governance.json` | governance state が変わった時 | apply_resource_actions 等 |
+| `outputs/operations-log.jsonl` | governance 変更操作時 | 監査寄りの操作ログ |
+| `outputs/audit/*.jsonl` | `apply_resource_actions` 実行時 | リソース変更の監査ログ |
+| `outputs/custom-tools/*.json` | custom tool 作成時 | apply_resource_actions で生成 |
+
+条件付きで自動保存されるもの:
+
+| パス | 条件 | 備考 |
+|------|------|------|
+| `outputs/memory.jsonl` | `SF_AI_AUTO_MEMORY=1` のとき全ツール実行ごと | それ以外では `add_memory` / `clear_memory` のみ |
+| `outputs/vector-store.jsonl` | `SF_AI_AUTO_MEMORY=1` のとき全ツール実行ごと | それ以外では `add_vector_record` / `query_vector_store` のみ |
+| `outputs/prompt-cache.jsonl` | `PROMPT_CACHE_FILE` を設定した時 | 既定では保存されない |
+| `outputs/benchmark/<stamp>.json`, `latest.json` | nightly CI 実行時 | 手元の通常運用では自動では増えない |
+
+### 自動では保存されないもの
+
+明示的にそのツールやコマンドを呼んだ時だけ生成・更新されるものです。
+
+| パス | 生成される時 | 備考 |
+|------|--------------|------|
+| `outputs/backups/<snapshot>/...` | `npm run outputs:version -- backup` / `wipe` 前の事前 snapshot / restore 前の事前 snapshot | 手動コマンド中心 |
+| `outputs/history/archive/YYYY-MM-DD.json` | `npm run history:archive` / `archive_history` | 日次アーカイブ |
+| `outputs/history/archive/YYYY-MM-DD-summary.md` | `npm run history:archive` / `archive_history` | 日次サマリ |
+| `outputs/dashboards/observability.{html,md,json}` | `observability_dashboard` 実行時 | 可観測性ダッシュボード |
+| `outputs/reports/benchmark-suite.json` | `npm run benchmark:run` / `benchmark_suite` | 単発ベンチ |
+| `outputs/reports/agent-ab-test/runs.jsonl`, `latest.{json,md}` | `agent_ab_test` 実行時 | A/B 比較レポート |
+| `outputs/reports/test-coverage-gap/*.{json,md}` | `analyze_test_coverage_gap` 実行時 | 手動解析結果 |
+| `outputs/reports/recommend-permission-sets/*.{json,md}` | `recommend_permission_sets` 実行時 | 手動解析結果 |
+| `outputs/reports/resource-dependency-graph/*.{json,mmd}` | `resource_dependency_graph` 実行時 | 手動解析結果 |
+| `outputs/reports/run-deployment-verification/*.{json,md}` | `run_deployment_verification` 実行時 | 手動解析結果 |
+| `outputs/reports/suggest-flow-test-cases/*.{json,md}` | `suggest_flow_test_cases` 実行時 | 手動解析結果 |
+| `outputs/reports/cleanup/*.{json,md}` | `suggest_cleanup_resources` 実行時 | cleanup 提案レポート |
+| `outputs/reports/skill-rating.jsonl`, `skill-rating.json`, `skill-rating.md` | `record_skill_rating` / `get_skill_rating_report` 実行時 | 学習系だが手動トリガー |
+| `outputs/tool-proposals/proposal-feedback.jsonl`, `proposal-feedback-model.json` | `proposal_feedback_learn` 実行時 | 学習系だが手動トリガー |
+| `outputs/tool-proposals/query-skill-feedback.jsonl`, `query-skill-model.json` | `proposal_feedback_learn` 実行時 | skill feedback から派生して更新 |
+| `outputs/agent-trust-histories.json` | `agent_ab_test` の trust 反映時 | `applyOutcomeToTrustStore=true` など |
+| `outputs/skill-rating-report.md` | `auto_select_resources` / 関連リソース検索時 | レポート再生成型 |
+| `outputs/cleanup-schedule.json` | `governance_auto_cleanup_schedule` 実行時 | スケジュール定義 |
+
 | パス | 形式 | 更新タイミング | 主な書き込み元 |
 |------|------|----------------|----------------|
 | `outputs/memory.jsonl` | JSONL (追記) | `add_memory` / `clear_memory` 実行時。または `SF_AI_AUTO_MEMORY=1` 設定時は全ツール実行成功/失敗ごとに input/output サマリを自動追記 | `memory/project-memory.ts`, `mcp/core/governance/governed-tool-registrar.ts` |
