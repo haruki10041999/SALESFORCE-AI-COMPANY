@@ -3,8 +3,8 @@ import { strict as assert } from "node:assert";
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyProposal, slugifyResourceName } from "../mcp/core/resource/proposal-applier.js";
-import type { ProposalRecord } from "../mcp/core/resource/proposal-queue.js";
+import { applyProposal, slugifyResourceName } from "../mcp/core/resource/proposal/applier.js";
+import type { ProposalRecord } from "../mcp/core/resource/proposal/queue.js";
 
 function withTmp(): { repoRoot: string; outputsDir: string; cleanup: () => void } {
   const root = mkdtempSync(join(tmpdir(), "sf-ai-applier-"));

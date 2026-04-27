@@ -10,7 +10,7 @@
  * Subtree contents are NOT validated; tools own the layout below their own
  * top-level slot.
  */
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve, relative, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseToolSpec } from "../mcp/core/declarative/tool-spec.js";
@@ -35,6 +35,7 @@ async function loadSchema(): Promise<Schema> {
 }
 
 async function main(): Promise<void> {
+  const fix = process.argv.includes("--fix");
   const schema = await loadSchema();
   const dirSet = new Set(schema.allowedDirectories);
   const fileSet = new Set(schema.allowedFiles);
@@ -43,16 +44,40 @@ async function main(): Promise<void> {
 
   const entries = await readdir(outputsDir, { withFileTypes: true });
   const violations: string[] = [];
+  const newDirs: string[] = [];
+  const newFiles: string[] = [];
+  const seenDirNames = new Set<string>();
+  const seenFileNames = new Set<string>();
   for (const entry of entries) {
     if (entry.isDirectory()) {
+      seenDirNames.add(entry.name);
       if (!dirSet.has(entry.name)) {
-        violations.push(`unexpected directory: outputs/${entry.name}/`);
+        if (fix) newDirs.push(entry.name);
+        else violations.push(`unexpected directory: outputs/${entry.name}/`);
       }
     } else if (entry.isFile()) {
+      seenFileNames.add(entry.name);
       if (!fileSet.has(entry.name)) {
-        violations.push(`unexpected file: outputs/${entry.name}`);
+        if (fix) newFiles.push(entry.name);
+        else violations.push(`unexpected file: outputs/${entry.name}`);
       }
     }
+  }
+
+  // Stale エントリ (schema 側に残っているが実体が消えたもの) を警告。
+  const staleDirs = schema.allowedDirectories.filter((d) => !seenDirNames.has(d));
+  const staleFiles = schema.allowedFiles.filter((f) => !seenFileNames.has(f));
+  for (const d of staleDirs) console.warn(`WARN: stale schema entry (directory not present): ${d}`);
+  for (const f of staleFiles) console.warn(`WARN: stale schema entry (file not present): ${f}`);
+
+  if (fix && (newDirs.length > 0 || newFiles.length > 0)) {
+    const updated = {
+      ...(JSON.parse(await readFile(schemaPath, "utf8")) as Record<string, unknown>),
+      allowedDirectories: [...new Set([...schema.allowedDirectories, ...newDirs])].sort(),
+      allowedFiles: [...new Set([...schema.allowedFiles, ...newFiles])].sort()
+    };
+    await writeFile(schemaPath, JSON.stringify(updated, null, 2) + "\n", "utf8");
+    console.log(`FIXED: appended ${newDirs.length} dir(s), ${newFiles.length} file(s) to schema.`);
   }
 
   if (violations.length === 0) {
@@ -67,7 +92,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.error(`FAIL: ${violations.length} unexpected outputs/ entry(ies). Update '${relative(repoRoot, schemaPath)}' if intentional.`);
+  console.error(`FAIL: ${violations.length} unexpected outputs/ entry(ies). Update '${relative(repoRoot, schemaPath)}' if intentional, or rerun with --fix to auto-append.`);
   for (const v of violations) console.error(`  - ${v}`);
   process.exitCode = 1;
 }

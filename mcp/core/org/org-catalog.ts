@@ -189,3 +189,68 @@ export function summariseCatalog(catalog: OrgCatalog | null): {
     .slice(0, 20);
   return { total: catalog.orgs.length, byType, topTags };
 }
+
+/**
+ * 同期スケジュール用ユーティリティ。
+ *
+ * 各 Org エントリの lastSeenAt を基準に、intervalMs を超えて経過したエントリを
+ * 抽出する。実際のメタデータ取得 (sf org list metadata 等) は呼び出し側が担当し、
+ * 取得後 `upsertOrg` で metadata を更新することで lastSeenAt が更新される。
+ */
+export interface OrgSyncStaleness {
+  alias: string;
+  lastSeenAt?: string;
+  ageMs: number;
+}
+
+export function findStaleOrgs(
+  catalog: OrgCatalog | null,
+  intervalMs: number,
+  now: Date = new Date()
+): OrgSyncStaleness[] {
+  if (!catalog || !Array.isArray(catalog.orgs)) return [];
+  const cutoff = now.getTime() - intervalMs;
+  const stale: OrgSyncStaleness[] = [];
+  for (const org of catalog.orgs) {
+    const last = org.lastSeenAt ? Date.parse(org.lastSeenAt) : 0;
+    if (last <= cutoff) {
+      stale.push({
+        alias: org.alias,
+        lastSeenAt: org.lastSeenAt,
+        ageMs: now.getTime() - (last || now.getTime())
+      });
+    }
+  }
+  return stale.sort((a, b) => b.ageMs - a.ageMs);
+}
+
+/**
+ * 2 つの Org の metadata 差分を簡易抽出する。
+ * 値が一致しないキー、片側のみ存在するキーをそれぞれリストする。
+ */
+export interface MetadataDiffEntry {
+  key: string;
+  status: "added" | "removed" | "changed";
+  left?: unknown;
+  right?: unknown;
+}
+
+export function diffOrgMetadata(
+  left: OrgEntry | null,
+  right: OrgEntry | null
+): MetadataDiffEntry[] {
+  const a = (left?.metadata ?? {}) as Record<string, unknown>;
+  const b = (right?.metadata ?? {}) as Record<string, unknown>;
+  const keys = new Set<string>([...Object.keys(a), ...Object.keys(b)]);
+  const diff: MetadataDiffEntry[] = [];
+  for (const k of keys) {
+    const inA = Object.prototype.hasOwnProperty.call(a, k);
+    const inB = Object.prototype.hasOwnProperty.call(b, k);
+    if (inA && !inB) diff.push({ key: k, status: "removed", left: a[k] });
+    else if (!inA && inB) diff.push({ key: k, status: "added", right: b[k] });
+    else if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) {
+      diff.push({ key: k, status: "changed", left: a[k], right: b[k] });
+    }
+  }
+  return diff.sort((x, y) => x.key.localeCompare(y.key));
+}

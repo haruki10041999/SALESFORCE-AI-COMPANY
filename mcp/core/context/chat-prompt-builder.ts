@@ -3,6 +3,7 @@ import { join, relative } from "path";
 import { createHash } from "crypto";
 import { getPromptCacheMaxEntries, getPromptCacheTtlSeconds } from "../config/runtime-config.js";
 import { renderPersonaStyleSection } from "./persona-style-registry.js";
+import { renderSpeechStyleSection } from "./speech-style-registry.js";
 import { allocateCategoryBudgets } from "./context-budget.js";
 import {
   loadPromptCacheFromDisk,
@@ -416,6 +417,11 @@ export async function buildChatPromptFromContext(
   if (personaName) {
     sections.push(renderPersonaStyleSection(personaName));
   }
+
+  // T-NEW-01: agent ごとの発話スタイル (一人称・語尾・敬語) を注入
+  const speechAgents = agentNames.length > 0 ? agentNames : ["product-manager", "architect", "qa-engineer"];
+  const speechBlocks = speechAgents.map((a) => renderSpeechStyleSection(a, personaName ?? null));
+  sections.push(`## 発話スタイル一覧\n\n${speechBlocks.join("\n\n")}`);
 
   const discussionFrameworkPath = join(root, "prompt-engine", "discussion-framework.md");
   if (existsSync(discussionFrameworkPath)) {

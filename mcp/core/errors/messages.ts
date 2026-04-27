@@ -82,26 +82,54 @@ export function formatMessage(
 }
 
 /**
+ * 例外発生位置に関する追加コンテキスト。
+ * `AppError` に optional で付与し、root cause 追跡を容易にする。
+ */
+export interface AppErrorContext {
+  /** 関連するソースファイルやデータファイルのパス */
+  filePath?: string;
+  /** ファイル内の行番号 (1-indexed) */
+  line?: number;
+  /** 失敗が発生した関数 / メソッド名 */
+  functionName?: string;
+}
+
+/**
  * ローカライズされた `Error` サブクラス。
  * `error.code` で機械判定し、`error.message` は現在ロケールでの文言。
+ * `error.context` で発生箇所のヒント (filePath/line/functionName) を保持できる。
  */
 export class AppError extends Error {
   public readonly code: ErrorCode;
   public readonly params: Readonly<Record<string, unknown>>;
   public readonly locale: Locale;
+  public readonly context?: Readonly<AppErrorContext>;
 
-  constructor(code: ErrorCode, params: Record<string, unknown> = {}) {
+  constructor(
+    code: ErrorCode,
+    params: Record<string, unknown> = {},
+    context?: AppErrorContext
+  ) {
     const locale = getLocale();
     super(formatMessage(code, params, locale));
     this.name = "AppError";
     this.code = code;
     this.params = Object.freeze({ ...params });
     this.locale = locale;
+    if (context && (context.filePath || context.line !== undefined || context.functionName)) {
+      this.context = Object.freeze({ ...context });
+    }
   }
 
   /** 別ロケールでメッセージを取得する。 */
   toLocale(locale: Locale): string {
     return formatMessage(this.code, { ...this.params }, locale);
+  }
+
+  /** 既存インスタンスにコンテキストを追加した新しい AppError を返す。 */
+  withContext(context: AppErrorContext): AppError {
+    const merged: AppErrorContext = { ...(this.context ?? {}), ...context };
+    return new AppError(this.code, { ...this.params }, merged);
   }
 }
 

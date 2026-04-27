@@ -15,7 +15,7 @@
  *   4. 任意の denyList (resourceType + name 完全一致で拒否)
  */
 
-import type { ProposalRecord, ProposalResourceType } from "./proposal-queue.js";
+import type { ProposalRecord, ProposalResourceType } from "./queue.js";
 
 export interface AutoCreatePolicy {
   enabled: boolean;

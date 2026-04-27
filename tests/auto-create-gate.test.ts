@@ -5,8 +5,8 @@ import {
   countTodayApplied,
   DEFAULT_AUTO_CREATE_CONFIG,
   type AutoCreateConfig
-} from "../mcp/core/resource/auto-create-gate.js";
-import type { ProposalRecord, ProposalResourceType } from "../mcp/core/resource/proposal-queue.js";
+} from "../mcp/core/resource/proposal/auto-create-gate.js";
+import type { ProposalRecord, ProposalResourceType } from "../mcp/core/resource/proposal/queue.js";
 
 function p(partial: Partial<ProposalRecord> & { resourceType: ProposalResourceType }): ProposalRecord {
   return {

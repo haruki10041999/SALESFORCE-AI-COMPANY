@@ -13,7 +13,7 @@ import {
   rejectProposal,
   summarizeProposalQueue,
   resolveProposalQueuePaths
-} from "../mcp/core/resource/proposal-queue.js";
+} from "../mcp/core/resource/proposal/queue.js";
 
 function withTmp(): { outputsDir: string; cleanup: () => void } {
   const root = mkdtempSync(join(tmpdir(), "sf-ai-proposal-"));

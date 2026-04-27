@@ -240,3 +240,32 @@ export function tracesToFeedbacks(records: RawTraceFeedbackInput[]): BanditFeedb
   }
   return out;
 }
+
+/**
+ * 学習サンプル数に応じて探索率を動的に算出する。
+ *
+ * - 各 arm の学習回数 (alpha+beta) の中央値が低いほど exploration を強める。
+ * - 中央値 N に対し ratio = clamp01(baseRate * (minSamples / max(N,1)))
+ * - baseRate デフォルト 0.1 / minSamples デフォルト 10 / maxRate デフォルト 0.5
+ */
+export interface DynamicExplorationOptions {
+  baseRate?: number;
+  minSamples?: number;
+  maxRate?: number;
+}
+
+export function computeDynamicExplorationRate(
+  state: BanditState,
+  options: DynamicExplorationOptions = {}
+): number {
+  const baseRate = options.baseRate ?? 0.1;
+  const minSamples = options.minSamples ?? 10;
+  const maxRate = clamp01(options.maxRate ?? 0.5);
+  if (state.arms.size === 0) return maxRate;
+
+  const samples = [...state.arms.values()].map((a) => a.alpha + a.beta);
+  samples.sort((a, b) => a - b);
+  const median = samples[Math.floor(samples.length / 2)] ?? 1;
+  const ratio = baseRate * (minSamples / Math.max(median, 1));
+  return Math.min(maxRate, clamp01(ratio));
+}

@@ -261,3 +261,87 @@ export function simulateFlowCondition(input: FlowConditionSimulationInput): Flow
     trace
   };
 }
+
+/**
+ * 条件式に登場する `field` を抽出する (重複を除外)。
+ */
+export function extractFlowConditionFields(node: FlowConditionNode): string[] {
+  const seen = new Set<string>();
+  const visit = (n: FlowConditionNode): void => {
+    if (n.op === "all" || n.op === "any") {
+      for (const c of (n as FlowLogicNode).conditions) visit(c);
+      return;
+    }
+    const cmp = n as FlowComparisonNode;
+    if (cmp.field) seen.add(cmp.field);
+  };
+  visit(node);
+  return [...seen].sort();
+}
+
+/**
+ * 与えられた `field => value 候補配列` の組合せを総当たりして、
+ * それぞれの組み合わせを simulateFlowCondition() に通した結果を返す。
+ *
+ * 組み合わせ数は値候補の積で爆発するため、`maxCombinations` (既定 256) で打ち切る。
+ * 全組合せが上限以内に収まる場合のみ truncated=false。
+ */
+export interface FlowConditionMatrixOptions {
+  flowName?: string;
+  fieldDomains: Record<string, unknown[]>;
+  baseRecord?: Record<string, unknown>;
+  maxCombinations?: number;
+}
+
+export interface FlowConditionMatrixRow {
+  record: Record<string, unknown>;
+  shouldTrigger: boolean;
+}
+
+export interface FlowConditionMatrixSummary {
+  totalEvaluated: number;
+  triggerTrueCount: number;
+  triggerFalseCount: number;
+  truncated: boolean;
+  rows: FlowConditionMatrixRow[];
+}
+
+export function enumerateFlowConditionMatrix(
+  condition: FlowConditionNode,
+  options: FlowConditionMatrixOptions
+): FlowConditionMatrixSummary {
+  const max = Math.max(1, Math.floor(options.maxCombinations ?? 256));
+  const fields = Object.keys(options.fieldDomains);
+  let total = 1;
+  for (const f of fields) total *= Math.max(1, options.fieldDomains[f].length);
+  const truncated = total > max;
+  const limit = Math.min(total, max);
+
+  const rows: FlowConditionMatrixRow[] = [];
+  let triggerTrue = 0;
+  for (let i = 0; i < limit; i++) {
+    const record: Record<string, unknown> = { ...(options.baseRecord ?? {}) };
+    let idx = i;
+    for (const f of fields) {
+      const domain = options.fieldDomains[f];
+      const size = Math.max(1, domain.length);
+      record[f] = domain[idx % size];
+      idx = Math.floor(idx / size);
+    }
+    const result = simulateFlowCondition({
+      flowName: options.flowName,
+      record,
+      condition
+    });
+    if (result.shouldTrigger) triggerTrue += 1;
+    rows.push({ record, shouldTrigger: result.shouldTrigger });
+  }
+
+  return {
+    totalEvaluated: rows.length,
+    triggerTrueCount: triggerTrue,
+    triggerFalseCount: rows.length - triggerTrue,
+    truncated,
+    rows
+  };
+}

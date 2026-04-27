@@ -18,8 +18,8 @@
 
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { ProposalRecord } from "./proposal-queue.js";
-import { DeclarativeToolSpecSchema } from "../declarative/tool-spec.js";
+import type { ProposalRecord } from "./queue.js";
+import { DeclarativeToolSpecSchema } from "../../declarative/tool-spec.js";
 
 export interface ProposalApplyResult {
   applied: boolean;

@@ -59,6 +59,46 @@
         "/^npx tsx scripts/lint-outputs\\.ts 2>&1$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^npx tsx --test tests/outputs-schema-integration\\.test\\.ts 2>&1 \\| Select-Object -Last 30$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx tsx --test tests/rl-feedback-dynamic\\.test\\.ts 2>&1 \\| Select-Object -Last 15$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx tsx --test tests/rl-feedback-dynamic\\.test\\.ts 2>&1 \\| Select-Object -Last 10$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx tsx --test tests/org-catalog-sync\\.test\\.ts 2>&1 \\| Select-Object -Last 12$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx tsx --test tests/flow-condition-matrix\\.test\\.ts 2>&1 \\| Select-Object -Last 12$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx tsx scripts/skill-auto-classify\\.ts 2>&1 \\| Select-Object -Last 10$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx tsx --test tests/speech-style-registry\\.test\\.ts tests/dashboard-agent-views\\.test\\.ts 2>&1 \\| Select-Object -Last 15$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-ChildItem -Recurse -File -Include \\*\\.ts,\\*\\.md -Path mcp,scripts,tests \\| ForEach-Object \\{ \\$b=\\[IO\\.File\\]::ReadAllBytes\\(\\$_\\.FullName\\); try \\{ \\$null=\\[Text\\.UTF8Encoding\\]::new\\(\\$false,\\$true\\)\\.GetString\\(\\$b\\) \\} catch \\{ \\$_\\.FullName \\} \\}$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$b=\\[IO\\.File\\]::ReadAllBytes\\(\"mcp/core/learning/rl-feedback\\.ts\"\\); \\$b\\[8000\\.\\.8100\\] \\| ForEach-Object \\{ '\\{0:X2\\}' -f \\$_ \\}$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$broken=@\\(\\); Get-ChildItem -Recurse -File -Include \\*\\.ts,\\*\\.md,\\*\\.json -Path mcp,scripts,tests,docs,skills,agents,personas,prompt-engine,context,README\\.md \\| ForEach-Object \\{ \\$b=\\[IO\\.File\\]::ReadAllBytes\\(\\$_\\.FullName\\); \\$enc=\\[Text\\.UTF8Encoding\\]::new\\(\\$false,\\$true\\); try \\{ \\[void\\]\\$enc\\.GetString\\(\\$b\\) \\} catch \\{ \\$broken \\+= \\$_\\.FullName \\} \\}; \\$broken$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }

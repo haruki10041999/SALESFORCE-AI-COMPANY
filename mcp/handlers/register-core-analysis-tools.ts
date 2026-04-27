@@ -1,4 +1,7 @@
 ﻿import { z } from "zod";
+import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
+import { join, relative } from "node:path";
+import { shouldSkipScanDir } from "../core/quality/scan-exclusions.js";
 import { analyzeRepo } from "../tools/repo-analyzer.js";
 import { analyzeApex } from "../tools/apex-analyzer.js";
 import { analyzeLwc } from "../tools/lwc-analyzer.js";
@@ -16,6 +19,8 @@ import { diffPermissionSet } from "../tools/permission-set-diff.js";
 import { recommendPermissionSets } from "../tools/recommend-permission-sets.js";
 import { buildApexDependencyGraph } from "../tools/apex-dependency-graph.js";
 import { buildApexDependencyGraphIncremental } from "../tools/apex-dependency-graph-incremental.js";
+import { buildApexComplianceReport } from "../tools/apex-compliance-report.js";
+import { scanSecurityRules, type SecurityScanInput } from "../tools/security-rule-scan.js";
 import { suggestRefactors } from "../tools/refactor-suggest.js";
 import { generateApexChangelog } from "../tools/apex-changelog.js";
 import { predictApexPerformance } from "../tools/apex-perf-predict.js";
@@ -656,6 +661,39 @@ export function registerCoreAnalysisTools(govTool: GovTool, deps: CoreAnalysisTo
   );
 
   govTool(
+    "apex_compliance_report",
+    {
+      title: "Apex 統合コンプライアンスレポート",
+      description: "指定 rootDir 配下の Apex を一括スキャンし、依存グラフ + セキュリティ違反 + パフォーマンスリスクを 1 つの統合レポートにまとめます。CI のゲートや PR コメント生成に利用できます。",
+      inputSchema: {
+        rootDir: z.string(),
+        includeTests: z.boolean().optional(),
+        sampleLimit: z.number().int().min(1).max(500).optional()
+      }
+    },
+    async ({ rootDir, includeTests, sampleLimit }: {
+      rootDir: string;
+      includeTests?: boolean;
+      sampleLimit?: number;
+    }) => {
+      const sources = collectApexSources(rootDir, includeTests, sampleLimit);
+      const dependency = buildApexDependencyGraph({ rootDir, includeTests, sampleLimit });
+      const security = scanSecurityRules(sources);
+      const performance = predictApexPerformance(sources);
+      const report = buildApexComplianceReport({
+        rootPath: rootDir,
+        fileCount: sources.length,
+        dependency,
+        security,
+        performance
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(report, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
     "refactor_suggest",
     {
       title: "Refactor提案エンジン",
@@ -756,3 +794,43 @@ export function registerCoreAnalysisTools(govTool: GovTool, deps: CoreAnalysisTo
   );
 }
 
+
+/**
+ * Apex / Trigger ファイルを再帰収集し、`{filePath, source}` の配列で返す。
+ * `apex_compliance_report` 用の共通ユーティリティ。
+ */
+function collectApexSources(rootDir: string, includeTests = false, sampleLimit?: number): SecurityScanInput[] {
+  const out: SecurityScanInput[] = [];
+  if (!existsSync(rootDir)) return out;
+  const stack: string[] = [rootDir];
+  while (stack.length > 0) {
+    const cur = stack.pop()!;
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(cur, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (shouldSkipScanDir(entry.name)) continue;
+        stack.push(join(cur, entry.name));
+        continue;
+      }
+      const name = entry.name.toLowerCase();
+      if (!name.endsWith(".cls") && !name.endsWith(".trigger")) continue;
+      const filePath = join(cur, entry.name);
+      try {
+        const st = statSync(filePath);
+        if (!st.isFile()) continue;
+        const source = readFileSync(filePath, "utf-8");
+        if (!includeTests && /@isTest\b/i.test(source)) continue;
+        out.push({ filePath: relative(rootDir, filePath) || filePath, source });
+        if (sampleLimit && out.length >= sampleLimit) return out;
+      } catch {
+        continue;
+      }
+    }
+  }
+  return out;
+}

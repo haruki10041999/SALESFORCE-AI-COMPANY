@@ -5,6 +5,29 @@
 
 ## [Unreleased]
 
+### Added (2026-04-27 Phase 5 — 運用強化 / 発話スタイル制御)
+
+ユーザー指定 9 件の運用系アップデート + エージェント別言葉遣い制御を実装。WebSocket / Git hook 系は対象外。
+
+- **T-FIX-01** [`mcp/core/quality/scan-exclusions.ts`](../mcp/core/quality/scan-exclusions.ts): `markdown-catalog` / `apex-dependency-graph(-incremental)` / `register-core-analysis-tools` の Apex 走査でも `shouldSkipScanDir` を共通利用するよう統一。
+- **T-FIX-02** [`mcp/core/registration/`](../mcp/core/registration/): `register-all-tools.ts` を `domain-analysis` / `domain-chat` / `domain-history-context` / `domain-resource` の 4 サブビルダに分割し可読性を向上。
+- **T-FIX-03** [`mcp/core/resource/proposal/`](../mcp/core/resource/proposal/): `proposal-queue` / `proposal-applier` / `auto-create-gate` を `proposal/` サブディレクトリへ整理し `index.ts` で再エクスポート。
+- **T-FIX-04** [`mcp/core/errors/messages.ts`](../mcp/core/errors/messages.ts) / [`mcp/core/errors/tool-error.ts`](../mcp/core/errors/tool-error.ts): `AppError` に `withContext({ filePath, line, functionName })` を追加し、エラーメッセージ末尾へ `[fn=… file=…:line]` を自動付与。
+- **T-FIX-06** [`mcp/core/context/markdown-catalog.ts`](../mcp/core/context/markdown-catalog.ts): プロジェクトルート解決を `realpathSync` 化し、12 階層上限 + visited Set でシンボリックリンク循環を防止。
+- **T-FIX-07** [`scripts/lint-outputs.ts`](../scripts/lint-outputs.ts): `--fix` フラグでスキーマ未登録のディレクトリ/ファイルを自動追記、孤立スキーマエントリは WARN 出力。
+- **T-FIX-08** [`docs/documentation-map.md`](./documentation-map.md): "まず読む 5 つ" + 機能テーブル形式に再編。
+- **T-FIX-09** [`tests/outputs-schema-integration.test.ts`](../tests/outputs-schema-integration.test.ts): `lint:outputs` の終了コードを実バイナリ起動で検証する統合テスト。
+- **T-ADD-02** [`mcp/core/learning/rl-feedback.ts`](../mcp/core/learning/rl-feedback.ts): `computeDynamicExplorationRate(state, { baseRate, minSamples, maxRate })` を追加。サンプル数中央値が低いほど探索率を引き上げる Thompson サンプリング補助。
+- **T-ADD-03** [`mcp/core/org/org-catalog.ts`](../mcp/core/org/org-catalog.ts): `findStaleOrgs(catalog, intervalMs)` と `diffOrgMetadata(left, right)` を追加し、複数 Org のメタデータ差分比較を可能化。
+- **T-ADD-04** [`mcp/tools/flow-condition-simulator.ts`](../mcp/tools/flow-condition-simulator.ts): `extractFlowConditionFields` / `enumerateFlowConditionMatrix` を追加し Flow 条件を全数評価して真偽マトリクスを返す (上限 256 セルでトリミング)。
+- **T-ADD-05** [`mcp/tools/security-rule-scan.ts`](../mcp/tools/security-rule-scan.ts): 全 10 ルールへ CWE 番号 (CWE-89/862/798/601/79/95/532/285/942/327) と日本語 remediation を付与し SecurityScanIssue に伝搬。
+- **T-ADD-07** [`scripts/skill-auto-classify.ts`](../scripts/skill-auto-classify.ts) + `npm run skills:classify`: `embedding-ranker` を用いて各 skill のカテゴリ妥当性と類似 skill を `outputs/reports/skill-auto-classify.json` に出力。
+- **T-ADD-08** [`mcp/tools/apex-compliance-report.ts`](../mcp/tools/apex-compliance-report.ts) + MCP ツール `apex_compliance_report` ([`mcp/handlers/register-core-analysis-tools.ts`](../mcp/handlers/register-core-analysis-tools.ts)): セキュリティ × 性能 × 依存グラフを統合し overallRiskScore と上位被依存 Apex を返す総合レポート。
+- **T-ADD-09** [`mcp/core/observability/dashboard-agent-views.ts`](../mcp/core/observability/dashboard-agent-views.ts): `buildAgentTopicHeatmap` (agent×topic 成功率マトリクス) と `buildAgentTrustScoreTimeline` (24h バケットの信頼スコア時系列) を追加。
+- **T-NEW-01** [`mcp/core/context/speech-style-registry.ts`](../mcp/core/context/speech-style-registry.ts): 各 persona / agent の **一人称・文末語尾・敬語レベル・口癖** を定義した発話スタイルレジストリを新設し、[`mcp/core/context/chat-prompt-builder.ts`](../mcp/core/context/chat-prompt-builder.ts) から `## 発話スタイル一覧` セクションとして自動注入。例: samurai → 拙者 / でござる、speed-demon → 俺 / 急げ、commander → 本官 / 以上。
+
+テスト: `tests/dashboard-agent-views.test.ts` / `tests/speech-style-registry.test.ts` / `tests/rl-feedback-dynamic.test.ts` / `tests/org-catalog-sync.test.ts` / `tests/flow-condition-matrix.test.ts` / `tests/outputs-schema-integration.test.ts` を追加。`npm test` 全 495 件 PASS。MCP ツール総数は 112 → 113 件。
+
 ### Added (2026-04-27 Phase 3 — F1〜F12 / A1〜A19)
 
 エラー応答整備・ドキュメント自動化・拡張ツール群を一括投入。MCP ツールは 89 → 105 件に増加。

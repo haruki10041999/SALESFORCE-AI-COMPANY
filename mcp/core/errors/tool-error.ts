@@ -7,7 +7,16 @@ export function toErrorMessage(error: unknown): string {
 
 export function formatErrorMessage(error: unknown): string {
   if (error instanceof Error) {
-    return `${error.name}: ${error.message}`;
+    const ctx = (error as { context?: { filePath?: string; line?: number; functionName?: string } }).context;
+    let suffix = "";
+    if (ctx) {
+      const parts: string[] = [];
+      if (ctx.functionName) parts.push(`fn=${ctx.functionName}`);
+      if (ctx.filePath) parts.push(`file=${ctx.filePath}${ctx.line !== undefined ? `:${ctx.line}` : ""}`);
+      else if (ctx.line !== undefined) parts.push(`line=${ctx.line}`);
+      if (parts.length > 0) suffix = ` [${parts.join(" ")}]`;
+    }
+    return `${error.name}: ${error.message}${suffix}`;
   }
   return String(error);
 }

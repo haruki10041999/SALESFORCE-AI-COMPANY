@@ -10,6 +10,7 @@
     "ci": "npm run typecheck && npm test && npm run audit:deps",
     "lint:core-layers": "tsx scripts/lint-core-layers.ts",
     "lint:outputs": "tsx scripts/lint-outputs.ts",
+    "skills:classify": "tsx scripts/skill-auto-classify.ts",
     "tools:catalog": "tsx scripts/extract-tool-names.ts --out outputs/tool-catalog.json",
     "docs:tools": "tsx scripts/generate-tools-doc.ts",
     "docs:config": "tsx scripts/generate-config-doc.ts",

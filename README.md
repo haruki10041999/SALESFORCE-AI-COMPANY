@@ -18,7 +18,7 @@
 MCP クライアント
     ↓ (MCP プロトコル)
 mcp/server.ts
-    ├─→ ツール群（112+ 個 / Code 層 + Declarative 層）
+    ├─→ ツール群（113+ 個 / Code 層 + Declarative 層）
     ├─→ mcp/core/ （コアロジック）
     │   ├─ resource/ （スコアリング・ギャップ検出）
     │   ├─ quality/ （品質チェック・重複排除）

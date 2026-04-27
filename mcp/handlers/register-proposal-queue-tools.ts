@@ -9,15 +9,15 @@ import {
   summarizeProposalQueue,
   type ProposalResourceType,
   type ProposalStatus
-} from "../core/resource/proposal-queue.js";
-import { applyProposal } from "../core/resource/proposal-applier.js";
+} from "../core/resource/proposal/queue.js";
+import { applyProposal } from "../core/resource/proposal/applier.js";
 import {
   evaluateAutoCreateGate,
   countTodayApplied,
   DEFAULT_AUTO_CREATE_CONFIG,
   type AutoCreateConfig,
   type AutoCreatePolicy
-} from "../core/resource/auto-create-gate.js";
+} from "../core/resource/proposal/auto-create-gate.js";
 import type { GovTool } from "../tool-types.js";
 
 export interface RegisterProposalQueueToolsDeps {

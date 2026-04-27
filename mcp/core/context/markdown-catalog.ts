@@ -1,12 +1,26 @@
-import { existsSync, promises as fsPromises, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, promises as fsPromises, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { shouldSkipScanDir } from "../quality/scan-exclusions.js";
 
 export function resolveProjectRootFromFile(fileUrl: string): string {
   const thisFile = fileURLToPath(fileUrl);
-  let current = dirname(thisFile);
+  // symlink を解決して、シンボリックリンク経由の起動でも安定して走査できるようにする。
+  let current: string;
+  try {
+    current = dirname(realpathSync(thisFile));
+  } catch {
+    current = dirname(thisFile);
+  }
+  const seen = new Set<string>();
 
-  for (let i = 0; i < 8; i++) {
+  // 上限 12 階層 (深度ガード) かつ visited 集合で循環/対称シンボリックリンクを防ぐ。
+  for (let i = 0; i < 12; i++) {
+    if (seen.has(current)) {
+      break;
+    }
+    seen.add(current);
+
     const hasPackageJson = existsSync(join(current, "package.json"));
     const hasAgentsDir = existsSync(join(current, "agents"));
     if (hasPackageJson && hasAgentsDir) {
@@ -32,6 +46,7 @@ export function findMdFilesRecursive(dir: string): string[] {
     const fullPath = join(dir, entry);
     const stat = statSync(fullPath);
     if (stat.isDirectory()) {
+      if (shouldSkipScanDir(entry)) continue;
       files.push(...findMdFilesRecursive(fullPath));
       continue;
     }

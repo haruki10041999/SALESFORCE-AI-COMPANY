@@ -153,6 +153,7 @@ npm run outputs:version -- restore --snapshot <snapshot-id>
 | `outputs/reports/run-deployment-verification/*.{json,md}` | `run_deployment_verification` 実行時 | 手動解析結果 |
 | `outputs/reports/suggest-flow-test-cases/*.{json,md}` | `suggest_flow_test_cases` 実行時 | 手動解析結果 |
 | `outputs/reports/cleanup/*.{json,md}` | `suggest_cleanup_resources` 実行時 | cleanup 提案レポート |
+| `outputs/reports/skill-auto-classify.json` | `npm run skills:classify` 実行時 | skill カテゴリ妥当性 + 類似 skill 提案 (T-ADD-07) |
 | `outputs/reports/skill-rating.jsonl`, `skill-rating.json`, `skill-rating.md` | `record_skill_rating` / `get_skill_rating_report` 実行時 | 学習系だが手動トリガー |
 | `outputs/tool-proposals/proposal-feedback.jsonl`, `proposal-feedback-model.json` | `proposal_feedback_learn` 実行時 | 学習系だが手動トリガー |
 | `outputs/tool-proposals/query-skill-feedback.jsonl`, `query-skill-model.json` | `proposal_feedback_learn` 実行時 | skill feedback から派生して更新 |
@@ -190,6 +191,7 @@ npm run outputs:version -- restore --snapshot <snapshot-id>
 | `outputs/reports/run-deployment-verification/*.{json,md}` | JSON + MD | `run_deployment_verification` ツール実行時 | `mcp/tools/run-deployment-verification.ts` |
 | `outputs/reports/suggest-flow-test-cases/*.{json,md}` | JSON + MD | `suggest_flow_test_cases` ツール実行時 | `mcp/tools/suggest-flow-test-cases.ts` |
 | `outputs/reports/cleanup/*.{json,md}` | JSON + MD | `suggest_cleanup_resources` ツール実行時 (TASK-039) | `mcp/handlers/register-resource-action-tools.ts` |
+| `outputs/reports/skill-auto-classify.json` | JSON (上書き) | `npm run skills:classify` (T-ADD-07) | `scripts/skill-auto-classify.ts` |
 | `outputs/skill-rating-report.md` | Markdown | `auto_select_resources` / 関連リソース検索時 | `mcp/handlers/register-resource-search-tools.ts` |
 | `outputs/cleanup-schedule.json` | JSON | `governance_auto_cleanup_schedule` ツール実行時 (TASK-041) | `mcp/core/resource/cleanup-scheduler.ts` |
 | `outputs/prompt-cache.jsonl` | JSONL (追記/圧縮) | `PROMPT_CACHE_FILE` 設定時、プロンプトキャッシュ追加/退避ごと (TASK-046) | `mcp/core/context/prompt-cache-persistence.ts` |
