@@ -1,11 +1,11 @@
 # 全機能 動作検証ガイド (MCP クライアント版)
 
 このドキュメントは、本リポジトリが提供する **88 ツールすべて** を
-**Claude Desktop** または **GitHub Copilot Chat (Agent モード)** から
-実際に呼び出して動作確認するための実践手順です。
+**Claude Desktop**、**GitHub Copilot Chat (Agent モード)**、または
+**OpenCode (stdio MCP 対応版)** から実際に呼び出して動作確認するための実践手順です。
 
-> **対象**: 2026-04-24 時点 / Tools 88 件
-> **想定 MCP クライアント**: Claude Desktop, VS Code GitHub Copilot Chat (Agent モード)
+> **対象**: 2026-04-27 時点 / Tools 88 件
+> **想定 MCP クライアント**: Claude Desktop, VS Code GitHub Copilot Chat (Agent モード), OpenCode (stdio MCP 対応版)
 
 ---
 
@@ -58,7 +58,75 @@ Claude Desktop を再起動。
 **疎通確認**: Claude Desktop の入力欄左の MCP アイコンに `salesforce-ai-company` が
 表示され、`88 tools` (またはそれに近い件数) が読み込まれていること。
 
-### 0.3 VS Code GitHub Copilot Chat (Agent モード) 設定
+### 0.3 OpenCode 設定
+
+OpenCode が stdio MCP サーバー登録に対応している場合は、
+[examples/opencode-mcp.example.json](./examples/opencode-mcp.example.json) をベースに
+`salesforce-ai-company` を登録します。
+
+```json
+{
+  "mcpServers": {
+    "salesforce-ai-company": {
+      "command": "node",
+      "args": [
+        "D:/Projects/mult-agent-ai/salesforce-ai-company/dist/mcp/server.js"
+      ],
+      "cwd": "D:/Projects/mult-agent-ai/salesforce-ai-company",
+      "env": {
+        "SF_AI_OUTPUTS_DIR": "D:/shared/sf-ai-outputs"
+      }
+    }
+  }
+}
+```
+
+補足:
+
+- OpenCode のバージョンによってはトップレベルキー名が `servers` など異なる場合があります。その場合も `command` / `args` / `cwd` / `env` の中身は同じです。
+- Copilot と違って [../.github/copilot-instructions.md](../.github/copilot-instructions.md) は自動読込されないため、OpenCode 側には [opencode-setup.md](./opencode-setup.md) の system prompt 例を入れてください。
+- 疎通確認は `list_agents`、`list_skills`、`metrics_summary` の順が簡単です。
+
+#### MCP サーバー登録確認
+
+OpenCode で MCP サーバーが正常に登録・起動しているか確認する手順は
+OpenCode のバージョンによって異なります。一般的な方法:
+
+1. **OpenCode の設定 UI（歯車アイコンなど）から MCP/Tool 設定を開く**
+2. **登録済みサーバー一覧に `salesforce-ai-company` が表示されているか確認**
+   - ステータス: `connected` または `ready` であること
+   - コマンド実行ログにエラー（`ENOENT`, `dist/mcp/server.js not found` など）が無いこと
+3. **サーバー起動に失敗している場合**
+   - `npm run build` が完了しているか確認
+   - `dist/mcp/server.js` が存在するか確認
+   - ワーキングディレクトリ `cwd` が正しいか（リポジトリルートであるべき）
+   - `SF_AI_OUTPUTS_DIR` など env が設定されている場合は、そのパスが存在するか確認
+
+#### 動作確認
+
+OpenCode で以下のプロンプトを順に送信して、ツールが実行されることを確認する。
+
+1. **「`list_agents` を実行して」**
+   → エージェント一覧が返るはず
+
+2. **「`list_skills` を実行して」**
+   → スキル一覧が返るはず
+
+3. **「`metrics_summary` を呼び出して直近の状態を見せて」**
+   → メトリクスサマリーと phase breakdown が返るはず
+
+この 3 つが成功すれば、MCP 接続と主要ツール呼び出しは正常です。
+
+**UI 差異に関する注**:
+
+- OpenCode ではツール呼び出しの承認フローが異なる可能性があります
+  （Claude Desktop や Copilot Chat とは確認ダイアログなどが異なる場合がある）
+- ツール名の表示が `mcp_salesforce-ai-company_*` になるか、
+  別の接頭辞になるかは OpenCode のバージョンに依存します
+- このガイド内の「`list_agents`」「`chat`」などの表記は素のツール名ですが、
+  OpenCode UI では適切に変換されて表示されるはずです
+
+### 0.4 VS Code GitHub Copilot Chat (Agent モード) 設定
 
 VS Code 1.99 以降の Copilot Chat は MCP サーバを直接呼び出せます。
 このリポジトリ専用に MCP を有効化する手順は以下のとおり。
@@ -189,12 +257,47 @@ list_agents を呼び出して
 
 これらが応答すれば MCP 接続自体は健全。
 
+### 1.1 OpenCode での疎通テスト
+
+OpenCode の場合、上記 5 つのプロンプト（表記はそのままでよい）を送信する際の
+ポイント:
+
+- **system prompt が設定されているか確認**
+  - [opencode-setup.md#3. system prompt の移植](./opencode-setup.md#3-system-prompt-の移植)
+    に従って OpenCode の system prompt に
+    [examples/opencode-system-prompt.md](./examples/opencode-system-prompt.md)
+    の内容が入っているか確認
+  - 未設定の場合、MCP ツール呼び出しが提案されない、または
+    提案されても OpenCode がツール実行を拒否する可能性あり
+
+- **MCP サーバー接続確認**
+  - 0.3 セットアップの「MCP サーバー登録確認」で述べた手順で
+    `salesforce-ai-company` が `connected` 状態か確認
+  - `list_agents` は最初のテストに使うには理想的
+    （キャッシュされるため 2 回目以降は高速）
+
+- **ツール提案の確認**
+  - OpenCode が「このツールを実行しますか？」的な確認を出すはず
+  - 確認して実行を許可すると、ツール結果が返ってくる
+  - 「すべて許可」「このセッション許可」などのオプションがある場合は
+    開発効率に応じて選択
+
+- **出力形式**
+  - Claude Desktop は `content[].text`、Copilot Chat は
+    チャットパネルに直接表示などと異なる形式で結果が返るかもしれない
+  - ただしツール自体は同じ MCP サーバーを呼ぶので、
+    内容（agent 一覧、metrics 等）は同じはず
+
 ---
 
 ## 2. カテゴリ別 動作検証 (MCP ツール呼び出し)
 
 各セクションは **クライアントに送るプロンプト例** と **確認ポイント** で構成。
 プロンプトはそのままコピペ可能。
+
+**OpenCode を含むすべての MCP クライアント** で同じプロンプト例が使用できます。
+一度 system prompt と MCP サーバー接続が確認できれば、以下のテストは
+Claude Desktop、Copilot Chat、OpenCode いずれでも同じ結果が得られるはずです。
 
 ### 2.1 静的解析 (Apex / LWC / Flow / Permission Set)
 

@@ -10,6 +10,7 @@
 - **アーキテクチャ**: [docs/system-architecture-with-uml.md](docs/system-architecture-with-uml.md)
 - **ドキュメント索引**: [docs/documentation-map.md](docs/documentation-map.md)
 - **学習の仕組み**: [docs/learning-guide.md](docs/learning-guide.md)
+- **OpenCode セットアップ**: [docs/opencode-setup.md](docs/opencode-setup.md)
 
 ## 🏗️ システム構成
 
@@ -174,6 +175,7 @@ npm run metrics:dashboard
 - 運用担当者向け: [docs/operations-guide.md](docs/operations-guide.md)
 - 技術仕様: [docs/architecture.md](docs/architecture.md)
 - 学習の仕組み: [docs/learning-guide.md](docs/learning-guide.md)
+- OpenCode セットアップ: [docs/opencode-setup.md](docs/opencode-setup.md)
 
 ## 🐛 トラブルシューティング
 

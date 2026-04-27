@@ -17,6 +17,7 @@
 - 設定: [configuration.md](./configuration.md)
 - 出力構成: [outputs-structure.md](./outputs-structure.md)
 - 学習の仕組み: [learning-guide.md](./learning-guide.md)
+- OpenCode セットアップ: [opencode-setup.md](./opencode-setup.md)
 - 指標評価: [metrics-evaluation.md](./metrics-evaluation.md)
 - 検証手順: [verification-guide.md](./verification-guide.md)
 - 全機能動作確認: [full-feature-verification.md](./full-feature-verification.md)

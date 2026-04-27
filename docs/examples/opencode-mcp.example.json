@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "salesforce-ai-company": {
+      "command": "node",
+      "args": [
+        "D:/Projects/mult-agent-ai/salesforce-ai-company/dist/mcp/server.js"
+      ],
+      "cwd": "D:/Projects/mult-agent-ai/salesforce-ai-company",
+      "env": {
+        "SF_AI_OUTPUTS_DIR": "D:/shared/sf-ai-outputs",
+        "SF_AI_OUTPUTS_BACKUP_DIR": "D:/shared/sf-ai-outputs/backups"
+      }
+    }
+  }
+}
