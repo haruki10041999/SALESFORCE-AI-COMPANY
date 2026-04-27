@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "name": "release-checklist-faq",
+  "title": "リリース前チェックリスト FAQ",
+  "description": "リリース時に確認すべき 5 項目を固定テキストで返す declarative tool の例。",
+  "tags": ["faq", "release"],
+  "action": {
+    "kind": "static-text",
+    "text": "## リリース前チェックリスト\n\n1. デプロイ対象メタデータが target org で互換であるか\n2. テスト coverage 75% 以上 / 主要 trigger は 90%+\n3. permission set / profile の差分レビュー完了\n4. flow / process builder の有効化フラグ確認\n5. ロールバック手順 (post-deploy script 含む) の準備\n"
+  }
+}

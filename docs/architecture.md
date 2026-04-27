@@ -167,3 +167,53 @@ flowchart LR
 2. `docs/documentation-map.md`（索引）
 3. `docs/features/`（機能別）
 4. `system-architecture-with-uml.md`（詳細 UML）
+
+## 8. ツール定義の二層構造 (Declarative + Code)
+
+MCP ツールは責務の性質に応じて 2 つの層で管理する。境界線を明確化することで、
+LLM やノンエンジニアからの安全な追加 (Declarative 層) と、副作用のあるエンジン実装
+(Code 層) を分離する。
+
+```mermaid
+flowchart LR
+  subgraph Declarative["Declarative layer (JSON)"]
+    A1["outputs/custom-tools/*.json<br/>DeclarativeToolSpec"]
+    A2["docs/examples/declarative-tool.*.example.json"]
+  end
+  subgraph Code["Code layer (TypeScript)"]
+    B1["mcp/handlers/register-*.ts"]
+    B2["mcp/core/** ロジック / I/O"]
+  end
+  Loader["mcp/core/declarative/loader.ts"] --> A1
+  Loader --> Reg["govTool / MCP server"]
+  B1 --> Reg
+  Proposal["apply_proposal"] --> A1
+  AutoGate["auto_apply_pending_proposals"] --> Proposal
+```
+
+### 分類基準
+
+| 観点 | Declarative | Code |
+|---|---|---|
+| 入力検証以外の TS ロジックが必要 | 不要 | 必要 |
+| 副作用 (fs / network / exec) | 無し | 有り |
+| 出力 | 既存 prompt builder 合成 / 固定テキスト | 任意 |
+| 追加方法 | `enqueue_proposal` → `apply_proposal` | TS 実装 + register 関数 |
+| スキーマ | [`DeclarativeToolSpec`](../mcp/core/declarative/tool-spec.ts) | 各 handler 内 zod |
+
+### 対応する action kind
+
+- `compose-prompt` … `agents` / `persona` / `skills` を束ねたチャットプロンプト合成
+- `static-text` … 固定テキスト返却 (FAQ / テンプレート)
+
+将来追加候補: `call-tool` (別 MCP ツールへの委譲), `pipeline` (ツール連鎖)。
+
+### 関連モジュール
+
+- [`mcp/core/declarative/tool-spec.ts`](../mcp/core/declarative/tool-spec.ts) — zod スキーマと legacy 互換変換
+- [`mcp/core/declarative/loader.ts`](../mcp/core/declarative/loader.ts) — `outputs/custom-tools/` 動的ロード
+- [`mcp/core/declarative/frontmatter.ts`](../mcp/core/declarative/frontmatter.ts) — agents/personas/skills 用 (opt-in)
+- [`mcp/core/resource/proposal-applier.ts`](../mcp/core/resource/proposal-applier.ts) — 提案を新スキーマで物理書き込み
+- [`scripts/lint-outputs.ts`](../scripts/lint-outputs.ts) — `outputs/custom-tools/*.json` の DeclarativeToolSpec 検証
+- 例示ファイル: [`docs/examples/declarative-tool.compose-prompt.example.json`](./examples/declarative-tool.compose-prompt.example.json) / [`docs/examples/declarative-tool.static-text.example.json`](./examples/declarative-tool.static-text.example.json)
+

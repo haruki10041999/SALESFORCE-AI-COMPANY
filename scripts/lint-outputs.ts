@@ -11,8 +11,9 @@
  * top-level slot.
  */
 import { readdir, readFile } from "node:fs/promises";
-import { dirname, resolve, relative } from "node:path";
+import { dirname, resolve, relative, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { parseToolSpec } from "../mcp/core/declarative/tool-spec.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..");
@@ -55,6 +56,13 @@ async function main(): Promise<void> {
   }
 
   if (violations.length === 0) {
+    const declViolations = await lintDeclarativeTools();
+    if (declViolations.length > 0) {
+      console.error(`FAIL: ${declViolations.length} invalid DeclarativeToolSpec file(s) under outputs/custom-tools/`);
+      for (const v of declViolations) console.error(`  - ${v}`);
+      process.exitCode = 1;
+      return;
+    }
     console.log(`OK: outputs/ matches schema (${entries.length} entries).`);
     return;
   }
@@ -62,6 +70,32 @@ async function main(): Promise<void> {
   console.error(`FAIL: ${violations.length} unexpected outputs/ entry(ies). Update '${relative(repoRoot, schemaPath)}' if intentional.`);
   for (const v of violations) console.error(`  - ${v}`);
   process.exitCode = 1;
+}
+
+async function lintDeclarativeTools(): Promise<string[]> {
+  const dir = resolve(outputsDir, "custom-tools");
+  const violations: string[] = [];
+  let files: string[];
+  try {
+    files = await readdir(dir);
+  } catch {
+    return violations; // ディレクトリ未作成は OK
+  }
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
+    const filePath = join(dir, file);
+    try {
+      const raw = await readFile(filePath, "utf-8");
+      const json = JSON.parse(raw);
+      const spec = parseToolSpec(json);
+      if (!spec) {
+        violations.push(`outputs/custom-tools/${file}: not a valid DeclarativeToolSpec or legacy CustomToolDefinition`);
+      }
+    } catch (e) {
+      violations.push(`outputs/custom-tools/${file}: ${(e as Error).message}`);
+    }
+  }
+  return violations;
 }
 
 const invokedDirectly = import.meta.url === pathToFileURL(process.argv[1] ?? "").href;

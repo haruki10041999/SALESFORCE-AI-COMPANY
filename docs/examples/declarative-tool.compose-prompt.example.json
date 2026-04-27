@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "name": "salesforce-architecture-review",
+  "title": "Salesforce アーキテクチャレビュー",
+  "description": "architect / qa-engineer / security-engineer の 3 名で Salesforce 設計をレビューするチャットツール。",
+  "tags": ["review", "architecture"],
+  "action": {
+    "kind": "compose-prompt",
+    "agents": ["architect", "qa-engineer", "security-engineer"],
+    "persona": "captain",
+    "skills": ["apex", "lwc"],
+    "defaultTopic": "アーキテクチャレビューを実施してください",
+    "appendInstruction": "limit / セキュリティ / 保守性の 3 軸で評価してください。"
+  },
+  "createdAt": "2026-04-27T00:00:00.000Z"
+}

@@ -18,6 +18,9 @@
 | `outputs/backups/` | 世代バックアップ | 復元したいとき |
 | `outputs/audit/` | 操作の監査ログ | 誰が何をしたか確認するとき |
 | `outputs/tool-proposals/` | 提案学習ログ | 推薦精度の分析をするとき |
+| `outputs/tool-proposals/pending/` | リソース作成提案 (保留中) | `list_proposals` / `approve_proposal` / `apply_proposal` / `auto_apply_pending_proposals` の対象 |
+| `outputs/tool-proposals/approved/` | リソース作成提案 (承認済 audit) | 承認履歴の追跡 |
+| `outputs/tool-proposals/rejected/` | リソース作成提案 (却下 audit) | 却下理由つき履歴 |
 | `outputs/benchmark/` | nightly benchmark の結果 (TASK-050) | grade 推移や regress を確認するとき |
 | `outputs/dashboards/` | observability ダッシュボード (TASK-044) | 横断的な健全性を可視化したいとき |
 | `outputs/reports/` | 各種スクリプトのレポート出力 | benchmark 単発実行や coverage gap などを確認したいとき |
@@ -121,7 +124,7 @@ npm run outputs:version -- restore --snapshot <snapshot-id>
 | `outputs/resource-governance.json` | governance state が変わった時 | apply_resource_actions 等 |
 | `outputs/operations-log.jsonl` | governance 変更操作時 | 監査寄りの操作ログ |
 | `outputs/audit/*.jsonl` | `apply_resource_actions` 実行時 | リソース変更の監査ログ |
-| `outputs/custom-tools/*.json` | custom tool 作成時 | apply_resource_actions で生成 |
+| `outputs/custom-tools/*.json` | custom tool 作成時 | `apply_resource_actions` または `apply_proposal` / `auto_apply_pending_proposals` で生成。起動時に Declarative tool loader が動的登録する (`mcp/core/declarative/loader.ts`) |
 
 条件付きで自動保存されるもの:
 
@@ -192,7 +195,8 @@ npm run outputs:version -- restore --snapshot <snapshot-id>
 | `outputs/prompt-cache.jsonl` | JSONL (追記/圧縮) | `PROMPT_CACHE_FILE` 設定時、プロンプトキャッシュ追加/退避ごと (TASK-046) | `mcp/core/context/prompt-cache-persistence.ts` |
 | `outputs/benchmark/<stamp>.json` / `latest.json` | JSON | nightly CI (`benchmark-nightly.yml`) 実行時 (TASK-050) | `scripts/benchmark-suite.ts` |
 | `outputs/backups/<snapshot>/...` | フォルダ世代 | `npm run outputs:version -- backup` または auto-apply 削除前 | `mcp/core/governance/outputs-versioning.ts` |
-| `outputs/custom-tools/*.json` | JSON | `apply_resource_actions` で custom tool 作成時 | `mcp/handlers/register-resource-action-tools.ts` |
+| `outputs/custom-tools/*.json` | JSON (`DeclarativeToolSpec`) | `apply_resource_actions` または提案フロー (`apply_proposal` / `auto_apply_pending_proposals`) で作成時 | `mcp/handlers/register-resource-action-tools.ts`, `mcp/core/resource/proposal-applier.ts`, `mcp/core/declarative/loader.ts` (起動時に動的登録) |
+| `outputs/tool-proposals/{pending,approved,rejected}/<id>.json` | JSON | `enqueue_proposal` でキュー → `approve_proposal` / `apply_proposal` / `reject_proposal` / `auto_apply_pending_proposals` で状態遷移 | `mcp/core/resource/proposal-queue.ts`, `mcp/core/resource/proposal-applier.ts`, `mcp/core/resource/auto-create-gate.ts` |
 
 ### 書き込みパターンの分類
 

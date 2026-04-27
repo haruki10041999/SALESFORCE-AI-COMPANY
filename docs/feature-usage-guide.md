@@ -1196,6 +1196,27 @@ npm audit --audit-level=moderate
 
 - `register_org` / `remove_org` / `get_org` / `list_orgs` — Salesforce Org カタログ CRUD と要約。
 
+### 14.5 リソース提案キュー (Phase 4)
+
+新規 skill / tool / preset の作成提案をキュー化し、レビュー → 物理適用までを MCP ツールで完結させる。詳細は [`docs/architecture.md`](./architecture.md) §8 / [`docs/CHANGELOG.md`](./CHANGELOG.md) の "Resource Auto-Creation" 節を参照。
+
+- `enqueue_proposal` — `outputs/tool-proposals/pending/<id>.json` にキュー。
+- `list_proposals` / `get_proposal` — status / resourceType / limit でフィルタ、または ID で 1 件取得。
+- `approve_proposal` — pending → approved に移動 (実適用は別途、または `apply_proposal`)。
+- `reject_proposal` — pending → rejected に移動 (理由必須)。
+- `apply_proposal` — pending を `applyProposal` で物理書き込みし成功時のみ approved/ へ移動 (`skills/<slug>.md` / `outputs/custom-tools/<slug>.json` / `outputs/presets/<slug>/v<n>.json`)。
+- `auto_apply_pending_proposals` — `AutoCreateGate` を通過した提案だけバッチ自動適用。`dryRun` / resourceType ごとの `config` / `denyList` / `limit` に対応。**既定はすべて enabled=false** (明示 opt-in 必須)。
+
+### 14.6 Declarative Tool Layer
+
+ツール本体を JSON で定義する `outputs/custom-tools/*.json` (`DeclarativeToolSpec`) を起動時に動的 `govTool` 登録する。
+
+- `compose-prompt` — agents / persona / skills を束ねたチャットプロンプトラッパ。
+- `static-text` — FAQ / テンプレート用の固定テキスト返却。
+- 例示: [`docs/examples/declarative-tool.compose-prompt.example.json`](./examples/declarative-tool.compose-prompt.example.json) / [`.static-text.example.json`](./examples/declarative-tool.static-text.example.json)
+- `npm run lint:outputs` で `DeclarativeToolSpec` 検証 (legacy `CustomToolDefinition` 互換)。
+- 詳細な分類基準は [`docs/architecture.md`](./architecture.md) §8。
+
 ---
 
 ## 15. 補足

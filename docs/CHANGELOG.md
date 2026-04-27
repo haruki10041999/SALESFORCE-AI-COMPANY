@@ -60,6 +60,58 @@
 - [`tests/governed-tool-registrar.test.ts`](../tests/governed-tool-registrar.test.ts): 必須となった `outputsDir` / `serverRoot` を `mkdtempSync` で生成して渡し、ビルドエラーを解消。
 - [`outputs/.schema.json`](../outputs/.schema.json): A1 Org カタログ実装が書き込む実パス (`outputs/orgs/`) と allow-list の不整合 (`org-catalog`) を修正し、`orgs` に統一。あわせて [`docs/outputs-structure.md`](./outputs-structure.md) に `.schema.json` / `npm run lint:outputs` の運用節を追加。
 
+### Added (2026-04-27 Phase 4 — Resource Auto-Creation Phase 1)
+
+リソース作成提案を**永続化**する仕組みを導入 (Phase 1: 提案キュー)。自動適用は Phase 3 以降。MCP ツールは 105 → 110 件。
+
+- [`mcp/core/resource/proposal-queue.ts`](../mcp/core/resource/proposal-queue.ts): `enqueueProposal` / `listProposals` / `getProposal` / `approveProposal` / `rejectProposal` / `summarizeProposalQueue`。`outputs/tool-proposals/{pending,approved,rejected}/<id>.json` で状態を永続化。`buildProposal` / `nextProposalId` は純粋関数。
+- [`mcp/handlers/register-proposal-queue-tools.ts`](../mcp/handlers/register-proposal-queue-tools.ts): MCP ツール 5 件を登録。
+  - `enqueue_proposal` — 新規 skill / tool / preset の作成提案を pending/ にキュー。
+  - `list_proposals` — status / resourceType / limit でフィルタ。
+  - `get_proposal` — ID で 1 件取得。
+  - `approve_proposal` — pending → approved に移動 (実適用は引き続き `apply_resource_actions` / `create_preset`)。
+  - `reject_proposal` — pending → rejected に移動 (理由必須)。
+- [`tests/proposal-queue.test.ts`](../tests/proposal-queue.test.ts): 11 ケース全 green。
+- [`docs/features/tools-reference.md`](./features/tools-reference.md) / [`docs/internal/tool-manifest.md`](./internal/tool-manifest.md): 110 ツールに更新。
+
+### Added (2026-04-28 Phase 4 — Resource Auto-Creation Phase 2 / 3 / 4)
+
+提案キューに**実適用**と**自動承認バッチ**を追加。MCP ツールは 110 → 112 件 (`apply_proposal` / `auto_apply_pending_proposals`)。
+
+- **Phase 2 — 実適用** [`mcp/core/resource/proposal-applier.ts`](../mcp/core/resource/proposal-applier.ts):
+  - `slugifyResourceName` (純粋関数。lowercase/dash collapse/64 文字制限)。
+  - `applyProposal(record, { repoRoot, outputsDir, overwrite })` で resourceType 別に物理書き込み。
+    - `skills` → `skills/<slug>.md`
+    - `tools` → `outputs/custom-tools/<slug>.json` (content を JSON parse、失敗時は `{description}` ラップ)
+    - `presets` → `outputs/presets/<slug>/v<n>.json` + `outputs/presets/<slug>.json` (latest)。`v\d+\.json` を走査して自動 increment。
+  - 既定 idempotent (`overwrite=false` で既存スキップ)。
+- **Phase 2 — MCP ツール** `apply_proposal` (`approve` + 物理適用を 1 ステップ実行):
+  - pending を取得 → `applyProposal` → 成功時のみ `approveProposal` で approved/ へ移動。
+- **Phase 3 — Auto-create gate** [`mcp/core/resource/auto-create-gate.ts`](../mcp/core/resource/auto-create-gate.ts):
+  - `evaluateAutoCreateGate({ proposal, config, todayAppliedCount, denyList })` の純粋関数。
+  - 拒否理由は `type-disabled` / `below-threshold` / `daily-limit-reached` / `denied-by-list` / `not-pending` の機械可読コードで返却。
+  - `DEFAULT_AUTO_CREATE_CONFIG` は **すべて enabled=false** (明示 opt-in 必須)。
+  - `countTodayApplied(approvedRecords, now)` で同日適用件数を集計。
+- **Phase 4 — バルク自動承認** MCP ツール `auto_apply_pending_proposals`:
+  - pending を一括スキャン → AutoCreateGate を通過した提案だけを `applyProposal` + `approveProposal`。
+  - `dryRun: true` で適用せず判定のみ確認可能。`config` で resourceType ごとの policy を上書き、`denyList` で個別ブロック、`limit` (1〜100) でスキャン件数を制限。
+  - cron 自体は実装せず、CI / 外部スケジューラから本ツールを定期呼び出しする運用前提。
+- [`tests/proposal-applier.test.ts`](../tests/proposal-applier.test.ts) (6 ケース) / [`tests/auto-create-gate.test.ts`](../tests/auto-create-gate.test.ts) (7 ケース): 全 13 ケース green、リグレッション 462 件 pass。
+
+### Added (2026-04-28 Declarative Tool Layer)
+
+ツール定義を **Declarative (JSON)** と **Code (TS)** の二層に明示分離。LLM/ノンエンジニアが安全に追加できる層と、副作用 / 厳格スキーマが必要な層の境界線を確立。MCP ツール数 (公開向け) は 112 件のまま、内部基盤を強化。
+
+- [`mcp/core/declarative/tool-spec.ts`](../mcp/core/declarative/tool-spec.ts): `DeclarativeToolSpec` zod スキーマ。`compose-prompt` / `static-text` 2 種の action、legacy `CustomToolDefinition` 互換変換 `fromLegacyCustomTool` / `parseToolSpec`。name は lowercase + `_` `-` 許容。
+- [`mcp/core/declarative/loader.ts`](../mcp/core/declarative/loader.ts): `loadDeclarativeToolsFromDir` で `outputs/custom-tools/*.json` を起動時に動的 `govTool` 登録。重複名 / `governance.deprecated:true` / parse 失敗ファイルはスキップしレポート返却 (例外を上位に投げない)。
+- [`mcp/core/registration/register-all-tools.ts`](../mcp/core/registration/register-all-tools.ts): loader を fire-and-forget で統合 (同期 API 維持)。
+- [`mcp/core/resource/proposal-applier.ts`](../mcp/core/resource/proposal-applier.ts): `applyTool` を新スキーマ準拠で書き出すよう更新。検証失敗時は legacy 形式にフォールバックし loader 互換性を保つ。
+- [`mcp/core/declarative/frontmatter.ts`](../mcp/core/declarative/frontmatter.ts): agents/personas/skills 用の **opt-in** YAML サブセット parser と zod schema (`AgentFrontmatterSchema` / `PersonaFrontmatterSchema` / `SkillFrontmatterSchema`、`strict()`)。既存 Markdown を非破壊。
+- [`scripts/lint-outputs.ts`](../scripts/lint-outputs.ts): `outputs/custom-tools/*.json` の DeclarativeToolSpec 検証を追加。
+- [`docs/architecture.md`](./architecture.md) §8: 二層構造の Mermaid 図と分類基準テーブル、関連モジュール一覧を追加。
+- [`docs/examples/declarative-tool.compose-prompt.example.json`](./examples/declarative-tool.compose-prompt.example.json) / [`.static-text.example.json`](./examples/declarative-tool.static-text.example.json): 新スキーマの記述例。
+- [`tests/declarative-tool-loader.test.ts`](../tests/declarative-tool-loader.test.ts) 9 件 + [`tests/declarative-frontmatter.test.ts`](../tests/declarative-frontmatter.test.ts) 6 件: 計 15 ケース全 green、リグレッション 477 件 pass。
+
 ### Added (2026-04-24 Phase 2-4)
 
 - **TASK-036** [`mcp/core/resource/query-intent-classifier.ts`](../mcp/core/resource/query-intent-classifier.ts): topic から 7 種 intent (debug / design / review / explain / fix / test / generic) を判定しスコアに override を適用。

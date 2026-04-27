@@ -21,6 +21,8 @@ import { registerPresetTools } from "../../handlers/register-preset-tools.js";
 import { registerVectorPromptTools } from "../../handlers/register-vector-prompt-tools.js";
 import { registerBatchTools } from "../../handlers/register-batch-tools.js";
 import { registerOrgCatalogTools } from "../../handlers/register-org-catalog-tools.js";
+import { registerProposalQueueTools } from "../../handlers/register-proposal-queue-tools.js";
+import { loadDeclarativeToolsFromDir } from "../declarative/loader.js";
 import type { GovTool } from "@mcp/tool-types.js";
 import type { GovernanceState } from "../governance/governance-state.js";
 import type { SystemEventName, SystemEventRecord } from "../event/system-event-manager.js";
@@ -239,6 +241,14 @@ export function registerAllTools(deps: RegisterAllToolsDeps): void {
   });
   registerBranchReviewTools(govTool);
   registerOrgCatalogTools({ govTool, outputsDir: join(root, "outputs") });
+  registerProposalQueueTools({ govTool, outputsDir: join(root, "outputs"), repoRoot: root });
+
+  // Declarative tools (outputs/custom-tools/*.json) を新スキーマで動的登録。
+  // 同期 API を維持するため fire-and-forget。loader は例外を内包する。
+  void loadDeclarativeToolsFromDir(
+    join(root, "outputs", "custom-tools"),
+    { govTool, buildChatPrompt, filterDisabledSkills }
+  );
   registerResourceCatalogTools({
     govTool,
     listMdFiles,

@@ -24,6 +24,9 @@
 - 変更履歴: [CHANGELOG.md](./CHANGELOG.md)
 - 機能利用例: [feature-usage-guide.md](./feature-usage-guide.md)
 - リソース一覧: [resource-inventory.md](./resource-inventory.md)
+- Declarative tool 例 (JSON):
+  - compose-prompt 型: [examples/declarative-tool.compose-prompt.example.json](./examples/declarative-tool.compose-prompt.example.json)
+  - static-text 型: [examples/declarative-tool.static-text.example.json](./examples/declarative-tool.static-text.example.json)
 
 ## 機能別仕様（docs/features）
 
