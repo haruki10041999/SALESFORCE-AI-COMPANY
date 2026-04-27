@@ -924,6 +924,92 @@ get_skill_rating_report:
   maxSkills: 50
 ```
 
+### 9.11 学習させる具体例
+
+目的別に、どの順で何を実行すると学習が進むかの最小例です。
+
+#### 例1: 提案の採用 / 不採用を推薦に反映したい
+
+```text
+proposal_feedback_learn:
+  feedback:
+    - resourceType: "skills"
+      name: "security/apex-sharing-review"
+      decision: "accepted"
+      topic: "sharing rule review"
+    - resourceType: "tools"
+      name: "run_tests"
+      decision: "reject_unnecessary"
+      topic: "quick static review"
+  minSamples: 3
+```
+
+結果:
+
+- `outputs/tool-proposals/proposal-feedback.jsonl` に生ログを追記
+- `outputs/tool-proposals/proposal-feedback-model.json` を更新
+- skill へのフィードバックに `topic` があれば `query-skill-feedback.jsonl` と `query-skill-model.json` も更新
+
+#### 例2: query と skill の相性を育てたい
+
+```text
+proposal_feedback_learn:
+  feedback:
+    - resourceType: "skills"
+      name: "apex/trigger-audit"
+      decision: "accepted"
+      topic: "trigger recursion bulk safety"
+    - resourceType: "skills"
+      name: "apex/trigger-audit"
+      decision: "accepted"
+      topic: "bulk trigger governor limit review"
+```
+
+結果:
+
+- 類似 query で `apex/trigger-audit` が上がりやすくなる
+- 補正は `search_resources` / `auto_select_resources` に反映される
+
+#### 例3: 低評価スキルをあぶり出したい
+
+```text
+record_skill_rating:
+  ratings:
+    - skill: "documentation/release-notes"
+      rating: 2
+      topic: "release summary"
+      note: "情報が浅かった"
+    - skill: "documentation/release-notes"
+      rating: 2
+      topic: "release summary"
+      note: "観点が不足"
+  recentWindow: 5
+  lowRatingThreshold: 3
+  trendDropThreshold: 0.5
+```
+
+結果:
+
+- `outputs/reports/skill-rating.jsonl` に生ログを追記
+- `outputs/reports/skill-rating.json` と `skill-rating.md` を再生成
+- 条件を満たすと `flaggedForRefactor` に入る
+
+#### 例4: A/B テスト結果を agent trust に反映したい
+
+```text
+agent_ab_test:
+  topic: "security review"
+  agentA: "security-engineer"
+  agentB: "architect"
+  applyOutcomeToTrustStore: true
+```
+
+結果:
+
+- 比較レポートを出力
+- 勝者 / 敗者の結果を `outputs/agent-trust-histories.json` に反映
+- 後続の trust scoring で参照される
+
 ---
 
 ## 10. イベント・自動化

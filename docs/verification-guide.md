@@ -46,6 +46,20 @@ node --test --import tsx tests/permission-set-diff.test.ts
 node --test --import tsx tests/proposal-feedback.test.ts
 ```
 
+追加で確認するとよい対象:
+
+```bash
+npm test -- tests/proposal-feedback.test.ts
+npm test -- tests/core-modules.test.ts
+npm test -- tests/property-based.test.ts
+```
+
+見るポイント:
+
+- 提案フィードバックの補正モデルが更新される
+- query-skill の漸進モデルが更新される
+- trust / learning の不変条件が壊れていない
+
 ### 登録系（handler/server catalog）を変更した場合
 
 - `npm run build` 成功
@@ -104,6 +118,48 @@ npm test -- tests/property-based.test.ts
 ```
 
 `fast-check` を用いた scoring / learning / trust モジュールの不変条件テスト。
+
+### 学習フローの実地確認
+
+1. proposal feedback を投入
+
+```bash
+# MCP クライアントから proposal_feedback_learn を実行
+```
+
+確認対象:
+
+- `outputs/tool-proposals/proposal-feedback.jsonl`
+- `outputs/tool-proposals/proposal-feedback-model.json`
+- `outputs/tool-proposals/query-skill-feedback.jsonl`
+- `outputs/tool-proposals/query-skill-model.json`
+
+2. skill rating を投入
+
+```bash
+# MCP クライアントから record_skill_rating を実行
+```
+
+確認対象:
+
+- `outputs/reports/skill-rating.jsonl`
+- `outputs/reports/skill-rating.json`
+- `outputs/reports/skill-rating.md`
+
+3. A/B テスト結果を trust に反映
+
+```bash
+# MCP クライアントから agent_ab_test を applyOutcomeToTrustStore=true で実行
+```
+
+確認対象:
+
+- `outputs/agent-trust-histories.json`
+
+4. 反映先を確認
+
+- `search_resources` または `auto_select_resources` を同系統 query で再実行し、候補順が変わることを確認
+- `evaluate_triggers` の trust scoring を使う構成では、agent trust が応答に反映されることを確認
 
 ### Phase 計測の確認 (TASK-038)
 

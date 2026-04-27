@@ -85,6 +85,20 @@ npm run ai -- scaffold -- skill apex/my-skill
 - `npm run outputs:version -- wipe --keep-backups` は `backups/` を残して `outputs/` を空にします
 - `outputs/execution-origins.jsonl` には、どのリポジトリ起点の実行かが JSONL で追記されます
 
+### 学習フローの短い図
+
+```text
+フィードバック / rating / A/B結果
+    ↓
+outputs/tool-proposals/*.jsonl
+outputs/reports/skill-rating.*
+outputs/agent-trust-histories.json
+    ↓
+proposal-feedback model / query-skill model / trust history 更新
+    ↓
+search_resources / auto_select_resources / trust scoring に反映
+```
+
 ## 🧪 テスト
 
 ```bash
