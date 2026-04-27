@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-export type OutputsVersioningCommand = "backup" | "list" | "restore" | "prune";
+export type OutputsVersioningCommand = "backup" | "list" | "restore" | "prune" | "wipe";
 
 export interface OutputsVersioningOptions {
   command: OutputsVersioningCommand;
@@ -9,6 +9,7 @@ export interface OutputsVersioningOptions {
   keep: number;
   dryRun: boolean;
   skipPreBackup: boolean;
+  keepBackups: boolean;
 }
 
 export interface SnapshotRecord {
@@ -68,15 +69,16 @@ function readSnapshotMetadata(snapshotDir: string): { createdAt: string; entryCo
 
 export function parseOutputsVersioningArgs(argv: string[]): OutputsVersioningOptions {
   const command = argv[0] as OutputsVersioningCommand | undefined;
-  if (!command || !["backup", "list", "restore", "prune"].includes(command)) {
-    throw new Error("command は backup | list | restore | prune を指定してください。");
+  if (!command || !["backup", "list", "restore", "prune", "wipe"].includes(command)) {
+    throw new Error("command は backup | list | restore | prune | wipe を指定してください。");
   }
 
   const result: OutputsVersioningOptions = {
     command,
     keep: Number.parseInt(process.env.SF_AI_OUTPUTS_BACKUP_KEEP ?? "5", 10),
     dryRun: false,
-    skipPreBackup: false
+    skipPreBackup: false,
+    keepBackups: false
   };
 
   for (let i = 1; i < argv.length; i += 1) {
@@ -89,6 +91,11 @@ export function parseOutputsVersioningArgs(argv: string[]): OutputsVersioningOpt
 
     if (token === "--skip-pre-backup") {
       result.skipPreBackup = true;
+      continue;
+    }
+
+    if (token === "--keep-backups") {
+      result.keepBackups = true;
       continue;
     }
 
@@ -129,11 +136,19 @@ export function parseOutputsVersioningArgs(argv: string[]): OutputsVersioningOpt
     throw new Error("restore には --snapshot <name> が必要です。");
   }
 
-  if ((result.command === "backup" || result.command === "restore") && !result.snapshotName) {
+  if ((result.command === "backup" || result.command === "restore" || result.command === "wipe") && !result.snapshotName) {
     result.snapshotName = `snapshot-${timestampId()}`;
   }
 
+  if (result.command === "wipe") {
+    result.keepBackups = true;
+  }
+
   return result;
+}
+
+function getBackupsDirName(backupsDir: string): string {
+  return backupsDir.replace(/\\/g, "/").split("/").pop() ?? "backups";
 }
 
 export function listSnapshots(backupsDir: string): SnapshotRecord[] {
@@ -168,7 +183,7 @@ export function createSnapshot(outputsDir: string, backupsDir: string, snapshotN
     throw new Error(`同名 snapshot が存在します: ${snapshotName}`);
   }
 
-  const backupsDirName = backupsDir.replace(/\\/g, "/").split("/").pop() ?? "backups";
+  const backupsDirName = getBackupsDirName(backupsDir);
   const entries = listEntriesToBackup(outputsDir, backupsDirName);
 
   if (dryRun) {
@@ -253,12 +268,7 @@ export function restoreSnapshot(
   }
 
   ensureDir(outputsDir);
-  const backupsDirName = backupsDir.replace(/\\/g, "/").split("/").pop() ?? "backups";
-
-  const currentEntries = readdirSync(outputsDir).filter((name) => name !== backupsDirName);
-  for (const name of currentEntries) {
-    rmSync(join(outputsDir, name), { recursive: true, force: true });
-  }
+  wipeOutputs(outputsDir, backupsDir, false);
 
   for (const name of entries) {
     cpSync(join(snapshotDir, name), join(outputsDir, name), {
@@ -268,4 +278,23 @@ export function restoreSnapshot(
   }
 
   return { restoredEntries: entries };
+}
+
+export function wipeOutputs(outputsDir: string, backupsDir: string, dryRun: boolean): { removedEntries: string[] } {
+  if (!existsSync(outputsDir)) {
+    return { removedEntries: [] };
+  }
+
+  const backupsDirName = getBackupsDirName(backupsDir);
+  const currentEntries = readdirSync(outputsDir).filter((name) => name !== backupsDirName);
+
+  if (dryRun) {
+    return { removedEntries: currentEntries };
+  }
+
+  for (const name of currentEntries) {
+    rmSync(join(outputsDir, name), { recursive: true, force: true });
+  }
+
+  return { removedEntries: currentEntries };
 }

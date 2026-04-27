@@ -296,6 +296,8 @@ const { govTool } = createGovernedToolRegistrar({
     return disabledToolsCache.isToolDisabled(toolName);
   },
   normalizeResourceName,
+  outputsDir: OUTPUTS_DIR,
+  serverRoot: ROOT,
   emitSystemEvent: emitSystemEventCompat,
   summarizeValue,
   registerToolFailure,
@@ -475,20 +477,6 @@ async function setToolDisabledState(toolName: string, disabled: boolean): Promis
 async function applyEventAutomation(event: SystemEventName, payload: Record<string, unknown>): Promise<void> {
   await governanceEventAutomation.applyEventAutomation(event, payload);
 }
-
-// ============================================================
-// プリセットツール
-// ============================================================
-
-
-
-// ============================================================
-// バッチ処理ツール
-// ============================================================
-
-// ============================================================
-// Helper Functions for Resource Validation & Creation
-// ============================================================
 
 /**
  * リソース作成時の検証関数

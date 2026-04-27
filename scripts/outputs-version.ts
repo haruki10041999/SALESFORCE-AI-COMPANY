@@ -6,7 +6,8 @@ import {
   listSnapshots,
   parseOutputsVersioningArgs,
   pruneSnapshots,
-  restoreSnapshot
+  restoreSnapshot,
+  wipeOutputs
 } from "../mcp/core/governance/outputs-versioning.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -29,6 +30,7 @@ function printUsage(error?: string): void {
   console.error("  npm run outputs:version -- list");
   console.error("  npm run outputs:version -- restore --snapshot <snapshot> [--skip-pre-backup] [--dry-run]");
   console.error("  npm run outputs:version -- prune [--keep <n>] [--dry-run]");
+  console.error("  npm run outputs:version -- wipe [--skip-pre-backup] [--keep-backups] [--name <snapshot>] [--dry-run]");
 }
 
 function run(): number {
@@ -79,6 +81,24 @@ function run(): number {
       console.log(`[outputs:version][prune] kept=${pruned.kept.length} removed=${pruned.removed.length}`);
       if (pruned.removed.length > 0) {
         console.log(`[outputs:version][prune] removed=${pruned.removed.join(",")}`);
+      }
+      return 0;
+    }
+
+    if (options.command === "wipe") {
+      if (!options.skipPreBackup) {
+        const preWipe = createSnapshot(OUTPUTS_DIR, BACKUPS_DIR, options.snapshotName!, options.dryRun);
+        console.log(`[outputs:version][pre-wipe-backup] id=${preWipe.id} entries=${preWipe.entryCount}`);
+        const pruned = pruneSnapshots(BACKUPS_DIR, options.keep, options.dryRun);
+        if (pruned.removed.length > 0) {
+          console.log(`[outputs:version][prune] removed=${pruned.removed.join(",")}`);
+        }
+      }
+
+      const wiped = wipeOutputs(OUTPUTS_DIR, BACKUPS_DIR, options.dryRun);
+      console.log(`[outputs:version][wipe] removedEntries=${wiped.removedEntries.length} keepBackups=${options.keepBackups}`);
+      if (wiped.removedEntries.length > 0) {
+        console.log(`[outputs:version][wipe] removed=${wiped.removedEntries.join(",")}`);
       }
       return 0;
     }

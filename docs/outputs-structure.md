@@ -36,15 +36,21 @@
 
 - 手動削除より、まず `npm run outputs:cleanup -- --dry-run` を使う
 - 復元に使う可能性があるため、`outputs/backups/` は消さない
+- `outputs:cleanup` は `history/`, `sessions/`, `reports/`, `dashboards/`, `benchmark/`, `debug/` を再帰的に整理する
+- `outputs/events/` は現行の `system-events.jsonl`, `trace-log.jsonl`, `metrics-samples.jsonl` を残し、古い rotate 済みログだけを整理する
 
 ### 消してよい例
 
-- 古い `history/` と `sessions/`（運用ルールに従う）
+- 古い `history/` と `sessions/`（配下のサブディレクトリ含む）
+- 古い `reports/`, `dashboards/`, `benchmark/`, `debug/` の生成物
+- 古い `events/system-events.<stamp>.<nonce>.jsonl` などの rotate 済みログ
 - 一時検証で作った不要 JSON
 
 ### 消さないほうがよい例
 
 - `events/system-events.jsonl`
+- `events/trace-log.jsonl`
+- `events/metrics-samples.jsonl`
 - `resource-governance.json`
 - `backups/` 配下
 
@@ -66,6 +72,9 @@ npm run outputs:version -- backup
 # バックアップ一覧
 npm run outputs:version -- list
 
+# backups を残して outputs を空にする
+npm run outputs:version -- wipe --keep-backups
+
 # 復元
 npm run outputs:version -- restore --snapshot <snapshot-id>
 ```
@@ -83,6 +92,7 @@ npm run outputs:version -- restore --snapshot <snapshot-id>
 - `outputs/vector-store.jsonl`: ベクターストア
 - `outputs/resource-governance.json`: ガバナンス設定
 - `outputs/operations-log.jsonl`: 操作ログ
+- `outputs/execution-origins.jsonl`: どのリポジトリ起点の実行だったかの provenance ログ
 
 ## 各ファイル / ディレクトリの更新タイミング
 
@@ -95,6 +105,7 @@ npm run outputs:version -- restore --snapshot <snapshot-id>
 | `outputs/vector-store.jsonl` | JSONL (追記/再書き) | `add_vector_record` / `query_vector_store` の LRU 更新時。または `SF_AI_AUTO_MEMORY=1` 設定時は全ツール実行ごとに `tool:<name>` タグ付きレコードを自動追加 | `memory/vector-store.ts`, `mcp/core/governance/governed-tool-registrar.ts` |
 | `outputs/resource-governance.json` | JSON (上書き) | `apply_resource_actions` で governance state が変わった時 | `mcp/server.ts` |
 | `outputs/operations-log.jsonl` | JSONL (追記) | governance 変更操作のたびに 1 行追加 | `mcp/core/governance/operation-log.ts` |
+| `outputs/execution-origins.jsonl` | JSONL (追記) | 各ツール実行の成功/失敗ごとに 1 行追加。`repoPath` / `rootDir` / `filePath(s)` から repo 候補を抽出し、server 側の repo root とあわせて記録 | `mcp/core/governance/governed-tool-registrar.ts` |
 | `outputs/events/system-events.jsonl` | JSONL (追記) | `emitSystemEvent` 経由 (chat / orchestrate / governance / cleanup 等の節目) | `mcp/core/event/system-event-manager.ts` |
 | `outputs/events/system-events.<stamp>.<nonce>.jsonl` | JSONL (ローテ後) | size/age 上限超過で rotate された時 | 同上 |
 | `outputs/events/trace-log.jsonl` | JSONL (上書き) | `endTrace` / `failTrace` で履歴を全件 dump (chat / orchestrate / 各種ツール終端) | `mcp/core/trace/trace-context.ts` |
@@ -110,7 +121,7 @@ npm run outputs:version -- restore --snapshot <snapshot-id>
 | `outputs/agent-trust-histories.json` | JSON | `agent_ab_test` の trust 反映時 / `applyAbTestOutcome` 呼び出し時 | `mcp/core/quality/agent-trust-store.ts` |
 | `outputs/dashboards/observability.{html,md,json}` | 各形式 | `observability_dashboard` ツール実行時のみ (TASK-044) | `mcp/handlers/register-analytics-tools.ts` |
 | `outputs/reports/benchmark-suite.json` | JSON | `npm run benchmark:run` または `benchmark_suite` ツール実行時 | `scripts/benchmark-suite.ts` |
-| `outputs/reports/agent-ab-test/*.{json,md}` | JSON + MD | `agent_ab_test` ツール実行時 | `mcp/tools/agent-ab-test.ts` |
+| `outputs/reports/agent-ab-test/runs.jsonl` + `latest.{json,md}` | JSONL (追記) + 上書き | `agent_ab_test` ツール実行時。`runs.jsonl` に 1 行 = 1 実行を append、`latest.{json,md}` は直近 1 件で上書き (3 ファイル固定) | `mcp/tools/agent-ab-test.ts` |
 | `outputs/reports/test-coverage-gap/*.{json,md}` | JSON + MD | `analyze_test_coverage_gap` ツール実行時 | `mcp/tools/analyze-test-coverage-gap.ts` |
 | `outputs/reports/recommend-permission-sets/*.{json,md}` | JSON + MD | `recommend_permission_sets` ツール実行時 | `mcp/tools/recommend-permission-sets.ts` |
 | `outputs/reports/resource-dependency-graph/*.{json,mmd}` | JSON + Mermaid | `resource_dependency_graph` ツール実行時 | `mcp/tools/resource-dependency-graph.ts` |

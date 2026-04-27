@@ -2,7 +2,9 @@
 /**
  * cleanup-outputs.ts
  *
- * outputs/history と outputs/sessions の古いファイルを削除します。
+ * outputs 配下の再生成しやすい古いファイルを削除します。
+ * history / sessions / reports / dashboards / benchmark / debug を再帰 cleanup し、
+ * events は rotate 済みの古いログのみ対象にします。
  */
 
 import { join, resolve } from "node:path";

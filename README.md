@@ -69,10 +69,20 @@ npm run ai -- dev               # 開発起動
 npm run ai -- doctor            # 診断
 npm run ai -- metrics:report    # メトリクス確認
 npm run ai -- outputs:cleanup -- --dry-run
+npm run ai -- outputs:version -- backup
 npm run ai -- outputs:version -- list
+npm run ai -- outputs:version -- wipe --keep-backups
 npm run ai -- scaffold -- agent my-agent
 npm run ai -- scaffold -- skill apex/my-skill
 ```
+
+### outputs 運用の要点
+
+- `SF_AI_OUTPUTS_DIR` を絶対パスで指定すると、どのリポジトリから使っても出力先を 1 箇所に集約できます
+- `npm run outputs:cleanup -- --dry-run` は古い生成物だけを整理します
+- `npm run outputs:version -- backup` は現在の `outputs/` を世代バックアップします
+- `npm run outputs:version -- wipe --keep-backups` は `backups/` を残して `outputs/` を空にします
+- `outputs/execution-origins.jsonl` には、どのリポジトリ起点の実行かが JSONL で追記されます
 
 ## 🧪 テスト
 
@@ -112,8 +122,10 @@ historian, gardener, samurai, jedi, inventor, speed-demon, captain, archivist
 | 変数 | 説明 | デフォルト |
 |---|---|---|
 | `SF_AI_OUTPUTS_DIR` | outputs ディレクトリ | `./outputs` |
+| `SF_AI_OUTPUTS_BACKUP_DIR` | outputs バックアップ保存先 | `outputs/backups` |
+| `SF_AI_OUTPUTS_BACKUP_KEEP` | 保持する snapshot 世代数 | `5` |
 | `LOG_LEVEL` | ログレベル (error/warn/info/debug) | `info` |
-| `SF_AI_AUTO_APPLY` | 自動適用の有効化 | `true` |
+| `SF_AI_AUTO_APPLY` | 自動適用の有効化 | `false` |
 | `SF_AI_AUTO_APPLY_MIN_SCORE` | 品質スコア下限 | `70` |
 | `SF_AI_AUTO_APPLY_MAX_PER_DAY` | 1日あたりの自動生成上限 | `5` |
 
@@ -156,8 +168,13 @@ npm run doctor
 # ファイルシステムの健全性確認
 npm run outputs:cleanup -- --dry-run
 
-# outputs をクリアして再初期化
-rm -rf outputs && npm run init
+# outputs をバックアップしてから空にする
+npm run outputs:version -- backup
+npm run outputs:version -- wipe --keep-backups
+
+# 必要なら snapshot から復元
+npm run outputs:version -- list
+npm run outputs:version -- restore --snapshot <snapshot-id>
 ```
 
 詳細: [docs/verification-guide.md](docs/verification-guide.md)

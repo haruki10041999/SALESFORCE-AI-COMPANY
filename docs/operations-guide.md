@@ -71,7 +71,14 @@ npm run outputs:cleanup -- --days 30
 ```bash
 npm run outputs:version -- backup
 npm run outputs:version -- list
+npm run outputs:version -- wipe --keep-backups
 ```
+
+見るポイント:
+
+- `wipe` は `backups/` を残して `outputs/` を空にする
+- 既定では wipe 前に snapshot が 1 つ追加で作られる
+- どのリポジトリ起点の実行だったかは `outputs/execution-origins.jsonl` を見る
 
 ## トラブル時の手順
 
@@ -84,6 +91,7 @@ npm run doctor
 2. ログ確認
 
 - `outputs/events/system-events.jsonl`
+- `outputs/execution-origins.jsonl`
 
 3. 必要なら復元
 
@@ -102,4 +110,5 @@ npm run doctor
 
 - 出力全体の意味: `outputs-structure.md`
 - 設定値: `configuration.md`
+- 実行 provenance: `../outputs/execution-origins.jsonl`
 - 変更履歴: `CHANGELOG.md`

@@ -154,9 +154,14 @@ export async function runAgentAbTest(
     outputsDir: string;
   }
 ): Promise<AgentAbTestResult> {
+  // 保存方針 (集約型):
+  //   <reportDir>/runs.jsonl    ← 全実行を 1 行 = 1 結果で append (履歴永続)
+  //   <reportDir>/latest.json   ← 直近 1 件 (上書き)
+  //   <reportDir>/latest.md     ← 直近 1 件 (上書き)
+  // 旧来の `agent-ab-test-<stamp>.{json,md}` 形式は廃止。
   const reportDir = input.reportOutputDir
     ? resolve(input.reportOutputDir)
-    : join(resolve(deps.outputsDir), "reports");
+    : join(resolve(deps.outputsDir), "reports", "agent-ab-test");
 
   const [agentA, agentB] = await Promise.all([
     runSingle(deps.runChatTool, deps.evaluatePromptMetrics, input, input.agentA),
@@ -169,9 +174,9 @@ export async function runAgentAbTest(
   const generatedAt = new Date().toISOString();
 
   await fsPromises.mkdir(reportDir, { recursive: true });
-  const stamp = generatedAt.replace(/[:.]/g, "-");
-  const reportJsonPath = join(reportDir, `agent-ab-test-${stamp}.json`);
-  const reportMarkdownPath = join(reportDir, `agent-ab-test-${stamp}.md`);
+  const runsJsonlPath = join(reportDir, "runs.jsonl");
+  const reportJsonPath = join(reportDir, "latest.json");
+  const reportMarkdownPath = join(reportDir, "latest.md");
 
   const result: AgentAbTestResult = {
     generatedAt,
@@ -196,6 +201,8 @@ export async function runAgentAbTest(
     ].join("\n")
   };
 
+  // append 1 行 (履歴) → latest を上書き
+  await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
   await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
   await fsPromises.writeFile(reportMarkdownPath, buildMarkdown(result), "utf-8");
 

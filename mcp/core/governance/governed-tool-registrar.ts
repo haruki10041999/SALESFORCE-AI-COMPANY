@@ -5,6 +5,7 @@ import { recordMetric } from "../../tools/metrics.js";
 import { addMemory } from "../../../memory/project-memory.js";
 import { addRecord as addVectorRecord } from "../../../memory/vector-store.js";
 import { buildProgressBanner } from "../progress/progress-formatter.js";
+import { appendExecutionOrigin, buildExecutionOriginRecord } from "./outputs-origin.js";
 
 const PROGRESS_BANNER_SKIP_TOOLS = new Set([
   // 進捗表示の意味が薄い軽量ツール (応答が JSON のみで構造化されているもの含む)
@@ -81,6 +82,8 @@ interface CreateGovernedToolRegistrarDeps {
   registerTool: RegisterToolFn;
   isToolDisabled: (toolName: string) => boolean;
   normalizeResourceName: (name: string) => string;
+  outputsDir: string;
+  serverRoot: string;
   emitSystemEvent: (event: string, payload: Record<string, unknown>) => Promise<void>;
   summarizeValue: (value: unknown, maxLength?: number) => string;
   registerToolFailure: (toolName: string, error: unknown) => Promise<void>;
@@ -99,11 +102,21 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
     registerTool,
     isToolDisabled,
     normalizeResourceName,
+    outputsDir,
+    serverRoot,
     emitSystemEvent,
     summarizeValue,
     registerToolFailure,
     getRetryConfig
   } = deps;
+
+  function recordExecutionOrigin(toolName: string, input: unknown, status: "success" | "error"): void {
+    try {
+      appendExecutionOrigin(outputsDir, buildExecutionOriginRecord(toolName, input, status, serverRoot));
+    } catch {
+      // provenance 記録失敗はツール実行を阻害しない
+    }
+  }
 
   function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -181,6 +194,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
             summarizeValue(result),
             "success"
           );
+          recordExecutionOrigin(name, input, "success");
           return attachProgressBanner(name, traceId, result);
         } catch (error) {
           const retryable = retryConfig.retryEnabled && (
@@ -211,6 +225,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
               summarizeValue(error, 500),
               "error"
             );
+            recordExecutionOrigin(name, input, "error");
             throw error;
           }
 

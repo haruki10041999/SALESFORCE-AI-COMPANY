@@ -23,6 +23,12 @@
 SF_AI_OUTPUTS_DIR=D:/sf-ai-data/outputs npm run mcp:dev
 ```
 
+補足:
+
+- `SF_AI_OUTPUTS_DIR` はサーバープロセス側で解決されます
+- 絶対パスを使えば、別リポジトリから同じ MCP サーバーを使っても出力先を共通化できます
+- 実行 provenance は `outputs/execution-origins.jsonl` に追記されます
+
 ### 2. 調査のため詳細ログを出したい
 
 ```bash
@@ -37,6 +43,13 @@ LOG_LEVEL=debug SF_AI_DEBUG_VERBOSE_PROMPT=true npm run mcp:dev
 |---|---|---|
 | `SF_AI_OUTPUTS_BACKUP_DIR` | 世代バックアップの保存先 | `outputs/backups` |
 | `SF_AI_OUTPUTS_BACKUP_KEEP` | 保持世代数（古い順に削除） | `5` |
+
+関連コマンド:
+
+- `npm run outputs:version -- backup`
+- `npm run outputs:version -- list`
+- `npm run outputs:version -- wipe --keep-backups`
+- `npm run outputs:version -- restore --snapshot <snapshot-id>`
 
 ## 自動運用（必要な場合のみ）
 
@@ -80,3 +93,9 @@ LOG_LEVEL=debug SF_AI_DEBUG_VERBOSE_PROMPT=true npm run mcp:dev
 | `EVENT_HISTORY_MAX` | EventDispatcher がメモリ上に保持するイベントの最大件数 | `1000` |
 | `TRACE_HISTORY_MAX` | メモリ上に保持する完了トレースの最大件数 | `500` |
 | `METRICS_SAMPLES_MAX` | メモリ上に保持するメトリクスサンプルの最大件数 | `2000` |
+
+## outputs provenance
+
+- `outputs/execution-origins.jsonl` には、各ツール実行について `toolName`, `status`, `serverRoot`, `processCwd`, `repoRoots`, `inputPathHints` が追記されます
+- `repoRoots` は `repoPath`, `rootDir`, `filePath`, `filePaths` などの入力から近傍 `.git` をたどって推定されます
+- 入力に repo 情報がない軽量ツールでは、server 側 repo root とカレント作業ディレクトリが主な手がかりになります
