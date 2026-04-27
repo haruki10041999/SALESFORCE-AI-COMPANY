@@ -15,11 +15,21 @@ import { suggestFlowTestCases } from "../tools/suggest-flow-test-cases.js";
 import { diffPermissionSet } from "../tools/permission-set-diff.js";
 import { recommendPermissionSets } from "../tools/recommend-permission-sets.js";
 import { buildApexDependencyGraph } from "../tools/apex-dependency-graph.js";
+import { buildApexDependencyGraphIncremental } from "../tools/apex-dependency-graph-incremental.js";
+import { suggestRefactors } from "../tools/refactor-suggest.js";
+import { generateApexChangelog } from "../tools/apex-changelog.js";
+import { predictApexPerformance } from "../tools/apex-perf-predict.js";
+import { recommendSkillsForRole } from "../tools/recommend-skills-for-role.js";
 import { analyzeTestCoverageGap } from "../tools/analyze-test-coverage-gap.js";
 import { runDeploymentVerification } from "../tools/run-deployment-verification.js";
 import type { GovTool } from "@mcp/tool-types.js";
 
-export function registerCoreAnalysisTools(govTool: GovTool): void {
+export interface CoreAnalysisToolDeps {
+  /** Optional. Provided by server.ts so `recommend_skills_for_role` can list skills with summaries. */
+  listSkillsWithSummary?: () => Array<{ name: string; summary: string }>;
+}
+
+export function registerCoreAnalysisTools(govTool: GovTool, deps: CoreAnalysisToolDeps = {}): void {
   govTool(
     "repo_analyze",
     {
@@ -530,7 +540,8 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
         workingBranch: z.string(),
         targetOrg: z.string().optional(),
         reportOutputDir: z.string().optional(),
-        maxItems: z.number().int().min(1).max(500).optional()
+        maxItems: z.number().int().min(1).max(500).optional(),
+        includeBranchScaffold: z.boolean().optional()
       }
     },
     async ({
@@ -540,7 +551,8 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
       workingBranch,
       targetOrg,
       reportOutputDir,
-      maxItems
+      maxItems,
+      includeBranchScaffold
     }: {
       repoPath: string;
       baseBranch?: string;
@@ -549,6 +561,7 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
       targetOrg?: string;
       reportOutputDir?: string;
       maxItems?: number;
+      includeBranchScaffold?: boolean;
     }) => {
       const result = await analyzeTestCoverageGap({
         repoPath,
@@ -557,7 +570,8 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
         workingBranch,
         targetOrg,
         reportOutputDir,
-        maxItems
+        maxItems,
+        includeBranchScaffold
       });
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
@@ -569,20 +583,172 @@ export function registerCoreAnalysisTools(govTool: GovTool): void {
     "apex_dependency_graph",
     {
       title: "Apex依存グラフ可視化",
-      description: "Apexクラス/トリガーの依存関係を解析し、グラフ情報とMermaidを返します。",
+      description: "Apexクラス/トリガーの依存関係を解析し、グラフ情報とMermaidを返します。Flow/PermissionSet/外部連携も任意で含められます。",
       inputSchema: {
         rootDir: z.string(),
         includeTests: z.boolean().optional(),
-        sampleLimit: z.number().int().min(1).max(100).optional()
+        sampleLimit: z.number().int().min(1).max(100).optional(),
+        includeFlows: z.boolean().optional(),
+        includePermissionSets: z.boolean().optional(),
+        includeIntegrations: z.boolean().optional()
       }
     },
-    async ({ rootDir, includeTests, sampleLimit }: { rootDir: string; includeTests?: boolean; sampleLimit?: number }) => {
+    async ({ rootDir, includeTests, sampleLimit, includeFlows, includePermissionSets, includeIntegrations }: {
+      rootDir: string;
+      includeTests?: boolean;
+      sampleLimit?: number;
+      includeFlows?: boolean;
+      includePermissionSets?: boolean;
+      includeIntegrations?: boolean;
+    }) => {
       const result = buildApexDependencyGraph({
         rootDir,
         includeTests,
-        sampleLimit
+        sampleLimit,
+        includeFlows,
+        includePermissionSets,
+        includeIntegrations
       });
 
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "apex_dependency_graph_incremental",
+    {
+      title: "Apex依存グラフ(差分モード)",
+      description: "前回スキャンとのファイル差分を検出し、グラフ全体に added/modified/deleted を付与して返します。CI で大規模 Org の差分監視に利用できます。",
+      inputSchema: {
+        rootDir: z.string(),
+        cacheFile: z.string(),
+        includeTests: z.boolean().optional(),
+        sampleLimit: z.number().int().min(1).max(100).optional(),
+        includeFlows: z.boolean().optional(),
+        includePermissionSets: z.boolean().optional(),
+        includeIntegrations: z.boolean().optional()
+      }
+    },
+    async ({ rootDir, cacheFile, includeTests, sampleLimit, includeFlows, includePermissionSets, includeIntegrations }: {
+      rootDir: string;
+      cacheFile: string;
+      includeTests?: boolean;
+      sampleLimit?: number;
+      includeFlows?: boolean;
+      includePermissionSets?: boolean;
+      includeIntegrations?: boolean;
+    }) => {
+      const result = buildApexDependencyGraphIncremental({
+        rootDir,
+        cacheFile,
+        includeTests,
+        sampleLimit,
+        includeFlows,
+        includePermissionSets,
+        includeIntegrations
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "refactor_suggest",
+    {
+      title: "Refactor提案エンジン",
+      description: "与えられた Apex ソースをスキャンし、長いメソッド / 深いネスト / 重複リテラル / マジックナンバーを検出してリファクタ提案を返します。",
+      inputSchema: {
+        source: z.string(),
+        filePath: z.string().optional(),
+        maxMethodLines: z.number().int().min(10).max(2000).optional(),
+        maxNestingDepth: z.number().int().min(2).max(20).optional(),
+        minLiteralOccurrences: z.number().int().min(2).max(50).optional(),
+        minMagicOccurrences: z.number().int().min(2).max(50).optional()
+      }
+    },
+    async (input: {
+      source: string;
+      filePath?: string;
+      maxMethodLines?: number;
+      maxNestingDepth?: number;
+      minLiteralOccurrences?: number;
+      minMagicOccurrences?: number;
+    }) => {
+      const result = suggestRefactors(input);
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "apex_changelog",
+    {
+      title: "Apex Changelog 生成",
+      description: "git 比較 (baseRef..headRef) から Apex / LWC / Flow / PermissionSet の変更をカテゴリ別に集計し、人間向け Markdown changelog と JSON を返します。",
+      inputSchema: {
+        repoPath: z.string(),
+        baseRef: z.string(),
+        headRef: z.string().optional(),
+        maxCommits: z.number().int().min(1).max(500).optional()
+      }
+    },
+    async ({ repoPath, baseRef, headRef, maxCommits }: {
+      repoPath: string;
+      baseRef: string;
+      headRef?: string;
+      maxCommits?: number;
+    }) => {
+      const result = generateApexChangelog({ repoPath, baseRef, headRef, maxCommits });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "recommend_skills_for_role",
+    {
+      title: "コンテクスト連動スキル推薦",
+      description: "役割 / トピック / 直近の変更ファイルから関連スキルをスコアリングして返します。",
+      inputSchema: {
+        role: z.string().optional(),
+        topic: z.string().optional(),
+        recentFiles: z.array(z.string()).optional(),
+        limit: z.number().int().min(1).max(50).optional()
+      }
+    },
+    async ({ role, topic, recentFiles, limit }: {
+      role?: string;
+      topic?: string;
+      recentFiles?: string[];
+      limit?: number;
+    }) => {
+      const skills = deps.listSkillsWithSummary ? deps.listSkillsWithSummary() : [];
+      const result = recommendSkillsForRole({ role, topic, recentFiles, limit, skills });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "predict_apex_performance",
+    {
+      title: "Apex 性能予測",
+      description: "Apex ソースをヒューリスティックに走査し、SOQL/DML in loop などガバナ違反リスクをスコアします。",
+      inputSchema: {
+        files: z.array(z.object({
+          filePath: z.string().min(1),
+          source: z.string()
+        })).min(1).max(500)
+      }
+    },
+    async ({ files }: { files: Array<{ filePath: string; source: string }> }) => {
+      const result = predictApexPerformance(files);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
       };

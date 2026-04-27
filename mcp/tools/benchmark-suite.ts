@@ -3,6 +3,15 @@ import { summarizeMetrics } from "./metrics-summary.js";
 export type BenchmarkSuiteInput = {
   scenarios?: string[];
   recentTraceLimit?: number;
+  /**
+   * TASK-F9: when true and `scenarios` is empty, use the function provided in
+   * `loadRegisteredScenarios` to populate the benchmark targets. The default
+   * implementation passed by the CLI reads `outputs/tool-catalog.json`
+   * (produced by `npm run tools:catalog`) so new tools are picked up without
+   * editing this file.
+   */
+  useRegisteredTools?: boolean;
+  loadRegisteredScenarios?: () => string[];
 };
 
 export type BenchmarkCaseResult = {
@@ -36,12 +45,23 @@ function clamp(n: number, min: number, max: number): number {
 }
 
 export function runBenchmarkSuite(input: BenchmarkSuiteInput = {}): BenchmarkSuiteResult {
-  const scenarios = input.scenarios ?? [
-    "Apex review",
-    "LWC optimization",
-    "Security delta scan",
-    "Release readiness"
-  ];
+  const explicit = input.scenarios ?? [];
+  let scenarios: string[];
+  if (explicit.length > 0) {
+    scenarios = explicit;
+  } else if (input.useRegisteredTools && input.loadRegisteredScenarios) {
+    const fromRegistry = input.loadRegisteredScenarios();
+    scenarios = fromRegistry.length > 0
+      ? fromRegistry
+      : ["Apex review", "LWC optimization", "Security delta scan", "Release readiness"];
+  } else {
+    scenarios = [
+      "Apex review",
+      "LWC optimization",
+      "Security delta scan",
+      "Release readiness"
+    ];
+  }
 
   const metrics = summarizeMetrics({ limit: input.recentTraceLimit ?? 300 });
 

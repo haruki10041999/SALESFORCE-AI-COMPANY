@@ -3,6 +3,7 @@ import { join, relative } from "path";
 import { createHash } from "crypto";
 import { getPromptCacheMaxEntries, getPromptCacheTtlSeconds } from "../config/runtime-config.js";
 import { renderPersonaStyleSection } from "./persona-style-registry.js";
+import { allocateCategoryBudgets } from "./context-budget.js";
 import {
   loadPromptCacheFromDisk,
   appendPromptCacheEntry,
@@ -325,17 +326,30 @@ export async function buildChatPromptFromContext(
     ? findMdFilesRecursive(contextDir)
     : [];
 
-  const totalItems = filePaths.length + selectedAgents.length + skillNames.length + (personaName ? 1 : 0) + contextFiles.length;
-  const perItemBudget = maxContextChars && totalItems > 0
-    ? Math.floor(maxContextChars / Math.max(totalItems, 1))
-    : undefined;
+  // TASK-F6: weight context budget by category importance instead of dividing
+  // maxContextChars equally across every item. Frameworks (discussion /
+  // review) consume the same per-item slot through `framework`.
+  const categoryBudgets = allocateCategoryBudgets(maxContextChars, {
+    agent: selectedAgents.length,
+    skill: skillNames.length,
+    code: filePaths.length,
+    context: contextFiles.length,
+    persona: personaName ? 1 : 0,
+    framework: 3 // discussion + review + review-mode
+  });
+  const codeBudget = categoryBudgets.code;
+  const agentBudget = categoryBudgets.agent;
+  const skillBudget = categoryBudgets.skill;
+  const contextBudget = categoryBudgets.context;
+  const personaBudget = categoryBudgets.persona;
+  const frameworkBudget = categoryBudgets.framework;
 
   const [codeResults, agentResults, skillResults, personaResult] = await Promise.all([
     Promise.all(filePaths.map(async (fp) => {
       try {
         const code = await fsPromises.readFile(fp, "utf-8");
         const ext = fp.split(".").pop() ?? "";
-        const content = perItemBudget ? truncateContent(code, perItemBudget, fp) : code;
+        const content = codeBudget ? truncateContent(code, codeBudget, fp) : code;
         return `### ${fp}\n\`\`\`${ext}\n${content}\n\`\`\``;
       } catch {
         return `### ${fp}\n(読み込み失敗)`;
@@ -344,7 +358,7 @@ export async function buildChatPromptFromContext(
     Promise.all(selectedAgents.map(async (name) => {
       try {
         const raw = await getMdFileAsync("agents", name);
-        const content = perItemBudget ? truncateContent(raw, perItemBudget, `agent:${name}`) : raw;
+        const content = agentBudget ? truncateContent(raw, agentBudget, `agent:${name}`) : raw;
         return `### ${name}\n${content}`;
       } catch {
         return `### ${name}\n(未定義)`;
@@ -353,7 +367,7 @@ export async function buildChatPromptFromContext(
     Promise.all(skillNames.map(async (name) => {
       try {
         const raw = await getMdFileAsync("skills", name);
-        const content = perItemBudget ? truncateContent(raw, perItemBudget, `skill:${name}`) : raw;
+        const content = skillBudget ? truncateContent(raw, skillBudget, `skill:${name}`) : raw;
         return `### ${name}\n${content}`;
       } catch {
         return `### ${name}\n(未定義)`;
@@ -371,8 +385,8 @@ export async function buildChatPromptFromContext(
     const contextContent = contextFiles
       .map((f) => {
         const raw = readFileSync(f, "utf-8");
-        return perItemBudget
-          ? truncateContent(raw, perItemBudget, `context:${toPosixPath(relative(root, f))}`)
+        return contextBudget
+          ? truncateContent(raw, contextBudget, `context:${toPosixPath(relative(root, f))}`)
           : raw;
       })
       .join("\n\n");
@@ -391,8 +405,8 @@ export async function buildChatPromptFromContext(
     sections.push(`## 適用スキル\n\n${skillResults.join("\n\n")}`);
   }
 
-  const personaContent = personaResult && perItemBudget
-    ? truncateContent(personaResult, perItemBudget, `persona:${personaName ?? ""}`)
+  const personaContent = personaResult && personaBudget
+    ? truncateContent(personaResult, personaBudget, `persona:${personaName ?? ""}`)
     : personaResult;
   if (personaContent) {
     sections.push(`## ペルソナ\n\n${personaContent}`);
@@ -406,7 +420,7 @@ export async function buildChatPromptFromContext(
   const discussionFrameworkPath = join(root, "prompt-engine", "discussion-framework.md");
   if (existsSync(discussionFrameworkPath)) {
     const raw = readFileSync(discussionFrameworkPath, "utf-8");
-    const content = perItemBudget ? truncateContent(raw, perItemBudget, "discussion-framework") : raw;
+    const content = frameworkBudget ? truncateContent(raw, frameworkBudget, "discussion-framework") : raw;
     sections.push(`## ディスカッション規約\n\n${content}`);
   }
 
@@ -414,7 +428,7 @@ export async function buildChatPromptFromContext(
     const reviewFrameworkPath = join(root, "prompt-engine", "review-framework.md");
     if (existsSync(reviewFrameworkPath)) {
       const raw = readFileSync(reviewFrameworkPath, "utf-8");
-      const content = perItemBudget ? truncateContent(raw, perItemBudget, "review-framework") : raw;
+      const content = frameworkBudget ? truncateContent(raw, frameworkBudget, "review-framework") : raw;
       sections.push(`## レビュー観点\n\n${content}`);
     }
   }
@@ -423,8 +437,8 @@ export async function buildChatPromptFromContext(
     const reviewModePath = join(root, "prompt-engine", "review-mode.md");
     if (existsSync(reviewModePath)) {
       const reviewModeRaw = readFileSync(reviewModePath, "utf-8");
-      const reviewModeContent = perItemBudget
-        ? truncateContent(reviewModeRaw, perItemBudget, "review-mode")
+      const reviewModeContent = frameworkBudget
+        ? truncateContent(reviewModeRaw, frameworkBudget, "review-mode")
         : reviewModeRaw;
       sections.push(`## レビューモード\n\n${reviewModeContent}`);
     }

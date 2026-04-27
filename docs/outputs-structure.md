@@ -21,6 +21,8 @@
 | `outputs/benchmark/` | nightly benchmark の結果 (TASK-050) | grade 推移や regress を確認するとき |
 | `outputs/dashboards/` | observability ダッシュボード (TASK-044) | 横断的な健全性を可視化したいとき |
 | `outputs/reports/` | 各種スクリプトのレポート出力 | benchmark 単発実行や coverage gap などを確認したいとき |
+| `outputs/orgs/` | Salesforce Org カタログ (`catalog.json`) | `register_org` / `list_orgs` で参照 |
+| `outputs/.schema.json` | outputs 直下の allow-list (TASK-F12) | 新しい永続化先を追加した時に更新 |
 
 ### `outputs/history/` の日別運用
 
@@ -154,6 +156,7 @@ npm run outputs:version -- restore --snapshot <snapshot-id>
 | `outputs/agent-trust-histories.json` | `agent_ab_test` の trust 反映時 | `applyOutcomeToTrustStore=true` など |
 | `outputs/skill-rating-report.md` | `auto_select_resources` / 関連リソース検索時 | レポート再生成型 |
 | `outputs/cleanup-schedule.json` | `governance_auto_cleanup_schedule` 実行時 | スケジュール定義 |
+| `outputs/orgs/catalog.json` | `register_org` / `remove_org` 実行時 | Org カタログ (CRUD) の永続化先 |
 
 | パス | 形式 | 更新タイミング | 主な書き込み元 |
 |------|------|----------------|----------------|
@@ -211,3 +214,26 @@ npm run outputs:version -- restore --snapshot <snapshot-id>
 - **ガバナンス系**: `resource-governance.json`, `operations-log.jsonl`, `audit/`, 必要なら `backups/`。
 - **手動コマンド**: `outputs:version` (`backups/`), `history:archive` (`history/archive/`), `benchmark:run` (`reports/benchmark-suite.json`)。
 - **CI**: `benchmark-nightly` ワークフローが `outputs/benchmark/` を更新。
+
+## allow-list (`outputs/.schema.json`) と Lint
+
+`outputs/` 直下に置けるディレクトリ・ファイル名は [`outputs/.schema.json`](../outputs/.schema.json) で**ホワイトリスト**として宣言されています (TASK-F12)。
+
+- `allowedDirectories`: トップレベルのサブディレクトリ名 (`history`, `events`, `sessions`, `orgs` など)。
+- `allowedFiles`: トップレベルに置けるファイル名 (`memory.jsonl`, `vector-store.jsonl`, `tool-catalog.json` など)。
+- 検査は **トップレベルの完全一致のみ**。サブツリー内のファイル構造はチェックしません。
+
+### Lint の実行
+
+```bash
+npm run lint:outputs
+```
+
+[`scripts/lint-outputs.ts`](../scripts/lint-outputs.ts) がこのスキーマを読み込み、`outputs/` 直下に未許可エントリが存在すれば差分を報告します。
+
+### 新しい永続化先を追加するとき
+
+1. 実装側で書き込みパスを決める (例: `outputs/foo-bar/`)。
+2. [`outputs/.schema.json`](../outputs/.schema.json) の `allowedDirectories` または `allowedFiles` に追記する。
+3. このページの「フォルダ構成」「自動で保存されるもの／されないもの」表にも 1 行追加する。
+4. `npm run lint:outputs` で差分が無いことを確認。

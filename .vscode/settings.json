@@ -55,6 +55,10 @@
         "/^npm test 2>&1 \\| Out-File test-output\\.log; Select-String -Path test-output\\.log -Pattern \"AssertionError\\|Error:\" \\| Select-Object -First 30$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^npx tsx scripts/lint-outputs\\.ts 2>&1$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }

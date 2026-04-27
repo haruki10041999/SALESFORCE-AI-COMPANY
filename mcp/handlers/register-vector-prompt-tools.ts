@@ -1,6 +1,7 @@
 ﻿import { z } from "zod";
 import type { RegisterGovToolDeps } from "./types.js";
 import { createLogger } from "../core/logging/logger.js";
+import { tunePromptTemplates } from "../tools/tune-prompt-templates.js";
 
 interface RegisterVectorPromptToolsDeps extends RegisterGovToolDeps {
   addRecord: (record: { id: string; text: string; tags: string[] }) => void;
@@ -186,6 +187,39 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
 
       return {
         content: [{ type: "text", text: JSON.stringify({ ...metrics, diagnostics }, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "tune_prompt_templates",
+    {
+      title: "プロンプトテンプレート自動チューニング",
+      description: "複数テンプレートの評価サンプルから最良候補を選定し、promote / retire を提案します。",
+      inputSchema: {
+        templates: z.array(z.object({
+          name: z.string().min(1),
+          content: z.string().optional(),
+          samples: z.array(z.object({
+            score: z.number(),
+            tokens: z.number().optional(),
+            success: z.boolean().optional()
+          }))
+        })).min(1),
+        minSamples: z.number().int().min(1).max(1000).optional(),
+        promoteThreshold: z.number().min(0).max(1).optional(),
+        retireScoreGap: z.number().min(0).max(1).optional()
+      }
+    },
+    async ({ templates, minSamples, promoteThreshold, retireScoreGap }: {
+      templates: Array<{ name: string; content?: string; samples: Array<{ score: number; tokens?: number; success?: boolean }> }>;
+      minSamples?: number;
+      promoteThreshold?: number;
+      retireScoreGap?: number;
+    }) => {
+      const result = tunePromptTemplates(templates, { minSamples, promoteThreshold, retireScoreGap });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
       };
     }
   );

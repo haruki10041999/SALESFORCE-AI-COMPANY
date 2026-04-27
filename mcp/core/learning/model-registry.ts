@@ -15,6 +15,8 @@
  *   - 一定数のリアル input で v2 の方が success rate が高ければ promote
  */
 
+import { arbitrate, type ArbitrationDecision, type ArbitrationPolicy } from "./model-arbitration.js";
+
 export interface ModelVersion<TInput, TOutput> {
   name: string;
   version: string;
@@ -229,6 +231,38 @@ export function evaluatePromotion(
   }
   if (!best) return { ready: false, reason: "no shadow met policy" };
   return { ready: true, candidate: best.shadowVersion, stats: best, reason: "policy satisfied" };
+}
+
+/**
+ * TASK-F4 wiring: `evaluatePromotion` の結果に `arbitrate` 判定を重畳する。
+ * 既存 caller は影響を受けず、新規 caller は coverage / confidence / recency
+ * 軸を含む `ArbitrationDecision` を取得して監査記録に追記できる。
+ */
+export function evaluatePromotionWithArbitration(
+  registry: ModelRegistry,
+  modelName: string,
+  options: {
+    policy?: PromotionPolicy;
+    arbitrationPolicy?: ArbitrationPolicy;
+    candidateUpdatedAt?: number;
+    productionUpdatedAt?: number;
+  } = {}
+): {
+  promotion: ReturnType<typeof evaluatePromotion>;
+  arbitration?: ArbitrationDecision;
+} {
+  const promotion = evaluatePromotion(registry, modelName, options.policy);
+  if (!promotion.ready || !promotion.stats) return { promotion };
+  const arbitration = arbitrate(
+    {
+      modelName,
+      candidate: promotion.stats,
+      candidateUpdatedAt: options.candidateUpdatedAt,
+      productionUpdatedAt: options.productionUpdatedAt
+    },
+    options.arbitrationPolicy
+  );
+  return { promotion, arbitration };
 }
 
 /**

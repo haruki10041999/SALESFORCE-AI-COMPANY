@@ -1,13 +1,20 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { SafeFilePathSchema, runSchemaValidation } from "../core/quality/resource-validation.js";
+import { shouldSkipScanDir } from "../core/quality/scan-exclusions.js";
 
-type ApexNodeKind = "class" | "trigger";
+type ApexNodeKind = "class" | "trigger" | "flow" | "permissionset" | "integration";
 
 export type ApexDependencyGraphInput = {
   rootDir: string;
   includeTests?: boolean;
   sampleLimit?: number;
+  /** TASK-A2: include `.flow-meta.xml` / `.flow` files as graph nodes referencing Apex actions. */
+  includeFlows?: boolean;
+  /** TASK-A2: include `.permissionset-meta.xml` files; ApexClassAccess targets become edges. */
+  includePermissionSets?: boolean;
+  /** TASK-A2: detect external integrations (HTTP callouts, Named Credentials) per Apex class. */
+  includeIntegrations?: boolean;
 };
 
 export type ApexDependencyNode = {
@@ -62,6 +69,7 @@ function listApexFiles(rootDir: string): string[] {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const nextPath = join(current, entry.name);
       if (entry.isDirectory()) {
+        if (shouldSkipScanDir(entry.name)) continue;
         stack.push(nextPath);
         continue;
       }
@@ -226,6 +234,146 @@ function toTopList(items: ApexDependencyNode[], pick: (node: ApexDependencyNode)
     .map((node) => `${node.name}:${pick(node)}`);
 }
 
+// ---- TASK-A2: Auxiliary scanners ------------------------------------------
+
+type AuxFile = {
+  absolutePath: string;
+  relativePath: string;
+  content: string;
+};
+
+function listFilesByExtension(rootDir: string, predicate: (name: string) => boolean): AuxFile[] {
+  const out: AuxFile[] = [];
+  const stack = [rootDir];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) continue;
+    let entries: Dirent[];
+    try { entries = readdirSync(current, { withFileTypes: true }) as Dirent[]; }
+    catch { continue; }
+    for (const entry of entries) {
+      const next = join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (shouldSkipScanDir(entry.name)) continue;
+        stack.push(next);
+        continue;
+      }
+      if (predicate(entry.name)) {
+        try {
+          out.push({
+            absolutePath: next,
+            relativePath: relative(rootDir, next).replace(/\\/g, "/"),
+            content: readFileSync(next, "utf-8")
+          });
+        } catch { /* unreadable files are skipped silently */ }
+      }
+    }
+  }
+  return out;
+}
+
+function collectFlowReferences(rootDir: string, classNames: ReadonlySet<string>): {
+  nodes: ApexDependencyNode[];
+  edges: ApexDependencyEdge[];
+} {
+  const files = listFilesByExtension(rootDir, (n) => /\.flow(?:-meta\.xml)?$/i.test(n));
+  const nodes: ApexDependencyNode[] = [];
+  const edges: ApexDependencyEdge[] = [];
+
+  for (const file of files) {
+    const flowName = file.absolutePath.replace(/^.*[\\/]/, "").replace(/\.flow(?:-meta\.xml)?$/i, "");
+    const refs = new Set<string>();
+    // <apexClass>Name</apexClass> or <actionName>Name</actionName> referencing Apex
+    for (const match of file.content.matchAll(/<\s*apexClass\s*>\s*([A-Za-z_][A-Za-z0-9_]*)\s*<\s*\/\s*apexClass\s*>/gi)) {
+      const name = match[1];
+      if (name && classNames.has(name)) refs.add(name);
+    }
+    for (const match of file.content.matchAll(/<\s*actionName\s*>\s*([A-Za-z_][A-Za-z0-9_]*)\s*<\s*\/\s*actionName\s*>/gi)) {
+      const name = match[1];
+      if (name && classNames.has(name)) refs.add(name);
+    }
+
+    nodes.push({
+      name: flowName,
+      kind: "flow",
+      filePath: file.relativePath,
+      fanIn: 0,
+      fanOut: refs.size
+    });
+    for (const ref of refs) edges.push({ from: flowName, to: ref });
+  }
+  return { nodes, edges };
+}
+
+function collectPermissionSetReferences(rootDir: string, classNames: ReadonlySet<string>): {
+  nodes: ApexDependencyNode[];
+  edges: ApexDependencyEdge[];
+} {
+  const files = listFilesByExtension(rootDir, (n) => /\.permissionset-meta\.xml$/i.test(n));
+  const nodes: ApexDependencyNode[] = [];
+  const edges: ApexDependencyEdge[] = [];
+
+  for (const file of files) {
+    const psName = file.absolutePath.replace(/^.*[\\/]/, "").replace(/\.permissionset-meta\.xml$/i, "");
+    const refs = new Set<string>();
+    // ApexClassAccess block references <apexClass>Name</apexClass>
+    for (const match of file.content.matchAll(/<classAccesses>[\s\S]*?<\s*apexClass\s*>\s*([A-Za-z_][A-Za-z0-9_]*)\s*<\s*\/\s*apexClass\s*>[\s\S]*?<\/classAccesses>/gi)) {
+      const name = match[1];
+      if (name && classNames.has(name)) refs.add(name);
+    }
+
+    nodes.push({
+      name: psName,
+      kind: "permissionset",
+      filePath: file.relativePath,
+      fanIn: 0,
+      fanOut: refs.size
+    });
+    for (const ref of refs) edges.push({ from: psName, to: ref });
+  }
+  return { nodes, edges };
+}
+
+function collectIntegrationReferences(sourceFiles: ReadonlyArray<SourceFile>): {
+  nodes: ApexDependencyNode[];
+  edges: ApexDependencyEdge[];
+} {
+  const externalNodes = new Map<string, ApexDependencyNode>();
+  const edges: ApexDependencyEdge[] = [];
+
+  for (const file of sourceFiles) {
+    if (file.kind !== "class" && file.kind !== "trigger") continue;
+    const stripped = stripCommentsAndStrings(file.content);
+    const externalTargets = new Set<string>();
+
+    if (/\bnew\s+HttpRequest\b/.test(stripped) || /\bHttp\s*\(\s*\)\.send\b/.test(stripped) || /\bSystem\.HttpRequest\b/.test(stripped)) {
+      externalTargets.add("ext:http");
+    }
+    if (/@future\s*\(\s*callout\s*=\s*true/i.test(file.content)) {
+      externalTargets.add("ext:future-callout");
+    }
+    // Named Credential: callout:NCName
+    for (const match of file.content.matchAll(/callout:([A-Za-z_][A-Za-z0-9_]*)/g)) {
+      const name = match[1];
+      if (name) externalTargets.add(`ext:nc:${name}`);
+    }
+
+    for (const target of externalTargets) {
+      if (!externalNodes.has(target)) {
+        externalNodes.set(target, {
+          name: target,
+          kind: "integration",
+          filePath: "(synthetic)",
+          fanIn: 0,
+          fanOut: 0
+        });
+      }
+      edges.push({ from: file.name, to: target });
+    }
+  }
+  return { nodes: [...externalNodes.values()], edges };
+}
+
 export function buildApexDependencyGraph(input: ApexDependencyGraphInput): ApexDependencyGraphResult {
   const check = runSchemaValidation(SafeFilePathSchema, input.rootDir);
   if (!check.success) {
@@ -238,6 +386,9 @@ export function buildApexDependencyGraph(input: ApexDependencyGraphInput): ApexD
   }
 
   const includeTests = input.includeTests ?? false;
+  const includeFlows = input.includeFlows ?? false;
+  const includePermissionSets = input.includePermissionSets ?? false;
+  const includeIntegrations = input.includeIntegrations ?? false;
   const sampleLimit = Number.isFinite(input.sampleLimit) ? Math.max(1, Math.floor(input.sampleLimit ?? 10)) : 10;
 
   const sourceFiles = collectSourceFiles(rootDir, includeTests);
@@ -293,6 +444,41 @@ export function buildApexDependencyGraph(input: ApexDependencyGraphInput): ApexD
     .sort((a, b) => `${a.from}->${a.to}`.localeCompare(`${b.from}->${b.to}`));
 
   const cycles = findCycles(adjacency);
+
+  // ---- TASK-A2: optional auxiliary integrations -----------------------------
+  const auxNodes: ApexDependencyNode[] = [];
+  const auxEdges: ApexDependencyEdge[] = [];
+  if (includeFlows) {
+    const r = collectFlowReferences(rootDir, classNames);
+    auxNodes.push(...r.nodes); auxEdges.push(...r.edges);
+  }
+  if (includePermissionSets) {
+    const r = collectPermissionSetReferences(rootDir, classNames);
+    auxNodes.push(...r.nodes); auxEdges.push(...r.edges);
+  }
+  if (includeIntegrations) {
+    const r = collectIntegrationReferences(sourceFiles);
+    auxNodes.push(...r.nodes); auxEdges.push(...r.edges);
+  }
+
+  // Recompute fanIn/fanOut deltas introduced by aux edges
+  const nodeIndex = new Map(nodes.map((n) => [n.name, n] as const));
+  for (const aux of auxNodes) {
+    if (!nodeIndex.has(aux.name)) {
+      nodes.push(aux);
+      nodeIndex.set(aux.name, aux);
+    }
+  }
+  for (const edge of auxEdges) {
+    edges.push(edge);
+    const from = nodeIndex.get(edge.from);
+    const to = nodeIndex.get(edge.to);
+    if (from) from.fanOut += 1;
+    if (to) to.fanIn += 1;
+  }
+  nodes.sort((a, b) => a.name.localeCompare(b.name));
+  edges.sort((a, b) => `${a.from}->${a.to}`.localeCompare(`${b.from}->${b.to}`));
+
   const isolatedCount = nodes.filter((node) => node.fanIn === 0 && node.fanOut === 0).length;
   const riskLevel = detectRiskLevel(edges.length, cycles.length);
 

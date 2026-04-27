@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { SafeFilePathSchema, runSchemaValidation } from "../core/quality/resource-validation.js";
+import { shouldSkipScanDir } from "../core/quality/scan-exclusions.js";
 
 export type RepoAnalysis = {
   apex: string[];
@@ -39,6 +40,9 @@ export function analyzeRepo(root: string): RepoAnalysis {
       const stat = fs.statSync(full);
 
       if (stat.isDirectory()) {
+        if (shouldSkipScanDir(file)) {
+          continue;
+        }
         scan(full);
         continue;
       }

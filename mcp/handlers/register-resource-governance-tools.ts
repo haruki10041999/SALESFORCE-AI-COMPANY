@@ -1,7 +1,9 @@
 ﻿import { z } from "zod";
 import { join, resolve } from "node:path";
+import { promises as fsPromises } from "node:fs";
 import type { GovernanceState, GovernedResourceType } from "../core/governance/governance-state.js";
 import { simulateGovernanceChange } from "../tools/simulate-governance-change.js";
+import { renderGovernanceUi } from "../core/governance/governance-ui.js";
 import {
   appendProposalFeedback,
   buildProposalFeedbackModel,
@@ -15,6 +17,12 @@ import {
   loadQuerySkillFeedbackLog,
   saveQuerySkillIncrementalModel
 } from "../core/resource/query-skill-incremental.js";
+import { visualizeFeedbackLoop } from "../core/resource/feedback-loop-visualization.js";
+import {
+  evaluateAllHandlerSchedules,
+  validateHandlerScheduleRule,
+  type HandlerScheduleRule
+} from "../core/governance/handler-schedule.js";
 import type { RegisterGovToolDeps } from "./types.js";
 
 type GovernanceActionType = "create" | "delete" | "disable" | "enable";
@@ -145,6 +153,93 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
             }, null, 2)
           }
         ]
+      };
+    }
+  );
+
+  govTool(
+    "visualize_feedback_loop",
+    {
+      title: "Feedback Loop 可視化",
+      description: "proposal_feedback_learn で蓄積したフィードバックの推移・トピック別ヒートマップ・トレンドを集計します。",
+      inputSchema: {
+        periodDays: z.number().int().min(1).max(365).optional(),
+        trendWindowDays: z.number().int().min(1).max(180).optional(),
+        minSamples: z.number().int().min(1).max(100).optional(),
+        topResources: z.number().int().min(1).max(100).optional(),
+        topTopics: z.number().int().min(1).max(200).optional()
+      }
+    },
+    async ({
+      periodDays,
+      trendWindowDays,
+      minSamples,
+      topResources,
+      topTopics
+    }: {
+      periodDays?: number;
+      trendWindowDays?: number;
+      minSamples?: number;
+      topResources?: number;
+      topTopics?: number;
+    }) => {
+      const entries = await loadProposalFeedbackLog(proposalFeedbackLog);
+      const result = visualizeFeedbackLoop(entries, {
+        periodDays,
+        trendWindowDays,
+        minSamples,
+        topResources,
+        topTopics
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "evaluate_handler_schedule",
+    {
+      title: "ハンドラ時間帯スケジューラ",
+      description: "ツール名とスケジュールルールから、現在 (または指定時刻) でハンドラがアクティブかを評価します。",
+      inputSchema: {
+        toolNames: z.array(z.string()).min(1),
+        rules: z.array(z.object({
+          toolName: z.string(),
+          days: z.array(z.number().int().min(0).max(6)).optional(),
+          startHour: z.number().min(0).max(24),
+          endHour: z.number().min(0).max(24),
+          timezoneOffsetMinutes: z.number().int().min(-14 * 60).max(14 * 60).optional(),
+          allow: z.boolean().optional(),
+          note: z.string().optional()
+        })),
+        at: z.string().optional()
+      }
+    },
+    async ({ toolNames, rules, at }: {
+      toolNames: string[];
+      rules: HandlerScheduleRule[];
+      at?: string;
+    }) => {
+      const validationErrors: Array<{ index: number; errors: string[] }> = [];
+      rules.forEach((rule, index) => {
+        const errs = validateHandlerScheduleRule(rule);
+        if (errs.length > 0) validationErrors.push({ index, errors: errs });
+      });
+      if (validationErrors.length > 0) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ validationErrors }, null, 2) }]
+        };
+      }
+      const evalAt = at ? new Date(at) : new Date();
+      const evaluations = evaluateAllHandlerSchedules(toolNames, rules, evalAt);
+      return {
+        content: [{ type: "text", text: JSON.stringify({
+          evaluatedAt: evalAt.toISOString(),
+          evaluations,
+          activeCount: evaluations.filter((e) => e.active).length,
+          blockedCount: evaluations.filter((e) => !e.active).length
+        }, null, 2) }]
       };
     }
   );
@@ -406,6 +501,61 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
           }
         ]
       };
+    }
+  );
+
+  govTool(
+    "render_governance_ui",
+    {
+      title: "Governance ルール簡易 Web UI",
+      description: "Governance 状態から HTML / Markdown ダッシュボードを生成し、必要に応じて outputs/dashboards/governance.* に保存します。",
+      inputSchema: {
+        format: z.enum(["html", "markdown", "json"]).optional(),
+        topPerType: z.number().int().min(1).max(100).optional(),
+        title: z.string().optional(),
+        write: z.boolean().optional()
+      }
+    },
+    async ({ format, topPerType, title, write }: {
+      format?: "html" | "markdown" | "json";
+      topPerType?: number;
+      title?: string;
+      write?: boolean;
+    }) => {
+      const state = await loadGovernanceState();
+      const report = renderGovernanceUi(state, { topPerType, title });
+
+      const dashboardsDir = join(outputsDir, "dashboards");
+      const shouldWrite = write !== false;
+      if (shouldWrite) {
+        await fsPromises.mkdir(dashboardsDir, { recursive: true });
+        await fsPromises.writeFile(join(dashboardsDir, "governance.html"), report.html, "utf-8");
+        await fsPromises.writeFile(join(dashboardsDir, "governance.md"), report.markdown, "utf-8");
+        await fsPromises.writeFile(
+          join(dashboardsDir, "governance.json"),
+          JSON.stringify({
+            generatedAt: report.generatedAt,
+            thresholds: report.thresholds,
+            sections: report.sections,
+            totals: report.totals
+          }, null, 2),
+          "utf-8"
+        );
+      }
+
+      const fmt = format ?? "json";
+      const text =
+        fmt === "html" ? report.html
+        : fmt === "markdown" ? report.markdown
+        : JSON.stringify({
+            generatedAt: report.generatedAt,
+            thresholds: report.thresholds,
+            sections: report.sections,
+            totals: report.totals,
+            writtenTo: shouldWrite ? dashboardsDir : null
+          }, null, 2);
+
+      return { content: [{ type: "text", text }] };
     }
   );
 }

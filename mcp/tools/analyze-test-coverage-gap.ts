@@ -5,10 +5,16 @@ import {
   type CoverageEstimateInput,
   type CoverageHint
 } from "./coverage-estimate.js";
+import {
+  scanBranchAndExceptionScaffold,
+  type BranchExceptionScaffold
+} from "./test-scaffold-extractor.js";
 
 export type AnalyzeTestCoverageGapInput = CoverageEstimateInput & {
   reportOutputDir?: string;
   maxItems?: number;
+  /** TASK-A8: enable branch/exception scaffold suggestion per gap. */
+  includeBranchScaffold?: boolean;
 };
 
 export type CoverageGapItem = {
@@ -18,6 +24,8 @@ export type CoverageGapItem = {
   predictedCoverageHint: CoverageHint;
   candidateTests: string[];
   reason: string;
+  /** TASK-A8: present only when includeBranchScaffold=true and source was readable. */
+  branchScaffold?: BranchExceptionScaffold;
 };
 
 export type AnalyzeTestCoverageGapResult = {
@@ -64,6 +72,22 @@ function renderMarkdown(result: AnalyzeTestCoverageGapResult): string {
     lines.push(`| ${gap.sourcePath} | ${gap.predictedCoverageHint} | ${candidates} | ${gap.reason} |`);
   }
 
+  // TASK-A8: branch/exception scaffold suggestions
+  const scaffolded = result.gaps.filter((gap) => gap.branchScaffold);
+  if (scaffolded.length > 0) {
+    lines.push("");
+    lines.push("## Suggested Test Scaffolds (branches & exceptions)");
+    lines.push("");
+    lines.push("| class | branches | catches | thrown types | suggested tests |");
+    lines.push("|---|---|---|---|---|");
+    for (const gap of scaffolded) {
+      const sc = gap.branchScaffold!;
+      lines.push(
+        `| ${sc.className} | ${sc.branchCount} | ${sc.catchCount} | ${sc.throwTypes.join(", ") || "-"} | ${sc.suggestedTests.join(", ") || "-"} |`
+      );
+    }
+  }
+
   lines.push("");
   if (result.runCommand) {
     lines.push("## Recommended Command");
@@ -83,24 +107,41 @@ export async function analyzeTestCoverageGap(input: AnalyzeTestCoverageGapInput)
 
   const apexMappings = estimate.mappings.filter((mapping) => mapping.sourceType === "apex");
 
-  const gaps = apexMappings
-    .filter((mapping) => {
-      const hasConfident = mapping.candidates.some((candidate) =>
-        candidate.confidence === "high" || candidate.confidence === "medium"
-      );
-      return !hasConfident;
-    })
-    .slice(0, maxItems)
-    .map<CoverageGapItem>((mapping) => ({
-      sourcePath: mapping.sourcePath,
-      sourceName: mapping.sourceName,
-      sourceType: "apex",
-      predictedCoverageHint: mapping.coverageHint,
-      candidateTests: mapping.candidates.map((candidate) => candidate.testName),
-      reason: mapping.candidates.length === 0
-        ? "matching test class was not detected"
-        : "only low-confidence candidates were found"
-    }));
+  const gaps = await Promise.all(
+    apexMappings
+      .filter((mapping) => {
+        const hasConfident = mapping.candidates.some((candidate) =>
+          candidate.confidence === "high" || candidate.confidence === "medium"
+        );
+        return !hasConfident;
+      })
+      .slice(0, maxItems)
+      .map<Promise<CoverageGapItem>>(async (mapping) => {
+        const base: CoverageGapItem = {
+          sourcePath: mapping.sourcePath,
+          sourceName: mapping.sourceName,
+          sourceType: "apex",
+          predictedCoverageHint: mapping.coverageHint,
+          candidateTests: mapping.candidates.map((candidate) => candidate.testName),
+          reason: mapping.candidates.length === 0
+            ? "matching test class was not detected"
+            : "only low-confidence candidates were found"
+        };
+
+        // TASK-A8: optionally enrich with branch/exception scaffold suggestions.
+        if (input.includeBranchScaffold) {
+          try {
+            const absolute = resolve(input.repoPath, mapping.sourcePath);
+            const apexSource = await fsPromises.readFile(absolute, "utf-8");
+            base.branchScaffold = scanBranchAndExceptionScaffold(apexSource, mapping.sourceName);
+          } catch {
+            // Source may be deleted in working tree (rename/delete diff). Skip silently.
+          }
+        }
+
+        return base;
+      })
+  );
 
   const hasCoverageGap = gaps.length > 0;
   const reportDir = resolve(input.reportOutputDir ?? join("outputs", "reports"));

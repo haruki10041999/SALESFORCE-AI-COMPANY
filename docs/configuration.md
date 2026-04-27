@@ -11,6 +11,7 @@
 |---|---|---|
 | `SF_AI_OUTPUTS_DIR` | 実行ログや履歴の保存場所 | `outputs/` |
 | `LOG_LEVEL` | ログの詳しさ（`error` / `warn` / `info` / `debug`） | `info` |
+| `SF_AI_LOCALE` | エラーメッセージ等のローカライズ言語（`ja` / `en`） | `ja` |
 | `AI_LOW_RELEVANCE_THRESHOLD` | 低関連度判定のしきい値（高いほど厳格） | `6` |
 | `AI_AGENT_TRUST_SCORING_ENABLED` | エージェント信頼スコアによる自動エスカレーションを有効化 | `false` |
 | `AI_AGENT_TRUST_THRESHOLD` | 信頼スコアの閾値（0.0〜1.0） | `0.55` |
@@ -76,6 +77,7 @@ LOG_LEVEL=debug SF_AI_DEBUG_VERBOSE_PROMPT=true npm run mcp:dev
 | `SF_AI_PROGRESS_BANNER` | ツール応答テキストの先頭に進捗タイムライン (フェーズ別開始時刻・所要時間) を追加表示する。`false`/`0`/`off`/`no` で無効。`get_tool_progress` / `ping` は対象外 | `true` |
 | `LOG_LEVEL` | ログ出力レベル（`error` / `warn` / `info` / `debug`） | `info` |
 | `SF_AI_DEBUG_VERBOSE_PROMPT` | `LOG_LEVEL=debug` 時にプロンプト本文までログ出力するか | `false` |
+| `SF_AI_LOCALE` | `AppError` 等のローカライズ言語（`ja` / `en`）。未対応値は `ja` にフォールバック (TASK-F8) | `ja` |
 | `PROMPT_CACHE_MAX_ENTRIES` | メモリ上にキャッシュするプロンプトの最大件数 | `100` |
 | `PROMPT_CACHE_TTL_SECONDS` | キャッシュエントリの有効期間（秒） | `600` |
 | `PROMPT_CACHE_FILE` | プロンプトキャッシュを JSONL に永続化する先（未指定なら永続化しない / TASK-046） | 未設定 |
@@ -99,3 +101,33 @@ LOG_LEVEL=debug SF_AI_DEBUG_VERBOSE_PROMPT=true npm run mcp:dev
 - `outputs/execution-origins.jsonl` には、各ツール実行について `toolName`, `status`, `serverRoot`, `processCwd`, `repoRoots`, `inputPathHints` が追記されます
 - `repoRoots` は `repoPath`, `rootDir`, `filePath`, `filePaths` などの入力から近傍 `.git` をたどって推定されます
 - 入力に repo 情報がない軽量ツールでは、server 側 repo root とカレント作業ディレクトリが主な手がかりになります
+
+<!-- AUTO-GOVERNANCE:START -->
+
+## Governance Defaults (auto-generated)
+
+> Source of truth: `mcp/core/governance/defaults.ts`. Run `npm run docs:config` after editing.
+
+### `maxCounts`
+
+| Resource | Limit |
+| -------- | ----- |
+| skills | 150 |
+| tools | 150 |
+| presets | 150 |
+
+### `thresholds`
+
+| Threshold | Value |
+| --------- | ----- |
+| minUsageToKeep | 2 |
+| bugSignalToFlag | 2 |
+
+### `resourceLimits` (per day)
+
+| Operation | Limit |
+| --------- | ----- |
+| creationsPerDay | 5 |
+| deletionsPerDay | 3 |
+
+<!-- AUTO-GOVERNANCE:END -->

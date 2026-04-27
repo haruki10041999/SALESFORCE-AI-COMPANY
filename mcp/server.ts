@@ -5,6 +5,7 @@ import "./env-loader.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { existsSync, promises as fsPromises } from "fs";
 import { join, resolve, relative } from "path";
+import { AppError } from "./core/errors/messages.js";
 import { initializeServerRuntime as initializeServerRuntimeModule } from "./bootstrap.js";
 import { registerServerTools } from "./tool-registry.js";
 import { startMcpTransport } from "./transport.js";
@@ -77,7 +78,7 @@ import type { ChatPreset as StoredChatPreset } from "./core/context/preset-store
 import { createCatalogHelpers } from "./core/context/catalog-helpers.js";
 import { createHistoryStore } from "./core/context/history-store.js";
 import { createOrchestrationSessionStore } from "./core/context/orchestration-session-store.js";
-import { buildChatPromptFromContext } from "./core/context/chat-prompt-builder.js";
+import { createPromptRenderer } from "./core/context/prompt-rendering.js";
 import type { CustomToolDefinition as RegistryCustomToolDefinition } from "./core/resource/custom-tool-registry.js";
 import { evaluatePseudoHooks as evaluatePseudoHooksCore } from "./core/orchestration/pseudo-hooks.js";
 import { createChatToolRunner, generateSessionId } from "./core/orchestration/chat-tool-runner.js";
@@ -107,66 +108,19 @@ function getMdFileAsync(dir: string, name: string): Promise<string> {
   return getMdFileAsyncFromCatalog(ROOT, dir, name);
 }
 
-async function buildChatPrompt(
-  topic: string,
-  agentNames: string[],
-  personaName: string | undefined,
-  skillNames: string[],
-  filePaths: string[],
-  turns: number,
-  maxContextChars?: number,
-  appendInstruction?: string,
-  includeProjectContext?: boolean
-): Promise<string> {
-  return buildChatPromptFromContext(
-    {
-      topic,
-      agentNames,
-      personaName,
-      skillNames,
-      filePaths,
-      turns,
-      maxContextChars,
-      appendInstruction,
-      includeProjectContext
-    },
-    {
-      root: ROOT,
-      findMdFilesRecursive,
-      toPosixPath,
-      truncateContent: truncateContentCompat,
-      getMdFileAsync
-    }
-  );
-}
-
-async function buildChatPromptCompat(
-  topic: string,
-  agentNames: string[],
-  personaName?: string,
-  skillNames?: string[],
-  filePaths?: string[],
-  turns?: number,
-  maxContextChars?: number,
-  appendInstruction?: string,
-  includeProjectContext?: boolean
-): Promise<string> {
-  return buildChatPrompt(
-    topic,
-    agentNames,
-    personaName,
-    skillNames ?? [],
-    filePaths ?? [],
-    turns ?? 6,
-    maxContextChars,
-    appendInstruction,
-    includeProjectContext
-  );
-}
-
 function truncateContentCompat(text: string, maxChars: number, label?: string): string {
   return truncateContent(text, maxChars, label ?? "");
 }
+
+// TASK-F2: prompt rendering wired through a single facade so server.ts stays
+// focused on tool registration and lifecycle, not prompt composition details.
+const { buildChatPrompt, buildChatPromptCompat } = createPromptRenderer({
+  root: ROOT,
+  findMdFilesRecursive,
+  toPosixPath,
+  truncateContent: truncateContentCompat,
+  getMdFileAsync
+});
 
 function isCoreBridgeableEvent(event: SystemEventName): event is Extract<SystemEventName, SystemEventType> {
   return event === "error_aggregate_detected" || event === "governance_threshold_exceeded";
@@ -266,7 +220,8 @@ export function listRegisteredToolNamesForTest(): string[] {
 export async function invokeRegisteredToolForTest(name: string, input: unknown): Promise<{ content: Array<{ type: string; text: string }> }> {
   const handler = registeredToolHandlers.get(name);
   if (!handler) {
-    throw new Error(`Tool not found: ${name}`);
+    // TASK-F8: localized error with stable code for downstream classification.
+    throw new AppError("TOOL_NOT_FOUND", { name });
   }
   return handler(input);
 }

@@ -17,6 +17,8 @@ import {
   recommendCombo,
   extractSynergyRecordsFromTraces
 } from "../core/resource/synergy-model.js";
+import { scoreAgentSynergy } from "../tools/agent-synergy-score.js";
+import { drillDownDashboard } from "../core/observability/dashboard-drill-down.js";
 
 interface RegisterAnalyticsToolsDeps extends RegisterGovToolDeps {
   agentLog: AgentMessage[];
@@ -703,6 +705,90 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
             )
           }
         ]
+      };
+    }
+  );
+
+  govTool(
+    "score_agent_synergy",
+    {
+      title: "エージェント協調スコア",
+      description: "チャット履歴からエージェントペアの協調 (lift) とスコアを算出します。",
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional(),
+        minCooccurrence: z.number().int().min(1).max(100).optional()
+      }
+    },
+    async ({ limit, minCooccurrence }: { limit?: number; minCooccurrence?: number }) => {
+      const sessions = await loadChatHistories();
+      const result = scoreAgentSynergy(sessions, { limit, minCooccurrence });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "drill_down_dashboard",
+    {
+      title: "ダッシュボード drill-down",
+      description: "特定ツール / ステータス / 期間 / イベント種別で trace と event を絞り込み、詳細と集計を返します。",
+      inputSchema: {
+        toolName: z.string().optional(),
+        status: z.enum(["running", "success", "error"]).optional(),
+        since: z.string().optional(),
+        until: z.string().optional(),
+        eventType: z.string().optional(),
+        eventLimit: z.number().int().min(50).max(5000).optional(),
+        traceLimit: z.number().int().min(10).max(5000).optional(),
+        limit: z.number().int().min(1).max(500).optional()
+      }
+    },
+    async ({
+      toolName,
+      status,
+      since,
+      until,
+      eventType,
+      eventLimit,
+      traceLimit,
+      limit
+    }: {
+      toolName?: string;
+      status?: "running" | "success" | "error";
+      since?: string;
+      until?: string;
+      eventType?: string;
+      eventLimit?: number;
+      traceLimit?: number;
+      limit?: number;
+    }) => {
+      const traces = [...getCompletedTraces(traceLimit ?? 200), ...getActiveTraces()].map((t) => ({
+        traceId: t.traceId,
+        toolName: t.toolName,
+        startedAt: t.startedAt,
+        endedAt: t.endedAt,
+        durationMs: t.durationMs,
+        status: t.status,
+        errorMessage: t.errorMessage,
+        metadata: t.metadata
+      }));
+      const events = (await loadSystemEvents(eventLimit ?? 1000)).map((e) => ({
+        id: e.id,
+        event: e.event,
+        timestamp: e.timestamp,
+        payload: e.payload
+      }));
+      const result = drillDownDashboard(traces, events, {
+        toolName,
+        status,
+        since,
+        until,
+        eventType,
+        limit
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
       };
     }
   );

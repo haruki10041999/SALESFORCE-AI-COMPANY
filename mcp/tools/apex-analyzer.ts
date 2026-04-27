@@ -17,6 +17,55 @@ export type ApexFileAnalysis = {
   hasAsyncMethod: boolean;
 };
 
+/**
+ * TASK-F1: extract argument fragments from `Database.query(...)` /
+ * `Database.countQuery(...)` calls. The previous implementation used the
+ * regex `/Database\.(query|countQuery)\s*\(([^)]*)\)/gi`, which truncates
+ * arguments at the first `)` and therefore misses calls whose arguments
+ * contain nested parentheses (e.g. `String.format(template, params)`),
+ * multi-line concatenations, or string literals containing `)`.
+ *
+ * The walker below scans the source character-by-character, tracks brace /
+ * bracket / parenthesis depth, and skips characters that live inside string
+ * literals so that a `)` embedded in an Apex string does not close the call.
+ */
+function extractDynamicQueryArguments(src: string): string[] {
+  const args: string[] = [];
+  const headRegex = /Database\.(query|countQuery)\s*\(/gi;
+  let match: RegExpExecArray | null;
+  while ((match = headRegex.exec(src)) !== null) {
+    const start = headRegex.lastIndex; // position right after the `(`
+    let depth = 1;
+    let i = start;
+    let stringQuote: "'" | "\"" | null = null;
+    while (i < src.length) {
+      const ch = src[i];
+      if (stringQuote) {
+        if (ch === "\\") {
+          i += 2;
+          continue;
+        }
+        if (ch === stringQuote) stringQuote = null;
+        i += 1;
+        continue;
+      }
+      if (ch === "'" || ch === "\"") {
+        stringQuote = ch;
+      } else if (ch === "(" || ch === "[" || ch === "{") {
+        depth += 1;
+      } else if (ch === ")" || ch === "]" || ch === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          args.push(src.slice(start, i));
+          break;
+        }
+      }
+      i += 1;
+    }
+  }
+  return args;
+}
+
 export function analyzeApex(filePath: string): ApexFileAnalysis {
   const pathCheck = runSchemaValidation(SafeFilePathSchema, filePath);
   if (!pathCheck.success) {
@@ -30,7 +79,7 @@ export function analyzeApex(filePath: string): ApexFileAnalysis {
   const hasDml = /\b(insert|update|upsert|delete|undelete)\b/i.test(src);
   const hasCrudGuard = /stripInaccessible|isAccessible\(|isUpdateable\(|isCreateable\(/i.test(src);
   const hasDynamicSoql = /\bDatabase\.query\s*\(|Database\.countQuery\s*\(/i.test(src);
-  const dynamicCallArgs = [...src.matchAll(/Database\.(query|countQuery)\s*\(([^)]*)\)/gi)].map((m) => m[2] ?? "");
+  const dynamicCallArgs = extractDynamicQueryArguments(src);
   const hasDynamicSoqlConcat = dynamicCallArgs.some((arg) => arg.includes("+"));
   const hasStringFormatDynamicSoql = dynamicCallArgs.some((arg) => /String\.format\s*\(/i.test(arg));
   const hasEscapeSingleQuotes = /String\.escapeSingleQuotes\s*\(/i.test(src);
@@ -54,3 +103,6 @@ export function analyzeApex(filePath: string): ApexFileAnalysis {
     hasAsyncMethod: /@future\b|implements\s+Queueable|implements\s+Schedulable/i.test(src)
   };
 }
+
+// Exported for unit tests (TASK-F1).
+export const __testables = { extractDynamicQueryArguments };

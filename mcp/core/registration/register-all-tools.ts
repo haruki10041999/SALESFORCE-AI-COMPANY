@@ -20,6 +20,7 @@ import { registerResourceSearchTools } from "../../handlers/register-resource-se
 import { registerPresetTools } from "../../handlers/register-preset-tools.js";
 import { registerVectorPromptTools } from "../../handlers/register-vector-prompt-tools.js";
 import { registerBatchTools } from "../../handlers/register-batch-tools.js";
+import { registerOrgCatalogTools } from "../../handlers/register-org-catalog-tools.js";
 import type { GovTool } from "@mcp/tool-types.js";
 import type { GovernanceState } from "../governance/governance-state.js";
 import type { SystemEventName, SystemEventRecord } from "../event/system-event-manager.js";
@@ -233,8 +234,11 @@ export function registerAllTools(deps: RegisterAllToolsDeps): void {
     resourceScore
   } = deps;
 
-  registerCoreAnalysisTools(govTool);
+  registerCoreAnalysisTools(govTool, {
+    listSkillsWithSummary: () => listMdFiles("skills")
+  });
   registerBranchReviewTools(govTool);
+  registerOrgCatalogTools({ govTool, outputsDir: join(root, "outputs") });
   registerResourceCatalogTools({
     govTool,
     listMdFiles,

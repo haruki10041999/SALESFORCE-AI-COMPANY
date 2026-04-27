@@ -51,6 +51,28 @@ test("analyzeRepo detects apex class/trigger, lwc, and object metadata files", (
   }
 });
 
+test("analyzeRepo skips .sf / .sfdx / node_modules / .git auto-generated dirs", () => {
+  const fixture = createTempRoot();
+  try {
+    const realCls = join(fixture.root, "force-app", "main", "default", "classes", "Real.cls");
+    const sfCls = join(fixture.root, ".sf", "classes", "Cached.cls");
+    const sfdxCls = join(fixture.root, ".sfdx", "tools", "Stale.cls");
+    const nmCls = join(fixture.root, "node_modules", "pkg", "Vendor.cls");
+    const gitCls = join(fixture.root, ".git", "Foo.cls");
+    for (const f of [realCls, sfCls, sfdxCls, nmCls, gitCls]) {
+      mkdirSync(join(f, ".."), { recursive: true });
+      writeFileSync(f, "public class X {}\n", "utf-8");
+    }
+
+    const result = analyzeRepo(fixture.root);
+
+    assert.equal(result.apex.length, 1);
+    assert.ok(result.apex[0].endsWith("Real.cls"));
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("analyzeApex detects trigger-pattern hint and SOQL-in-loop risk", () => {
   const fixture = createTempRoot();
   try {

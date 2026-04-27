@@ -7,6 +7,7 @@ import { summarizeDeploymentImpact } from "../tools/deployment-impact-summary.js
 import { suggestChangedTests } from "../tools/changed-tests-suggest.js";
 import { estimateChangedCoverage } from "../tools/coverage-estimate.js";
 import { buildMetadataDependencyGraph } from "../tools/metadata-dependency-graph.js";
+import { scanSecurityRules } from "../tools/security-rule-scan.js";
 import type { GovTool } from "@mcp/tool-types.js";
 
 function escapeXml(value: string): string {
@@ -383,6 +384,26 @@ export function registerBranchReviewTools(govTool: GovTool): void {
         workingBranch,
         maxReferences
       });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "scan_security_rules",
+    {
+      title: "拡張セキュリティスキャン",
+      description: "ファイル本文に対してパターンベースのセキュリティルール (SOQL連結 / hardcoded credential / innerHTML / eval / weak crypto 他) を適用します。",
+      inputSchema: {
+        files: z.array(z.object({
+          filePath: z.string().min(1),
+          source: z.string()
+        })).min(1).max(500)
+      }
+    },
+    async ({ files }: { files: Array<{ filePath: string; source: string }> }) => {
+      const result = scanSecurityRules(files);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
       };

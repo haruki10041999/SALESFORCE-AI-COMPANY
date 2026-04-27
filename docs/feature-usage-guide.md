@@ -1167,7 +1167,38 @@ npm audit --audit-level=moderate
 
 ---
 
-## 14. 補足
+## 14. 2026-04-27 追加ツール (Phase 3)
+
+すべて MCP ツールとして公開済み。詳細スキーマは [`docs/features/tools-reference.md`](./features/tools-reference.md) を参照。
+
+### 14.1 開発支援
+
+- `recommend_skills_for_role` — role / topic / 最近触ったファイル拡張子から関連スキルを推薦。
+- `tune_prompt_templates` — テンプレートの avgScore / successRate / tokenEfficiency から promote / retire / leader を判定。
+- `score_agent_synergy` — エージェント共起行列から協調スコアを算出 (`lift × log(1+co)`)。
+- `apex_changelog` — Apex 変更履歴生成。
+- `refactor_suggest` — リファクタ候補抽出。
+
+### 14.2 解析・レビュー
+
+- `scan_security_rules` — 10 ルール (SOQL injection / hardcoded credential / innerHTML / eval / weak crypto 等) のヒューリスティック走査。
+- `predict_apex_performance` — SOQL/DML in loop、深いネスト、長大メソッドなどガバナリスクをスコアリング。
+- `apex_dependency_graph` (incremental 対応) — 差分のみ再計算。
+
+### 14.3 観測・運用
+
+- `drill_down_dashboard` — toolName / status / 期間でフィルタしたドリルダウン集計と 5 秒窓相関。
+- `visualize_feedback_loop` — rejectReason 分布 / daily timeline / (topic×resource) heatmap / 上昇下降トレンド。
+- `render_governance_ui` — governance ルールを HTML / Markdown でレンダリング (XSS 対策済み)。
+- `evaluate_handler_schedule` — allow/deny ルールと深夜跨ぎ時間帯の判定。
+
+### 14.4 Org 管理
+
+- `register_org` / `remove_org` / `get_org` / `list_orgs` — Salesforce Org カタログ CRUD と要約。
+
+---
+
+## 15. 補足
 
 - chat 系は最終回答そのものではなく、会話用プロンプトを返します。
 - 低スコア時は low_relevance_detected が発火します。
@@ -1176,3 +1207,5 @@ npm audit --audit-level=moderate
 - リトライは `retryEnabled: false` で無効化できます（update_event_automation_config で設定）。
 - カスタムツール定義（JSON）に `tags` 配列を追加すると `search_resources` / `auto_select_resources` の検索精度が向上します。
 - サーバー起動ログは `LOG_LEVEL=debug` で詳細表示されます。ログは `[LEVEL][scope] message` 形式で出力されます。
+- ドキュメント自動生成: `npm run docs:tools` / `npm run docs:config` / `npm run docs:manifest`。
+- `analyze_repo` / `apex_dependency_graph` 系のリポジトリ走査は、`.sf` / `.sfdx` / `node_modules` / `.git` / `dist` / `build` / `coverage` などの自動生成ディレクトリを自動的にスキップします (詳細は [`mcp/core/quality/scan-exclusions.ts`](../mcp/core/quality/scan-exclusions.ts))。

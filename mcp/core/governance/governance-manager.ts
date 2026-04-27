@@ -2,7 +2,17 @@
  * Governance Manager
  * 
  * リソースガバナンス（使用数、バグシグナル、無効化状態など）を管理
+ *
+ * TASK-F11: configuration shape and defaults moved to `./defaults.ts`. This
+ * file re-exports them so call sites and external imports stay stable.
  */
+import {
+  DEFAULT_GOVERNANCE_CONFIG as DEFAULTS_FROM_SOURCE,
+  type GovernanceConfig as GovernanceConfigFromSource,
+  type GovernanceMaxCounts,
+  type GovernanceThresholds,
+  type GovernanceResourceLimits
+} from "./defaults.js";
 
 export type ResourceType = "skills" | "tools" | "presets";
 
@@ -17,43 +27,16 @@ export interface ResourceScore {
   riskLevel: "low" | "medium" | "high";
 }
 
-/**
- * ガバナンス設定
- */
-export interface GovernanceConfig {
-  maxCounts: {
-    skills: number;
-    tools: number;
-    presets: number;
-  };
-  thresholds: {
-    minUsageToKeep: number;
-    bugSignalToFlag: number;
-  };
-  resourceLimits: {
-    creationsPerDay: number; // 1日の作成上限
-    deletionsPerDay: number;
-  };
-}
+// Re-exports keep prior public surface intact.
+export type GovernanceConfig = GovernanceConfigFromSource;
+export type { GovernanceMaxCounts, GovernanceThresholds, GovernanceResourceLimits };
 
 /**
  * デフォルトガバナンス設定
+ *
+ * 値の編集は `mcp/core/governance/defaults.ts` で行ってください。
  */
-export const DEFAULT_GOVERNANCE_CONFIG: GovernanceConfig = {
-  maxCounts: {
-    skills: 150,
-    tools: 150,
-    presets: 150
-  },
-  thresholds: {
-    minUsageToKeep: 2,
-    bugSignalToFlag: 2
-  },
-  resourceLimits: {
-    creationsPerDay: 5,
-    deletionsPerDay: 3
-  }
-};
+export const DEFAULT_GOVERNANCE_CONFIG: GovernanceConfig = DEFAULTS_FROM_SOURCE;
 
 /**
  * リソースを記録した操作
