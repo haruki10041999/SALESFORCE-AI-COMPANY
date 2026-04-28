@@ -43,7 +43,7 @@ test("file unit-of-work rollback removes staged temp files without creating targ
 
 test("sqlite state store transaction rolls back on error", async (t) => {
   if (!isSqliteDriverAvailable()) {
-    t.skip("sql.js runtime is not available");
+    t.skip("node:sqlite runtime is not available");
     return;
   }
 

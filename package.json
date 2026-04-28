@@ -24,6 +24,8 @@
     "tail:progress": "tsx scripts/tail-progress.ts",
     "metrics:seed": "node scripts/seed-metrics.js",
     "metrics:dashboard": "node scripts/metrics-dashboard.js",
+    "metrics:sla-archive": "tsx scripts/metrics-sla-archive.ts",
+    "sla:dashboard": "node scripts/sla-dashboard.js",
     "observability:dashboard": "tsx scripts/observability-dashboard.ts",
     "history:archive": "tsx scripts/archive-history.ts",
     "test:matrix": "tsx scripts/test-matrix.ts",
@@ -49,12 +51,10 @@
     "fast-xml-parser": "^5.0.0",
     "js-tiktoken": "^1.0.16",
     "prom-client": "^15.1.3",
-    "sql.js": "^1.14.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",
-    "@types/sql.js": "^1.4.11",
     "fast-check": "^4.6.0",
     "tsx": "^4.19.2",
     "typescript": "^5.8.3"

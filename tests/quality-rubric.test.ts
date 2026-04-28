@@ -6,6 +6,7 @@ import {
   buildJudgePrompt,
   evaluateHeuristicRubric,
   evaluateQualityRubric,
+  getRubricJudgeProvider,
   parseJudgeResponse
 } from "../mcp/core/llm/quality-rubric.js";
 import { OllamaClient } from "../mcp/core/llm/ollama-client.js";
@@ -63,6 +64,15 @@ function failingClient(): OllamaClient {
 test("DEFAULT_RUBRIC_CRITERIA: weights sum approximately to 1.0", () => {
   const total = DEFAULT_RUBRIC_CRITERIA.reduce((s, c) => s + c.weight, 0);
   assert.ok(Math.abs(total - 1) < 0.0001, `weights sum=${total}`);
+});
+
+test("getRubricJudgeProvider: resolves AI_* then SF_AI_* with ollama default", () => {
+  assert.equal(getRubricJudgeProvider({}), "ollama");
+  assert.equal(getRubricJudgeProvider({ SF_AI_LLM_PROVIDER: "heuristic" }), "heuristic");
+  assert.equal(
+    getRubricJudgeProvider({ AI_LLM_PROVIDER: "ollama", SF_AI_LLM_PROVIDER: "heuristic" }),
+    "ollama"
+  );
 });
 
 test("buildJudgePrompt: includes topic and criteria ids", () => {
@@ -172,6 +182,15 @@ test("evaluateQualityRubric: fallbackOnFailure=false rethrows", async () => {
 test("evaluateQualityRubric: garbage judge response -> heuristic fallback", async () => {
   const r = await evaluateQualityRubric("text", {
     client: judgeClient("Sorry, I cannot comply.")
+  });
+  assert.equal(r.method, "heuristic");
+});
+
+test("evaluateQualityRubric: provider=heuristic skips judge client", async () => {
+  const r = await evaluateQualityRubric("text", {
+    provider: "heuristic",
+    client: failingClient(),
+    fallbackOnFailure: false
   });
   assert.equal(r.method, "heuristic");
 });

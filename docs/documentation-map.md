@@ -15,6 +15,7 @@
 ## 詳細リファレンス
 
 - 出力構成: [outputs-structure.md](./outputs-structure.md)
+- ストレージ統一計画: [outputs-storage-unification-plan.md](./outputs-storage-unification-plan.md)
 - 学習の仕組み: [learning-guide.md](./learning-guide.md)
 - 指標評価: [metrics-evaluation.md](./metrics-evaluation.md)
 - 検証手順: [verification-guide.md](./verification-guide.md)

@@ -20,11 +20,13 @@
 
 補足:
 
-- SQLite 実装は `sql.js` を利用しています（native addon 不要）
+- SQLite 実装は `node:sqlite` を利用しています（Node 標準機能）
 - 既定の DB ファイル名は `state.sqlite` で統一しています
 - 既存 JSONL/history から移行する場合は `npm run state:migrate-sqlite`
 - 互換 JSONL を再出力する場合は `npm run state:export-jsonl -- --out-dir <dir>`
 - 再出力時に元 JSONL 件数と突合する場合は `--verify-source-dir <outputsDir>` を付与（不一致時は終了コード 1）
+- 事前に `node -e "require('node:sqlite'); console.log('node:sqlite OK')"` でランタイム可用性を確認できます
+- `ExperimentalWarning: SQLite is an experimental feature` は既知の警告です（起動失敗ではありません）
 
 ## よくある利用パターン
 
@@ -91,7 +93,7 @@ Copy-Item .env.operations.sample .env
 | 変数名 | 用途 | デフォルト値 |
 |---|---|---|
 | `SF_AI_OUTPUTS_DIR` | イベント・履歴・セッション・ガバナンス・生成物の出力ベースディレクトリ | `outputs/` |
-| `SF_AI_HISTORY_SQLITE` | 履歴ストアを SQLite (`sql.js`) に切り替えるフラグ（`true`/`false`） | `false` |
+| `SF_AI_HISTORY_SQLITE` | 履歴ストアを SQLite (`node:sqlite`) に切り替えるフラグ（`true`/`false`） | `false` |
 | `SF_AI_STATE_DB_PATH` | SQLite DB ファイルパス（`SF_AI_HISTORY_SQLITE=true` 時に利用） | `outputs/state.sqlite` |
 | `SF_AI_OUTPUTS_BACKUP_DIR` | outputs 世代バックアップの保存先ディレクトリ | `outputs/backups` |
 | `SF_AI_OUTPUTS_BACKUP_KEEP` | 保持する snapshot 世代数（古い世代から削除） | `5` |
@@ -122,6 +124,8 @@ Copy-Item .env.operations.sample .env
 | `SF_AI_AGENT_TRUST_SCORING_ENABLED` | 互換用: エージェント信頼スコアを有効化 | `false` |
 | `AI_AGENT_TRUST_THRESHOLD` | 信頼スコアの閾値（0.0〜1.0） | `0.55` |
 | `SF_AI_AGENT_TRUST_THRESHOLD` | 互換用: 信頼スコアの閾値（0.0〜1.0） | `0.55` |
+| `AI_LLM_PROVIDER` | LLM provider 切替（`ollama` / `heuristic`）。quality rubric / self-refine の judge 経路に適用 | `ollama` |
+| `SF_AI_LLM_PROVIDER` | 互換用: LLM provider 切替（`ollama` / `heuristic`） | 未設定 |
 | `SF_AI_AUTO_APPLY` | リソースハンドラー・閾値ハンドラーによる自動 apply を有効化 | `false` |
 | `SF_AI_AUTO_APPLY_MIN_SCORE` | 自動 apply を実行する最低品質スコア（0〜100） | `70` |
 | `SF_AI_AUTO_APPLY_MAX_PER_DAY` | 1日あたりの自動リソース作成上限件数 | `5` |

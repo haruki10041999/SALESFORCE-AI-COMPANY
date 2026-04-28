@@ -1204,9 +1204,9 @@ npm audit --audit-level=moderate
 
 - `enqueue_proposal` — `outputs/tool-proposals/pending/<id>.json` にキュー。
 - `list_proposals` / `get_proposal` — status / resourceType / limit でフィルタ、または ID で 1 件取得。
-- `approve_proposal` — pending → approved に移動 (実適用は別途、または `apply_proposal`)。
+- `approve_proposal` — pending → approved に移動。既定では実適用も同時実行 (`apply=false` で承認のみ)。
 - `reject_proposal` — pending → rejected に移動 (理由必須)。
-- `apply_proposal` — pending を `applyProposal` で物理書き込みし成功時のみ approved/ へ移動 (`skills/<slug>.md` / `outputs/custom-tools/<slug>.json` / `outputs/presets/<slug>/v<n>.json`)。
+- `apply_proposal` — 後方互換の承認＋実適用エンドポイント。pending を `applyProposal` で物理書き込みし成功時のみ approved/ へ移動 (`skills/<slug>.md` / `outputs/custom-tools/<slug>.json` / `outputs/presets/<slug>/v<n>.json`)。
 - `auto_apply_pending_proposals` — `AutoCreateGate` を通過した提案だけバッチ自動適用。`dryRun` / resourceType ごとの `config` / `denyList` / `limit` に対応。**既定はすべて enabled=false** (明示 opt-in 必須)。
 
 ### 14.6 Declarative Tool Layer

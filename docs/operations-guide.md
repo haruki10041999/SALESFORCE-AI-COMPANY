@@ -98,6 +98,18 @@ npm test
 
 - `fail` が 0
 
+4. Agent trust scoring の有効化確認（運用プロファイル）
+
+```bash
+npm test -- tests/runtime-config-agent-trust.test.ts
+```
+
+確認ポイント:
+
+- `AI_AGENT_TRUST_SCORING_ENABLED=true` を運用 `.env` で設定していること
+- 互換キー `SF_AI_AGENT_TRUST_SCORING_ENABLED` / `SF_AI_AGENT_TRUST_THRESHOLD` でも動作すること
+- 閾値は `0.0..1.0` の範囲外だと既定値 `0.55` にフォールバックすること
+
 ## 週次の確認（10分）
 
 1. メトリクス確認
@@ -145,6 +157,19 @@ npm run ai -- outputs:version -- wipe --keep-backups
 
 4. SQLite 履歴モードを使う場合の整合チェック
 
+前提チェック（`SF_AI_HISTORY_SQLITE=true` で運用する場合）:
+
+```bash
+# node:sqlite が利用できるか確認
+node -e "require('node:sqlite'); console.log('node:sqlite OK')"
+```
+
+見るポイント:
+
+- `node:sqlite OK` が出ること
+- `npm config get ignore-scripts` が `true` でも動作する（native addon 不要）
+- 実行時に `ExperimentalWarning: SQLite is an experimental feature` が出ても、動作自体は継続可能
+
 ```bash
 # JSONL/history -> state.sqlite
 npm run state:migrate-sqlite
@@ -157,6 +182,7 @@ npm run state:export-jsonl -- --out-dir outputs/exported-jsonl --verify-source-d
 
 - `verification.matched` が `true`
 - 不一致時は終了コード 1（必要なら `--allow-mismatch` で出力継続）
+- Windows で DB ファイルを削除・移動する前に、`npm run ai -- dev` 停止後のハンドル解放を確認する
 
 ## トラブル時の手順
 
@@ -184,9 +210,9 @@ npm run ai -- outputs:version -- restore --snapshot <snapshot-id>
 npm run ai -- doctor
 ```
 
-5. SQL.js 検証用 DB の整理（必要時）
+5. SQLite 検証用 DB の整理（必要時）
 
-- 検証で `outputs/state-sqljs.sqlite` など一時 DB を作成した場合、運用 DB を `state.sqlite` に統一したら不要ファイルを整理する
+- 検証で `outputs/state-dev.sqlite` など一時 DB を作成した場合、運用 DB を `state.sqlite` に統一したら不要ファイルを整理する
 - 削除前に `npm run ai -- outputs:version -- backup` で snapshot を作成する
 
 ## どのファイルを見るか

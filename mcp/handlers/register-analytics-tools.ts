@@ -391,6 +391,29 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
               null,
               2
             )
+          },
+          {
+            type: "text",
+            text: [
+              "## Health Check",
+              "",
+              "| 指標 | 値 |",
+              "|------|-----|",
+              `| チェック日時 | ${new Date().toISOString()} |`,
+              `| ツール実行 (サンプル) | ${toolAfterEvents.length} |`,
+              `| 成功率 | ${aggregate.rates.successRate}% |`,
+              `| 失敗率 | ${aggregate.rates.failureRate}% |`,
+              `| 無効化スキル | ${governanceState.disabled.skills.length} |`,
+              `| 無効化ツール | ${governanceState.disabled.tools.length} |`,
+              `| 無効化プリセット | ${governanceState.disabled.presets.length} |`,
+              `| アクティブトレース | ${activeTraces.length} |`,
+              `| 完了トレース (直近) | ${recentCompletedTraces.length} |`,
+              `| 総コール数 | ${metricsSummary.totalCalls} |`,
+              `| 総エラー数 | ${metricsSummary.totalErrors} |`,
+              `| 全体成功率 | ${metricsSummary.overallSuccessRate} |`,
+              `| 平均実行時間 | ${metricsSummary.overallAvgDurationMs}ms |`,
+              ...(governanceWarnings.length > 0 ? ["", "### ⚠️ ガバナンス警告", ...governanceWarnings.map((w) => `- ${w}`)] : [])
+            ].join("\n")
           }
         ]
       };
@@ -563,6 +586,22 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
               null,
               2
             )
+          },
+          {
+            type: "text",
+            text: [
+              `## ツール実行統計 (直近 ${windowMinutes ?? 60}分)`,
+              "",
+              `- サンプル数: ${relevant.length} / 合計: ${aggregate.totals.total} / 成功率: ${aggregate.rates.successRate}% / 失敗率: ${aggregate.rates.failureRate}%`,
+              ...(disabledTools.length > 0 ? [`- 無効化ツール: ${disabledTools.join(", ")}`] : []),
+              "",
+              "| ツール名 | 合計 | 成功 | 失敗 |",
+              "|---------|------|------|------|  ",
+              ...Object.entries(aggregate.perTool)
+                .sort((a, b) => b[1].total - a[1].total)
+                .slice(0, 20)
+                .map(([name, s]) => `| ${name} | ${s.total} | ${s.success} | ${s.failure} |`)
+            ].join("\n")
           }
         ]
       };
@@ -578,8 +617,26 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
     },
     async () => {
       const dashboard = generateHandlersDashboard(handlersState);
+      const created = Object.entries(dashboard.createdTracker ?? {});
+      const errors = Object.entries(dashboard.errorTracker ?? {});
+      const mdLines = [
+        "## ハンドラーダッシュボード",
+        "",
+        "### 作成リソース",
+        "| リソース名 | 件数 |",
+        "|-----------|------|  ",
+        ...created.slice(0, 20).map(([k, v]) => `| ${k} | ${JSON.stringify(v)} |`),
+        "",
+        "### エラー集計",
+        "| ツール名 | エラー数 |",
+        "|---------|----------|  ",
+        ...errors.slice(0, 20).map(([k, v]) => `| ${k} | ${JSON.stringify(v)} |`)
+      ].join("\n");
       return {
-        content: [{ type: "text", text: JSON.stringify(dashboard, null, 2) }]
+        content: [
+          { type: "text", text: JSON.stringify(dashboard, null, 2) },
+          { type: "text", text: mdLines }
+        ]
       };
     }
   );
@@ -698,7 +755,7 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
         );
       }
 
-      const fmt = format ?? "json";
+      const fmt = format ?? "markdown";
       const text =
         fmt === "html"
           ? report.html
@@ -868,8 +925,31 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
         eventType,
         limit
       });
+      const agg = result.aggregates;
+      const mdLines = [
+        `## Drill-Down${toolName ? `: ${toolName}` : ""}${status ? ` [${status}]` : ""}`,
+        "",
+        "| 指標 | 値 |",
+        "|------|-----|",
+        `| マッチしたトレース | ${agg.matchedTraces} |`,
+        `| 成功 | ${agg.successCount} |`,
+        `| エラー | ${agg.errorCount} |`,
+        `| 実行中 | ${agg.runningCount} |`,
+        `| エラー率 | ${(agg.errorRate * 100).toFixed(1)}% |`,
+        `| 平均実行時間 | ${agg.avgDurationMs != null ? `${agg.avgDurationMs.toFixed(0)}ms` : "-"} |`,
+        `| P95 実行時間 | ${agg.p95DurationMs != null ? `${agg.p95DurationMs.toFixed(0)}ms` : "-"} |`,
+        `| マッチしたイベント | ${agg.matchedEvents} |`,
+        "",
+        "### ツール別集計",
+        "| ツール名 | 合計 | エラー |",
+        "|---------|------|--------|",
+        ...agg.perTool.slice(0, 20).map((p) => `| ${p.toolName} | ${p.total} | ${p.errors} |`)
+      ].join("\n");
       return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+        content: [
+          { type: "text", text: JSON.stringify(result, null, 2) },
+          { type: "text", text: mdLines }
+        ]
       };
     }
   );
@@ -1169,8 +1249,27 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
       },
       async ({ sessionId }: { sessionId?: string }) => {
         const metrics = await computeFeedbackMetrics(sessionId);
+        const mdLines = [
+          "## フィードバックメトリクス",
+          "",
+          "| 指標 | 値 |",
+          "|------|-----|",
+          `| 総フィードバック数 | ${metrics.totalFeedback} |`,
+          `| 👍 高評価 | ${metrics.thumbsUpCount} (${(metrics.thumbsUpRate * 100).toFixed(1)}%) |`,
+          `| 👎 低評価 | ${metrics.thumbsDownCount} |`,
+          `| 中立 | ${metrics.neutralCount} |`,
+          ...(metrics.averageQualityScore != null
+            ? [`| 平均品質スコア | ${metrics.averageQualityScore.toFixed(2)} |`]
+            : []),
+          ...(metrics.mostCommonTags && metrics.mostCommonTags.length > 0
+            ? ["", "### タグ別件数", ...metrics.mostCommonTags.slice(0, 10).map((t) => `- **${t.tag}**: ${t.count}件`)]
+            : [])
+        ].join("\n");
         return {
-          content: [{ type: "text", text: JSON.stringify(metrics, null, 2) }]
+          content: [
+            { type: "text", text: JSON.stringify(metrics, null, 2) },
+            { type: "text", text: mdLines }
+          ]
         };
       }
     );

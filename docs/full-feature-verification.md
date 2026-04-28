@@ -4,7 +4,7 @@
 **Claude Desktop**、**GitHub Copilot Chat (Agent モード)**、または
 **OpenCode (stdio MCP 対応版)** から実際に呼び出して動作確認するための実践手順です。
 
-> **対象**: 2026-04-28 時点 / ツール件数は `docs/internal/tool-manifest.json` の最新値に準拠
+> **対象**: 2026-04-28 時点 / ツール件数: **115** (`docs/internal/tool-manifest.json` 生成値)
 > **想定 MCP クライアント**: Claude Desktop, VS Code GitHub Copilot Chat (Agent モード), OpenCode (stdio MCP 対応版)
 
 ---
@@ -19,6 +19,20 @@ MCP サーバを node で起動する場合は事前に build が必要。
 npm ci
 npm run build
 ```
+
+### 0.1.1 manifest 同期（最新版化）
+
+ツール追加・削除後は、以下を実行して manifest と build を同期する。
+
+```powershell
+npm run docs:manifest
+npm run build
+```
+
+確認ポイント:
+
+- `docs/internal/tool-manifest.json` の `toolCount` が期待値（現時点 115）である
+- `docs/internal/tool-manifest.md` の Generated 時刻が更新されている
 
 ### 0.2 Claude Desktop 設定
 
@@ -305,10 +319,11 @@ Claude Desktop、Copilot Chat、OpenCode いずれでも同じ結果が得られ
 |--------|-------------|
 | `apex_analyze` | 「`apex_analyze` で `force-app/main/default/classes/AccountService.cls` を解析して」 |
 | `apex_dependency_graph` | 「`apex_dependency_graph` を `force-app/main/default/classes` に対して実行して Mermaid を出力して」 |
+| `apex_compliance_report` | 「`apex_compliance_report` で `force-app/main/default/classes` を一括スキャンして」 |
 | `lwc_analyze` | 「`lwc_analyze` で `force-app/main/default/lwc/myComponent/myComponent.js` を解析」 |
 | `flow_analyze` | 「`flow_analyze` で `force-app/main/default/flows/Account_Flow.flow-meta.xml` を解析」 |
 | `permission_set_diff` | 「`permission_set_diff` で `Admin.permissionset-meta.xml` と `Standard.permissionset-meta.xml` を比較」 |
-| `metadata_inventory` | 「`metadata_inventory` でこのリポジトリのメタデータ一覧を出して」 |
+| `permission_set_analyze` | 「`permission_set_analyze` で `Admin.permissionset-meta.xml` を解析して」 |
 | `compare_org_metadata` | 「`compare_org_metadata` で `dev` 組織と `staging` 組織を比較」 |
 
 確認: 各ツールが `content[].text` に解析結果 / Mermaid / 差分を返す。
@@ -318,7 +333,7 @@ Claude Desktop、Copilot Chat、OpenCode いずれでも同じ結果が得られ
 | ツール | プロンプト例 |
 |--------|-------------|
 | `repo_analyze` | 「`repo_analyze` でリポジトリ全体の構造を解析」 |
-| `repo_inventory_summary` | 「`repo_inventory_summary` を実行」 |
+| `resource_dependency_graph` | 「`resource_dependency_graph` で skill/agent/persona/preset の依存関係を可視化」 |
 
 ### 2.3 ブランチ差分 / PR
 
@@ -373,13 +388,14 @@ Claude Desktop、Copilot Chat、OpenCode いずれでも同じ結果が得られ
 | ツール | プロンプト例 |
 |--------|-------------|
 | `record_agent_message` | 「`record_agent_message` で agent=`architect`、message=『検証メモ』を記録」 |
-| `get_agent_logs` | 「`get_agent_logs` で agent=`architect` の最新 5 件を取得」 |
+| `get_agent_log` | 「`get_agent_log` で agent=`architect` の最新 5 件を取得」 |
 | `archive_history` | 「`archive_history` で日付指定して履歴アーカイブ」 |
 | `add_memory` | 「`add_memory` で text=『重要な前提：dev=共有 sandbox』を追加」 |
-| `get_memory` (or 同等) | 「メモリ一覧を取得」 |
+| `list_memory` | 「`list_memory` でメモリ一覧を取得」 |
+| `search_memory` | 「`search_memory` で query=『sandbox』を検索」 |
 | `clear_memory` | 「メモリをクリア」 |
 | `add_vector_record` | 「`add_vector_record` で id=`note-1`、text=『顧客は……』を追加」 |
-| `query_vector_store` | 「`query_vector_store` で『顧客』を検索」 |
+| `search_vector` | 「`search_vector` で『顧客』を検索」 |
 
 ### 2.8 プリセット / 定義
 
@@ -387,14 +403,33 @@ Claude Desktop、Copilot Chat、OpenCode いずれでも同じ結果が得られ
 |--------|-------------|
 | `list_agents` / `get_agent` | 「`list_agents` を実行し、`apex-developer` の詳細を `get_agent` で表示」 |
 | `list_skills` / `get_skill` | 「`list_skills` を実行し、`apex/bulkification` の詳細を `get_skill` で表示」 |
-| `list_personas` / `get_persona` | 「`list_personas` を実行し `samurai` の詳細を `get_persona` で表示」 |
+| `list_personas` | 「`list_personas` を実行し利用可能な persona を確認」 |
 | `search_resources` | 「`search_resources` で query=『デプロイ』を検索」 |
 | `auto_select_resources` | 「`auto_select_resources` で topic=『LWC 性能改善』を実行」 |
 | `create_preset` | 「`create_preset` で name=`検証用`、agents=`['apex-developer']`、topic=`bulkify` を作成」 |
-| `list_presets` / `update_preset` / `delete_preset` | 「`list_presets` → 上で作成した preset を `update_preset` で description 変更 → `delete_preset`」 |
+| `list_presets` | 「`list_presets` で作成済み preset を確認」 |
+| `enqueue_proposal` / `approve_proposal` / `reject_proposal` / `apply_proposal` | 「新規 skill/preset 提案を enqueue → approve(既定で即時適用) / reject を確認し、互換性として apply も確認」 |
 | `run_preset` | 「`run_preset` で `Salesforce 開発レビュー` を実行」 |
 
-### 2.9 リソースガバナンス (TASK-037 / 039 / 041)
+### 2.9 セキュリティ / 品質ゲート
+
+| ツール | プロンプト例 |
+|--------|-------------|
+| `scan_security_rules` | 「`scan_security_rules` で変更ファイルのセキュリティスキャンを実行」 |
+| `security_delta_scan` | 「`security_delta_scan` で `main` との差分をスキャン」 |
+| `pr_readiness_check` | 「`pr_readiness_check` で PR 準備状況をチェック」 |
+| `evaluate_quality_rubric` | 「`evaluate_quality_rubric` で応答品質を採点」 |
+
+### 2.10 Org カタログ運用
+
+| ツール | プロンプト例 |
+|--------|-------------|
+| `register_org` | 「`register_org` で dev org を登録」 |
+| `list_orgs` | 「`list_orgs` で登録済み org を一覧表示」 |
+| `get_org` | 「`get_org` で alias=`dev` の詳細を確認」 |
+| `remove_org` | 「`remove_org` で検証用 org を削除」 |
+
+### 2.11 リソースガバナンス (TASK-037 / 039 / 041)
 
 | ツール | プロンプト例 |
 |--------|-------------|
@@ -405,14 +440,14 @@ Claude Desktop、Copilot Chat、OpenCode いずれでも同じ結果が得られ
 | `suggest_cleanup_resources` | 「`suggest_cleanup_resources` を dryRun で実行 → 結果に `dormant` / `burst` / `weekly` 等のラベルが付いていること」 |
 | `governance_auto_cleanup_schedule` (TASK-041) | 「`governance_auto_cleanup_schedule` で action=`upsert`、name=`weekly`、cron=`0 3 * * 1`、dryRun=true を登録」<br>「同ツールで action=`list` → 登録確認」<br>「action=`delete`、name=`weekly` で削除」 |
 
-### 2.10 イベント自動化
+### 2.12 イベント自動化
 
 | ツール | プロンプト例 |
 |--------|-------------|
 | `update_event_automation_config` | 「`update_event_automation_config` で `error_aggregate` の閾値を 5 に変更」 |
 | `get_event_automation_config` (or 同等) | 「現在の event automation 設定を取得」 |
 
-### 2.11 メトリクス / 観測性 / ベンチマーク (TASK-044 含む)
+### 2.13 メトリクス / 観測性 / ベンチマーク (TASK-044 含む)
 
 | ツール | プロンプト例 |
 |--------|-------------|
@@ -425,7 +460,7 @@ Claude Desktop、Copilot Chat、OpenCode いずれでも同じ結果が得られ
 - `outputs/dashboards/observability.html` をブラウザで開けること
 - benchmark の `grade` が A/B/C/D で返ること
 
-### 2.12 学習 / シナジー / 信頼スコア (TASK-043 / 045 / 047)
+### 2.14 学習 / シナジー / 信頼スコア (TASK-043 / 045 / 047)
 
 | ツール | プロンプト例 |
 |--------|-------------|
@@ -530,6 +565,7 @@ Claude Desktop、Copilot Chat、OpenCode いずれでも同じ結果が得られ
 | Agent モードのドロップダウンが無い | VS Code が古い | `Help` → `Check for Updates` で 1.99+ に更新 |
 | ツール件数が `docs/internal/tool-manifest.json` と不一致 | 古い build / manifest 未再生成 | `npm run docs:manifest` → `npm run build` |
 | `chat` が空応答 | agents 未指定 / persona ファイル欠損 | `list_agents` で存在確認 |
+| `list_personas` は動くが persona 指定で期待応答にならない | persona 名 typo / chat に引き渡し漏れ | `list_personas` で存在確認 → `chat` パラメータを再確認 |
 | `metrics_summary` の phaseBreakdown が空 | `chat` を経由していない / トレース未保存 | `chat` を 1 回実行してから再試行 |
 | `synergy_recommend_combo` が空 | 完了 trace が不足 | `chat` を複数回実行 → 再試行 |
 | `observability_dashboard` が落ちる | outputs 権限不足 | `outputs/dashboards/` を作成し再試行 |
@@ -537,7 +573,124 @@ Claude Desktop、Copilot Chat、OpenCode いずれでも同じ結果が得られ
 
 ---
 
-## 7. 関連ドキュメント
+## 7. 全機能 網羅テストケース（回帰用）
+
+以下は「最低 1 回は毎リリースで実施」する網羅ケース。  
+ID 単位で実施記録を残すと、欠落を検知しやすい。
+
+### A. 接続 / 起動
+
+| ID | 観点 | 入力 | 期待結果 |
+|----|------|------|----------|
+| A-01 | 正常起動 | `npm run build` 後に MCP 起動 | サーバ起動し、ツール一覧取得可能 |
+| A-02 | 異常起動 | `dist/mcp/server.js` 不在で起動 | `not found` 系エラーが明示される |
+| A-03 | 境界 | `SF_AI_OUTPUTS_DIR` 未指定 | 既定 outputs にフォールバック |
+| A-04 | 回復 | 起動失敗後に build 実施して再起動 | 正常復帰する |
+
+### B. ツール呼び出し共通
+
+| ID | 観点 | 入力 | 期待結果 |
+|----|------|------|----------|
+| B-01 | 正常 | `list_agents` | 1 件以上返る |
+| B-02 | 異常 | 必須引数欠落 (`apex_analyze` で `filePath` なし) | バリデーションエラー |
+| B-03 | 異常 | 型不正 (`limit` に文字列) | スキーマエラー |
+| B-04 | 境界 | `metrics_summary limit=1` | 1 件基準で要約される |
+| B-05 | 境界 | `metrics_summary limit=5000` | 上限内で処理される |
+| B-06 | 回復 | 一時失敗後に同入力で再実行 | 冪等な結果が返る |
+
+### C. 静的解析
+
+| ID | 観点 | 入力 | 期待結果 |
+|----|------|------|----------|
+| C-01 | 正常 | `apex_analyze` 正常 Apex | 指摘 0 または妥当な指摘 |
+| C-02 | 正常 | `lwc_analyze` 正常 LWC | 解析結果が返る |
+| C-03 | 異常 | 存在しない `filePath` | ファイル未検出エラー |
+| C-04 | 境界 | 大きい Apex ファイル | タイムアウトせず結果を返す |
+| C-05 | 回復 | 解析失敗後に対象パス修正 | 成功する |
+
+### D. 差分 / デプロイ
+
+| ID | 観点 | 入力 | 期待結果 |
+|----|------|------|----------|
+| D-01 | 正常 | `branch_diff_summary` | 差分概要が返る |
+| D-02 | 正常 | `deploy_org dryRun=true` | deploy コマンド文字列を返す |
+| D-03 | 異常 | 存在しない `baseBranch` | Git 参照エラー |
+| D-04 | 境界 | 変更ファイル 0 件のブランチ | 変更なしとして正常応答 |
+| D-05 | 回復 | branch 指定修正後に再実行 | 成功する |
+
+### E. チャット / オーケストレーション
+
+| ID | 観点 | 入力 | 期待結果 |
+|----|------|------|----------|
+| E-01 | 正常 | `smart_chat` | 応答 + trace が記録される |
+| E-02 | 正常 | `orchestrate_chat turns=3` | `sessionId` が払い出される |
+| E-03 | 異常 | 不正 agent 名を指定 | agent 不在エラー |
+| E-04 | 境界 | `turns=1` | 1 ターンのみ実行 |
+| E-05 | 境界 | `turns` 上限値近傍 | 処理継続し queue 一貫性維持 |
+| E-06 | 回復 | `dequeue_next_agent` 空 queue | 空応答を返しクラッシュしない |
+
+### F. ログ / メモリ / ベクター
+
+| ID | 観点 | 入力 | 期待結果 |
+|----|------|------|----------|
+| F-01 | 正常 | `record_agent_message` → `get_agent_log` | 記録内容が取得できる |
+| F-02 | 正常 | `add_memory` → `list_memory` | 追加内容が一覧に反映 |
+| F-03 | 正常 | `add_vector_record` → `search_vector` | 検索ヒットする |
+| F-04 | 異常 | 重複 id の vector 追加 | 重複扱いが仕様どおり |
+| F-05 | 境界 | memory 大量登録後の検索 | 応答性能が許容範囲 |
+| F-06 | 回復 | `clear_memory` 後に再追加 | 正常に再登録できる |
+
+### G. ガバナンス / 提案ワークフロー
+
+| ID | 観点 | 入力 | 期待結果 |
+|----|------|------|----------|
+| G-01 | 正常 | `review_resource_governance` | 現在状態が返る |
+| G-02 | 正常 | `enqueue_proposal` → `approve_proposal` | status が approved へ遷移し、既定で実適用も行われる |
+| G-03 | 正常 | `approve_proposal apply=false` または `apply_proposal overwrite=false` | 承認のみ運用、または既存ファイル時は skip |
+| G-04 | 異常 | 存在しない proposal id | not found エラー |
+| G-05 | 境界 | `apply_resource_actions cascadeMode=block` | 依存ありで拒否される |
+| G-06 | 回復 | `block` 失敗後 `force` で再実行 | 仕様どおり反映 |
+
+### H. メトリクス / 観測性
+
+| ID | 観点 | 入力 | 期待結果 |
+|----|------|------|----------|
+| H-01 | 正常 | `metrics_summary` | `phaseBreakdown` を返す |
+| H-02 | 正常 | `observability_dashboard` | html/md/json が生成される |
+| H-03 | 異常 | 書込不可ディレクトリへ出力 | 権限エラーを返す |
+| H-04 | 境界 | `traceLimit` 大 | 処理完了しサマリ返却 |
+| H-05 | 回復 | 出力先権限修正後に再実行 | 生成成功 |
+
+### I. Org カタログ
+
+| ID | 観点 | 入力 | 期待結果 |
+|----|------|------|----------|
+| I-01 | 正常 | `register_org` → `list_orgs` | 追加 org が見える |
+| I-02 | 正常 | `get_org` | 登録詳細が取得できる |
+| I-03 | 異常 | 未登録 alias の `get_org` | not found |
+| I-04 | 境界 | 同 alias 再登録 | 更新挙動が仕様どおり |
+| I-05 | 回復 | `remove_org` 後に再登録 | 正常に復旧可能 |
+
+### J. セキュリティ / 品質ゲート
+
+| ID | 観点 | 入力 | 期待結果 |
+|----|------|------|----------|
+| J-01 | 正常 | `scan_security_rules` | 検出結果が返る |
+| J-02 | 正常 | `pr_readiness_check` | readiness 判定が返る |
+| J-03 | 異常 | 解析対象なし | 明確な空結果/警告 |
+| J-04 | 境界 | findings 上限付近 | 上限処理が安定 |
+| J-05 | 回復 | 除外条件修正後に再実行 | 判定が更新される |
+
+### K. 受け入れ判定（Definition of Done）
+
+1. A〜J の全ケースで「期待結果」を満たす
+2. 生成物が `outputs/` 配下に出力される
+3. 失敗ケースで「クラッシュせずエラー応答を返す」ことを確認
+4. 回復ケースで「設定修正後に再実行で成功する」ことを確認
+
+---
+
+## 8. 関連ドキュメント
 
 - [verification-guide.md](./verification-guide.md): 開発変更単位の自動テスト検証
 - [operations-guide.md](./operations-guide.md): 日常運用

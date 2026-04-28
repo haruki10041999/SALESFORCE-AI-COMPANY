@@ -1,8 +1,10 @@
 import { getDefaultOllamaClient, type OllamaClient } from "../llm/ollama-client.js";
 import {
+  getRubricJudgeProvider,
   evaluateQualityRubric,
   evaluateHeuristicRubric,
   type QualityRubricResult,
+  type RubricJudgeProvider,
   DEFAULT_RUBRIC_CRITERIA,
   type QualityCriterion
 } from "../llm/quality-rubric.js";
@@ -12,6 +14,7 @@ export interface SelfRefineOptions {
   maxIterations?: number;
   targetScore?: number;
   judge?: boolean;
+  provider?: RubricJudgeProvider;
   model?: string;
   refineModel?: string;
   minImprovement?: number;
@@ -86,11 +89,13 @@ export async function runSelfRefineLoop(
   options: SelfRefineOptions = {},
   deps: SelfRefineDeps = {}
 ): Promise<SelfRefineResult> {
-  const client = deps.client ?? getDefaultOllamaClient();
   const maxIterations = Math.max(1, Math.min(10, options.maxIterations ?? 3));
   const targetScore = Math.max(0, Math.min(10, options.targetScore ?? 8.5));
   const minImprovement = Math.max(0, options.minImprovement ?? 0.2);
   const judge = options.judge === true;
+  const provider = options.provider ?? getRubricJudgeProvider();
+  const canUseLlmProvider = provider === "ollama";
+  const client = canUseLlmProvider ? (deps.client ?? getDefaultOllamaClient()) : undefined;
   const model = options.model ?? "qwen2.5:3b";
   const refineModel = options.refineModel ?? model;
 
@@ -98,6 +103,7 @@ export async function runSelfRefineLoop(
     if (judge) {
       return await evaluateQualityRubric(text, {
         topic: options.topic,
+        provider,
         model,
         fallbackOnFailure: true
       });
@@ -106,6 +112,9 @@ export async function runSelfRefineLoop(
   });
 
   const refine = deps.refine ?? (async ({ currentText, topic, evaluation }) => {
+    if (!client) {
+      return currentText;
+    }
     const prompt = buildRefineInstruction({ currentText, topic, evaluation });
     const out = await client.chat({
       model: refineModel,

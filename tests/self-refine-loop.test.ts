@@ -52,3 +52,16 @@ test("runSelfRefineLoop: reaches max iterations with sustained improvements", as
   assert.equal(out.iterations.length, 3);
   assert.equal(out.finalText, "revised-2");
 });
+
+test("runSelfRefineLoop: heuristic provider does not require LLM client", async () => {
+  const out = await runSelfRefineLoop("# Draft\n- step", {
+    judge: true,
+    provider: "heuristic",
+    maxIterations: 2,
+    minImprovement: 0.1
+  });
+
+  assert.equal(out.stoppedReason, "no-improvement");
+  assert.equal(out.iterations.length, 1);
+  assert.ok(out.finalScore >= 0 && out.finalScore <= 10);
+});

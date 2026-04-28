@@ -9,7 +9,7 @@ import { createHistoryStore } from "../mcp/core/context/history-store.js";
 
 test("sqlite state store persists history and deduplicates jsonl rows", async (t) => {
   if (!isSqliteDriverAvailable()) {
-    t.skip("sql.js runtime is not available");
+    t.skip("node:sqlite runtime is not available");
     return;
   }
 
@@ -54,7 +54,7 @@ test("sqlite state store persists history and deduplicates jsonl rows", async (t
 
 test("history store sqlite backend save/load/restore works", async (t) => {
   if (!isSqliteDriverAvailable()) {
-    t.skip("sql.js runtime is not available");
+    t.skip("node:sqlite runtime is not available");
     return;
   }
 
@@ -86,6 +86,7 @@ test("history store sqlite backend save/load/restore works", async (t) => {
 
     const restored = await store.restoreChatHistory(id);
     assert.equal(restored?.id, id);
+    await store.close();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

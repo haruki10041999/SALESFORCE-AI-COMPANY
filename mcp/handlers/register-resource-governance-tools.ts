@@ -191,8 +191,50 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
         topResources,
         topTopics
       });
+      const mdLines = [
+        `## Feedback Loop 可視化 (直近 ${result.windowDays}日)`,
+        "",
+        "| 指標 | 値 |",
+        "|------|-----|",
+        `| 総フィードバック | ${result.totals.total} |`,
+        `| 採択 | ${result.totals.accepted} |`,
+        `| 却下 | ${result.totals.rejected} |`,
+        `| 採択率 | ${(result.totals.acceptRate * 100).toFixed(1)}% |`,
+        ...(result.trends.rising.length > 0
+          ? [
+            "",
+            "### 📈 上昇トレンド",
+            ...result.trends.rising.slice(0, 5).map(
+              (t) => `- **${t.name}** (${t.resourceType}): ${(t.recentAcceptRate * 100).toFixed(0)}% (+${(t.delta * 100).toFixed(1)}%)`
+            )
+          ]
+          : []),
+        ...(result.trends.falling.length > 0
+          ? [
+            "",
+            "### 📉 下降トレンド",
+            ...result.trends.falling.slice(0, 5).map(
+              (t) => `- **${t.name}** (${t.resourceType}): ${(t.recentAcceptRate * 100).toFixed(0)}% (${(t.delta * 100).toFixed(1)}%)`
+            )
+          ]
+          : []),
+        ...(result.timeline.length > 0
+          ? [
+            "",
+            "### タイムライン (直近5日)",
+            "| 日付 | 採択 | 却下 | 採択率 |",
+            "|------|------|------|--------|  ",
+            ...result.timeline.slice(-5).map(
+              (p) => `| ${p.date} | ${p.accepted} | ${p.rejected} | ${(p.acceptRate * 100).toFixed(1)}% |`
+            )
+          ]
+          : [])
+      ].join("\n");
       return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+        content: [
+          { type: "text", text: JSON.stringify(result, null, 2) },
+          { type: "text", text: mdLines }
+        ]
       };
     }
   );

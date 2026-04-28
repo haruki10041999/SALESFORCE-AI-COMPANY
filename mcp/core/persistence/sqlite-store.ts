@@ -1,27 +1,16 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import initSqlJs from "sql.js";
+import {
+  DatabaseSync,
+  type SQLInputValue,
+  type SQLOutputValue,
+  type StatementSync
+} from "node:sqlite";
 
-type SqlScalar = number | string | Uint8Array | null;
-type SqlBindParams = SqlScalar[] | Record<string, SqlScalar> | null | undefined;
+type SqlBindParams = SQLInputValue[] | Record<string, SQLInputValue> | undefined;
 
-interface SqlStatement {
-  step(): boolean;
-  getAsObject(params?: SqlBindParams): Record<string, SqlScalar>;
-  free(): boolean;
-}
-
-interface SqlDatabase {
-  close(): void;
-  prepare(sql: string, params?: SqlBindParams): SqlStatement;
-  run(sql: string, params?: SqlBindParams): SqlDatabase;
-  export(): Uint8Array;
-  getRowsModified(): number;
-}
-
-interface SqlJsModule {
-  Database: new (data?: ArrayLike<number> | null) => SqlDatabase;
+interface SqliteRunResult {
+  changes: number;
 }
 
 export interface HistorySessionRecord {
@@ -55,9 +44,7 @@ export interface SQLiteStateStoreOptions {
 
 export const DEFAULT_SQLITE_STATE_FILE = "state.sqlite";
 
-type QueryRow = Record<string, SqlScalar>;
-
-let sqlJsModulePromise: Promise<SqlJsModule> | null = null;
+type QueryRow = Record<string, SQLOutputValue>;
 
 function ensureParentDir(filePath: string): void {
   const dir = dirname(filePath);
@@ -67,11 +54,11 @@ function ensureParentDir(filePath: string): void {
 }
 
 export class SQLiteStateStore {
-  private readonly db: SqlDatabase;
+  private readonly db: DatabaseSync;
   private readonly dbPath: string;
   private inTransaction = false;
 
-  private constructor(dbPath: string, db: SqlDatabase) {
+  private constructor(dbPath: string, db: DatabaseSync) {
     this.dbPath = dbPath;
     this.db = db;
     this.initSchema();
@@ -80,8 +67,7 @@ export class SQLiteStateStore {
   public static async open(options: SQLiteStateStoreOptions): Promise<SQLiteStateStore> {
     const dbPath = resolve(options.dbPath);
     ensureParentDir(dbPath);
-    const SQL = await getSqlJsModule();
-    const db = existsSync(dbPath) ? new SQL.Database(readFileSync(dbPath)) : new SQL.Database();
+    const db = new DatabaseSync(dbPath);
     return new SQLiteStateStore(dbPath, db);
   }
 
@@ -90,28 +76,29 @@ export class SQLiteStateStore {
   }
 
   public close(): void {
-    this.persist();
     this.db.close();
   }
 
   public executeInTransaction<T>(work: () => T): T {
-    this.db.run("BEGIN");
+    this.db.exec("BEGIN");
     this.inTransaction = true;
     try {
       const result = work();
-      this.db.run("COMMIT");
-      this.inTransaction = false;
-      this.persist();
+      this.db.exec("COMMIT");
       return result;
     } catch (error) {
-      this.db.run("ROLLBACK");
-      this.inTransaction = false;
+      this.db.exec("ROLLBACK");
       throw error;
+    } finally {
+      this.inTransaction = false;
     }
   }
 
   private initSchema(): void {
-    this.db.run(
+    this.db.exec("PRAGMA journal_mode=WAL;");
+    this.db.exec("PRAGMA synchronous=NORMAL;");
+    this.db.exec("PRAGMA foreign_keys=ON;");
+    this.db.exec(
       [
         "CREATE TABLE IF NOT EXISTS history_sessions (",
         "  id TEXT PRIMARY KEY,",
@@ -134,11 +121,10 @@ export class SQLiteStateStore {
         "CREATE INDEX IF NOT EXISTS idx_jsonl_stream_id ON jsonl_records(stream, id);"
       ].join("\n")
     );
-    this.persist();
   }
 
   public upsertHistorySession(session: HistorySessionRecord): void {
-    this.db.run(
+    this.executeRun(
       [
         "INSERT INTO history_sessions(id, timestamp, topic, agents_json, entries_json, created_at)",
         "VALUES (?, ?, ?, ?, ?, ?)",
@@ -157,7 +143,6 @@ export class SQLiteStateStore {
         new Date().toISOString()
       ]
     );
-    this.persistIfNeeded();
   }
 
   public listHistorySessions(limit?: number): HistorySessionRecord[] {
@@ -202,15 +187,13 @@ export class SQLiteStateStore {
   }
 
   public deleteHistoryOlderThan(isoTimestamp: string): number {
-    this.db.run("DELETE FROM history_sessions WHERE timestamp < ?", [isoTimestamp]);
-    const changes = this.db.getRowsModified();
-    this.persistIfNeeded();
+    const changes = this.executeRun("DELETE FROM history_sessions WHERE timestamp < ?", [isoTimestamp]).changes;
     return changes;
   }
 
   public pruneHistoryMaxCount(maxRows: number): number {
     if (maxRows < 0) return 0;
-    this.db.run(
+    const changes = this.executeRun(
       [
         "DELETE FROM history_sessions",
         "WHERE id IN (",
@@ -220,14 +203,12 @@ export class SQLiteStateStore {
         ")"
       ].join("\n"),
       [maxRows]
-    );
-    const changes = this.db.getRowsModified();
-    this.persistIfNeeded();
+    ).changes;
     return changes;
   }
 
   public insertJsonlRecord(record: JsonlRecordInput): boolean {
-    this.db.run(
+    const changes = this.executeRun(
       [
         "INSERT OR IGNORE INTO jsonl_records(stream, payload, source_path, line_number, imported_at)",
         "VALUES (?, ?, ?, ?, ?)"
@@ -239,9 +220,8 @@ export class SQLiteStateStore {
         record.lineNumber ?? null,
         record.importedAt ?? new Date().toISOString()
       ]
-    );
-    const inserted = this.db.getRowsModified() > 0;
-    this.persistIfNeeded();
+    ).changes;
+    const inserted = changes > 0;
     return inserted;
   }
 
@@ -267,77 +247,81 @@ export class SQLiteStateStore {
     }));
   }
 
-  private persistIfNeeded(): void {
-    if (!this.inTransaction) {
-      this.persist();
-    }
-  }
-
-  private persist(): void {
-    writeFileSync(this.dbPath, this.db.export());
-  }
-
   private selectRows(sql: string, params?: SqlBindParams): QueryRow[] {
-    const statement = this.db.prepare(sql, params);
-    try {
-      const rows: QueryRow[] = [];
-      while (statement.step()) {
-        rows.push(statement.getAsObject());
-      }
-      return rows;
-    } finally {
-      statement.free();
-    }
+    const statement = this.db.prepare(sql);
+    return runStatementAll(statement, params);
   }
 
   private selectFirstRow(sql: string, params?: SqlBindParams): QueryRow | null {
-    const statement = this.db.prepare(sql, params);
-    try {
-      return statement.step() ? statement.getAsObject() : null;
-    } finally {
-      statement.free();
-    }
+    const statement = this.db.prepare(sql);
+    const row = runStatementGet(statement, params);
+    return row ?? null;
+  }
+
+  private executeRun(sql: string, params?: SqlBindParams): SqliteRunResult {
+    const statement = this.db.prepare(sql);
+    return runStatementRun(statement, params);
+  }
+
+  public get isTransactionActive(): boolean {
+    return this.inTransaction;
   }
 }
 
 export function isSqliteDriverAvailable(): boolean {
-  const req = createRequire(import.meta.url);
   try {
-    req.resolve("sql.js");
-    req.resolve("sql.js/dist/sql-wasm.wasm");
+    const probe = new DatabaseSync(":memory:");
+    probe.exec("SELECT 1");
+    probe.close();
     return true;
   } catch {
     return false;
   }
 }
 
-async function getSqlJsModule(): Promise<SqlJsModule> {
-  if (!sqlJsModulePromise) {
-    const req = createRequire(import.meta.url);
-    const wasmPath = req.resolve("sql.js/dist/sql-wasm.wasm");
-    const wasmBinaryView = readFileSync(wasmPath);
-    const wasmBinary = wasmBinaryView.buffer.slice(
-      wasmBinaryView.byteOffset,
-      wasmBinaryView.byteOffset + wasmBinaryView.byteLength
-    );
-    sqlJsModulePromise = initSqlJs({ wasmBinary }) as Promise<SqlJsModule>;
+function runStatementRun(statement: StatementSync, params?: SqlBindParams): SqliteRunResult {
+  if (params === undefined) {
+    return statement.run() as SqliteRunResult;
   }
-  return sqlJsModulePromise;
+  if (Array.isArray(params)) {
+    return statement.run(...params) as SqliteRunResult;
+  }
+  return statement.run(params) as SqliteRunResult;
 }
 
-function asString(value: SqlScalar | undefined): string {
+function runStatementAll(statement: StatementSync, params?: SqlBindParams): QueryRow[] {
+  if (params === undefined) {
+    return statement.all() as QueryRow[];
+  }
+  if (Array.isArray(params)) {
+    return statement.all(...params) as QueryRow[];
+  }
+  return statement.all(params) as QueryRow[];
+}
+
+function runStatementGet(statement: StatementSync, params?: SqlBindParams): QueryRow | undefined {
+  if (params === undefined) {
+    return statement.get() as QueryRow | undefined;
+  }
+  if (Array.isArray(params)) {
+    return statement.get(...params) as QueryRow | undefined;
+  }
+  return statement.get(params) as QueryRow | undefined;
+}
+
+function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-function asNullableString(value: SqlScalar | undefined): string | null {
+function asNullableString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function asNumber(value: SqlScalar | undefined): number {
+function asNumber(value: unknown): number {
   return typeof value === "number" ? value : 0;
 }
 
-function asNullableNumber(value: SqlScalar | undefined): number | null {
+function asNullableNumber(value: unknown): number | null {
   return typeof value === "number" ? value : null;
 }
 

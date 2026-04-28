@@ -99,15 +99,63 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
   govTool(
     "approve_proposal",
     {
-      title: "提案を承認 (適用準備)",
-      description: "保留中の提案を approved/ に移動します。実際のリソース作成は別途 apply_resource_actions / create_preset を呼び出してください。",
+      title: "提案を承認 (既定で即時適用)",
+      description: "保留中の提案を approved/ に移動します。既定では提案内容も即時適用します（apply=false で従来の承認のみ運用に戻せます）。",
       inputSchema: {
-        id: z.string().min(1).max(128)
+        id: z.string().min(1).max(128),
+        apply: z.boolean().optional(),
+        overwrite: z.boolean().optional()
       }
     },
-    async ({ id }: { id: string }) => {
+    async ({ id, apply, overwrite }: { id: string; apply?: boolean; overwrite?: boolean }) => {
+      const pending = getProposal(outputsDir, id);
+      if (!pending) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ ok: false, error: `proposal not found: ${id}` }, null, 2) }]
+        };
+      }
+      if (pending.status !== "pending") {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({ ok: false, error: `proposal status is ${pending.status}; only pending can be approved` }, null, 2)
+          }]
+        };
+      }
+
+      const shouldApply = apply !== false;
+      let applyResult: ReturnType<typeof applyProposal> | undefined;
+      let applyError: string | undefined;
+
+      if (shouldApply) {
+        try {
+          applyResult = applyProposal(pending, {
+            repoRoot,
+            outputsDir,
+            overwrite: overwrite === true
+          });
+        } catch (error) {
+          applyError = error instanceof Error ? error.message : String(error);
+        }
+      }
+
       const record = approveProposal(outputsDir, id);
-      return { content: [{ type: "text", text: JSON.stringify({ approved: record }, null, 2) }] };
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(
+            {
+              ok: true,
+              approved: record,
+              applied: shouldApply,
+              ...(applyResult !== undefined ? { applyResult } : {}),
+              ...(applyError !== undefined ? { applyError } : {})
+            },
+            null,
+            2
+          )
+        }]
+      };
     }
   );
 

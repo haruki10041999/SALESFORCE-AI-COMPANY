@@ -260,13 +260,13 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
   );
 
   // F-10: Quality Rubric を MCP ツールとして公開。
-  // judge=true で Ollama judge (qwen2.5:3b) を呼び出し、unavailable / parse 失敗時は heuristic にフォールバック。
+  // judge=true で provider judge を呼び出し、失敗時は heuristic にフォールバック。
   govTool(
     "evaluate_quality_rubric",
     {
       title: "応答品質ルーブリック評価",
       description:
-        "応答テキストを relevance/completeness/actionability/safety/structure の 5 観点で 0..5 にスコア化します。judge=true で Ollama judge を呼び、未起動時は heuristic で代替します。",
+        "応答テキストを relevance/completeness/actionability/safety/structure の 5 観点で 0..5 にスコア化します。judge=true で設定済み provider を呼び、失敗時は heuristic で代替します。",
       inputSchema: {
         response: z.string().min(1),
         topic: z.string().optional(),

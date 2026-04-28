@@ -287,12 +287,22 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
     }
   }
 
+  async function close(): Promise<void> {
+    if (!sqliteStorePromise) {
+      return;
+    }
+    const store = await sqliteStorePromise;
+    store.close();
+    sqliteStorePromise = null;
+  }
+
   return {
     saveChatHistory,
     saveSessionHistory,
     loadChatHistories,
     restoreChatHistory,
-    deleteOldHistories
+    deleteOldHistories,
+    close
   };
 }
 

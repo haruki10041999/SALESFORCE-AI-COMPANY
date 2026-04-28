@@ -124,7 +124,10 @@ export function registerResourceCatalogTools(deps: RegisterResourceCatalogToolsD
         reportOutputDir
       });
       return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+        content: [
+          { type: "text", text: JSON.stringify(result, null, 2) },
+          { type: "text", text: `\`\`\`mermaid\n${result.mermaid}\n\`\`\`` }
+        ]
       };
     }
   );

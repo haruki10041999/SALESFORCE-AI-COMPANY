@@ -89,7 +89,7 @@ npm run ai -- scaffold -- preset release-readiness-check --agents release-manage
 - `npm run ai -- outputs:version -- backup` は現在の `outputs/` を世代バックアップします
 - `npm run ai -- outputs:version -- wipe --keep-backups` は `backups/` を残して `outputs/` を空にします
 - `outputs/execution-origins.jsonl` には、どのリポジトリ起点の実行かが JSONL で追記されます
-- 履歴保存を SQLite へ切り替える場合は `SF_AI_HISTORY_SQLITE=true` を指定します（実装は `sql.js` ベース）
+- 履歴保存を SQLite へ切り替える場合は `SF_AI_HISTORY_SQLITE=true` を指定します（実装は `node:sqlite` ベース）
 - SQLite ファイルの保存先は `SF_AI_STATE_DB_PATH` で変更できます（既定: `outputs/state.sqlite`）
 - 既定の運用 DB 名は `state.sqlite` に統一されています
 

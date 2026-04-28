@@ -18,7 +18,7 @@
 | `outputs/backups/` | 世代バックアップ | 復元したいとき |
 | `outputs/audit/` | 操作の監査ログ | 誰が何をしたか確認するとき |
 | `outputs/tool-proposals/` | 提案学習ログ | 推薦精度の分析をするとき |
-| `outputs/tool-proposals/pending/` | リソース作成提案 (保留中) | `list_proposals` / `approve_proposal` / `apply_proposal` / `auto_apply_pending_proposals` の対象 |
+| `outputs/tool-proposals/pending/` | リソース作成提案 (保留中) | `list_proposals` / `approve_proposal` (既定で即時適用) / `apply_proposal` / `auto_apply_pending_proposals` の対象 |
 | `outputs/tool-proposals/approved/` | リソース作成提案 (承認済 audit) | 承認履歴の追跡 |
 | `outputs/tool-proposals/rejected/` | リソース作成提案 (却下 audit) | 却下理由つき履歴 |
 | `outputs/benchmark/` | nightly benchmark の結果 (TASK-050) | grade 推移や regress を確認するとき |

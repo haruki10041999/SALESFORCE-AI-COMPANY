@@ -57,6 +57,11 @@ jobs:
             exit 1
           fi
 
+      - name: Archive SLA metrics
+        run: |
+          npm run metrics:sla-archive || echo "note: SLA archive skipped (no metrics available yet)"
+          ls -la outputs/audit/ 2>/dev/null || echo "no audit records yet"
+
       - name: Generate metrics dashboard
         run: |
           EXTRA_ARGS=""
@@ -67,8 +72,9 @@ jobs:
 
       - name: Prepare pages artifact
         run: |
-          mkdir -p site
+          mkdir -p site/audit
           cp outputs/reports/metrics-dashboard.html site/index.html
+          cp -r outputs/audit/* site/audit/ 2>/dev/null || echo "no audit records yet"
 
       - name: Publish SLA alert summary
         run: |

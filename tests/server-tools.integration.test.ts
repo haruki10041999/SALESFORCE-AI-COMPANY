@@ -635,6 +635,85 @@ test("proposal_feedback_learn captures structured rejection reasons", async () =
   assert.ok(targetResource!.rejectReasons.reject_unnecessary >= 1);
 });
 
+test("visualize_feedback_loop summarizes feedback timeline and heatmap from learned entries", async () => {
+  const suffix = `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+  const topic = `auto-memory-loop-topic-${suffix}`;
+  const skillName = `auto-memory-loop-skill-${suffix}`;
+  const now = new Date();
+  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+
+  await callTool("proposal_feedback_learn", {
+    feedback: [
+      {
+        resourceType: "skills",
+        name: skillName,
+        decision: "accepted",
+        topic,
+        recordedAt: now.toISOString()
+      },
+      {
+        resourceType: "skills",
+        name: skillName,
+        decision: "accepted",
+        topic,
+        recordedAt: oneDayAgo.toISOString()
+      },
+      {
+        resourceType: "skills",
+        name: skillName,
+        decision: "reject_duplicate",
+        topic,
+        recordedAt: oneDayAgo.toISOString()
+      },
+      {
+        resourceType: "skills",
+        name: skillName,
+        decision: "reject_inaccurate",
+        topic,
+        recordedAt: twoDaysAgo.toISOString()
+      }
+    ],
+    minSamples: 1
+  });
+
+  const payload = parseFirstJson<{
+    totals: {
+      accepted: number;
+      rejected: number;
+      total: number;
+      acceptRate: number;
+    };
+    rejectReasonShare: Record<string, number>;
+    timeline: Array<{ date: string; accepted: number; rejected: number; acceptRate: number }>;
+    heatmap: Array<{
+      topic: string;
+      resource: string;
+      accepted: number;
+      rejected: number;
+      total: number;
+      acceptRate: number;
+    }>;
+  }>(await callTool("visualize_feedback_loop", {
+    periodDays: 30,
+    trendWindowDays: 14,
+    minSamples: 1,
+    topResources: 20,
+    topTopics: 50
+  }));
+
+  const targetCell = payload.heatmap.find((cell) => cell.topic === topic && cell.resource === skillName);
+  assert.ok(targetCell, "heatmap should include feedback pair registered in proposal_feedback_learn");
+  assert.equal(targetCell!.accepted, 2);
+  assert.equal(targetCell!.rejected, 2);
+  assert.equal(targetCell!.total, 4);
+
+  assert.ok(payload.totals.total >= 4);
+  assert.ok(payload.rejectReasonShare.reject_duplicate > 0);
+  assert.ok(payload.rejectReasonShare.reject_inaccurate > 0);
+  assert.ok(payload.timeline.length > 0);
+});
+
 test("metrics_summary returns trace-based summary fields", async () => {
   const result = await callTool("metrics_summary", { limit: 50 });
   const payload = JSON.parse(result.content[0].text) as {
@@ -989,7 +1068,8 @@ test("orchestration evaluate_triggers honors once rules and uses round-robin fal
   }>(await callTool("evaluate_triggers", {
     sessionId: orchestrated.sessionId,
     lastAgent: "architect",
-    lastMessage: "実装方針を確定します"
+    lastMessage: "実装方針を確定します",
+    enableTrustScoring: false
   }));
 
   assert.deepEqual(firstEval.nextAgents, ["debug-specialist"]);
@@ -1001,7 +1081,8 @@ test("orchestration evaluate_triggers honors once rules and uses round-robin fal
   }>(await callTool("evaluate_triggers", {
     sessionId: orchestrated.sessionId,
     lastAgent: "architect",
-    lastMessage: "実装を続行します"
+    lastMessage: "実装を続行します",
+    enableTrustScoring: false
   }));
 
   assert.deepEqual(secondEval.nextAgents, ["qa-engineer"]);
@@ -1030,7 +1111,8 @@ test("orchestration evaluate_triggers can disable round-robin fallback", async (
     sessionId: orchestrated.sessionId,
     lastAgent: "architect",
     lastMessage: "この文章は条件に一致しません",
-    fallbackRoundRobin: false
+    fallbackRoundRobin: false,
+    enableTrustScoring: false
   }));
 
   assert.deepEqual(evaluated.nextAgents, []);

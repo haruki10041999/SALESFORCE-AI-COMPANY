@@ -15,7 +15,28 @@
  * - judge モデル不在 / タイムアウト時は呼び出し側がスコア未確定として扱える。
  */
 
-import { OllamaClient, getDefaultOllamaClient, OllamaError } from "./ollama-client.js";
+import { getDefaultOllamaClient, type OllamaChatRequest, type OllamaChatResponse } from "./ollama-client.js";
+
+export type RubricJudgeProvider = "ollama" | "heuristic";
+
+export interface RubricJudgeChatClient {
+  chat(req: OllamaChatRequest): Promise<OllamaChatResponse>;
+}
+
+export interface RubricProviderEnvSource {
+  AI_LLM_PROVIDER?: string;
+  SF_AI_LLM_PROVIDER?: string;
+}
+
+export function getRubricJudgeProvider(
+  env: RubricProviderEnvSource = process.env
+): RubricJudgeProvider {
+  const raw = (env.AI_LLM_PROVIDER ?? env.SF_AI_LLM_PROVIDER ?? "ollama").trim().toLowerCase();
+  if (raw === "heuristic") {
+    return "heuristic";
+  }
+  return "ollama";
+}
 
 export interface QualityCriterion {
   /** 安定 ID。JSON のキーになる */
@@ -81,7 +102,9 @@ export interface QualityRubricResult {
 }
 
 export interface EvaluateRubricOptions {
-  client?: OllamaClient;
+  client?: RubricJudgeChatClient;
+  provider?: RubricJudgeProvider;
+  envSource?: RubricProviderEnvSource;
   model?: string;
   criteria?: ReadonlyArray<QualityCriterion>;
   /** タイムアウトを短くしたい場合のオーバーライド (ms) */
@@ -253,6 +276,11 @@ export async function evaluateQualityRubric(
 ): Promise<QualityRubricResult> {
   const criteria = options.criteria ?? DEFAULT_RUBRIC_CRITERIA;
   const fallback = options.fallbackOnFailure ?? true;
+  const provider = options.provider ?? getRubricJudgeProvider(options.envSource ?? process.env);
+  if (provider === "heuristic") {
+    return evaluateHeuristicRubric(response, criteria);
+  }
+
   const client = options.client ?? getDefaultOllamaClient();
   const model = options.model ?? "qwen2.5:3b";
   const prompt = buildJudgePrompt(response, criteria, options.topic);
@@ -278,7 +306,7 @@ export async function evaluateQualityRubric(
         const heur = evaluateHeuristicRubric(response, criteria);
         return { ...heur, rawJudgeResponse: rawResponse };
       }
-      throw new OllamaError("E_RUBRIC_PARSE_FAILED", "judge response could not be parsed");
+      throw new Error("judge response could not be parsed");
     }
 
     // 欠けた criterion は heuristic 推定で補完
