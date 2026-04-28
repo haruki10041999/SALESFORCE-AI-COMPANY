@@ -40,6 +40,17 @@ npm run ai -- dev
 - Jaeger UI: `http://localhost:16686`
 - Prometheus UI: `http://localhost:9090`
 - Grafana UI: `http://localhost:3000`
+- Prometheus scrape target: `http://localhost:9464/metrics` (既定)
+
+6. Telemetry 確認（任意）
+
+```bash
+# Prometheus endpoint
+curl http://localhost:9464/metrics
+
+# Jaeger services
+curl http://localhost:16686/api/services
+```
 
 5. 停止手順
 
@@ -51,6 +62,8 @@ docker compose down
 
 - Docker 構成の詳細は `ollama-setup.md` を参照
 - Prometheus は `host.docker.internal:9464/metrics` を scrape する構成
+- `npm run ai -- dev` は stdio 接続が切れるとプロセス終了するため、`/metrics` は MCP クライアント接続中のみ利用可能
+- 複数リポジトリで同時運用する場合は `PROMETHEUS_METRICS_PORT` と `OTEL_SERVICE_NAME` を分離する
 
 ## 毎日の確認（5分）
 

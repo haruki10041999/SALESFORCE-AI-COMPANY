@@ -186,11 +186,18 @@ OLLAMA_TIMEOUT_MS=60000
 OLLAMA_REQUIRED=false
 EMBEDDING_PROVIDER=ollama
 OLLAMA_EMBEDDING_MODEL=nomic-embed-text:latest
+OLLAMA_INIT_MODELS="qwen2.5:3b nomic-embed-text:latest"
 
 OTEL_ENABLED=true
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+OTEL_SERVICE_NAME=salesforce-ai-company
 PROMETHEUS_METRICS_PORT=9464
 ```
+
+注意:
+
+- `PROMETHEUS_METRICS_PORT` の `/metrics` は MCP サーバプロセスが稼働中のときのみ応答します。
+- `npm run ai -- dev` は stdio 接続が切れると終了するため、常時 scrape する場合は MCP クライアント接続を維持してください。
 
 ### エンドポイント一覧
 

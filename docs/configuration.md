@@ -107,6 +107,11 @@ Copy-Item .env.operations.sample .env
 | `SF_AI_LOCALE` | `AppError` 等のローカライズ言語（`ja` / `en`）。未対応値は `ja` にフォールバック (TASK-F8) | `ja` |
 | `SF_AI_DOTENV_DISABLE` | `.env` 自動読込を無効化する (`1` で無効) | `0` |
 | `SF_AI_DOTENV_PATH` | 読み込む `.env` のパスを明示指定（指定時は優先） | 未設定 |
+| `OTEL_ENABLED` | OTel SDK を有効化する (`true` で有効) | `false` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP HTTP エンドポイント（`/v1/traces` は自動補完） | 未設定 |
+| `OTEL_SERVICE_NAME` | OTel のサービス名（Jaeger 上の識別名） | `salesforce-ai-company` |
+| `PROMETHEUS_METRICS_PORT` | `/metrics` を公開する HTTP ポート（`0` で無効） | `0` |
+| `OLLAMA_INIT_MODELS` | docker compose の `ollama-init` が pull するモデル一覧（空白区切り） | `qwen2.5:3b nomic-embed-text:latest` |
 | `PROMPT_CACHE_MAX_ENTRIES` | メモリ上にキャッシュするプロンプトの最大件数 | `100` |
 | `PROMPT_CACHE_TTL_SECONDS` | キャッシュエントリの有効期間（秒） | `600` |
 | `PROMPT_CACHE_FILE` | プロンプトキャッシュを JSONL に永続化する先（未指定なら永続化しない / TASK-046） | 未設定 |
@@ -132,6 +137,19 @@ Copy-Item .env.operations.sample .env
 - `outputs/execution-origins.jsonl` には、各ツール実行について `toolName`, `status`, `serverRoot`, `processCwd`, `repoRoots`, `inputPathHints` が追記されます
 - `repoRoots` は `repoPath`, `rootDir`, `filePath`, `filePaths` などの入力から近傍 `.git` をたどって推定されます
 - 入力に repo 情報がない軽量ツールでは、server 側 repo root とカレント作業ディレクトリが主な手がかりになります
+
+## 複数リポジトリでの併用時の推奨
+
+同一マシンで複数の MCP サーバを立ち上げる場合、次を分離すると衝突を避けられます。
+
+- `SF_AI_OUTPUTS_DIR`
+- `PROMETHEUS_METRICS_PORT`
+- `OTEL_SERVICE_NAME`
+
+例:
+
+- repo A: `PROMETHEUS_METRICS_PORT=9464`, `OTEL_SERVICE_NAME=salesforce-ai-company-a`
+- repo B: `PROMETHEUS_METRICS_PORT=9465`, `OTEL_SERVICE_NAME=salesforce-ai-company-b`
 
 <!-- AUTO-GOVERNANCE:START -->
 

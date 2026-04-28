@@ -89,6 +89,7 @@ import type { OrchestrationSession } from "./core/types/index.js";
 import type { SystemEventType } from "./core/event/event-dispatcher.js";
 import { createLogger } from "./core/logging/logger.js";
 import { getLowRelevanceScoreThreshold } from "./core/config/runtime-config.js";
+import { startObservabilityRuntime } from "./core/observability/runtime.js";
 
 // Resolve project root from this file location so cross-repo clients can share one server.
 const ROOT = resolveProjectRootFromFile(import.meta.url);
@@ -577,6 +578,8 @@ registerServerTools({
   });
 
 async function main(): Promise<void> {
+  const observabilityRuntime = await startObservabilityRuntime(logger);
+
   await initializeServerRuntimeModule({
     logger,
     customToolsDir: CUSTOM_TOOLS_DIR,
@@ -588,7 +591,11 @@ async function main(): Promise<void> {
     autoInitializeHandlers
   });
 
-  await startMcpTransport(server, logger);
+  try {
+    await startMcpTransport(server, logger);
+  } finally {
+    await observabilityRuntime.stop();
+  }
 }
 
 runWithLifecycle({

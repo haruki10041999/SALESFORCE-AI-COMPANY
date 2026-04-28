@@ -162,6 +162,10 @@ historian, gardener, samurai, jedi, inventor, speed-demon, captain, archivist
 | `SF_AI_STATE_DB_PATH` | SQLite ファイルパス（`SF_AI_HISTORY_SQLITE=true` 時に利用） | `outputs/state.sqlite` |
 | `SF_AI_OUTPUTS_BACKUP_DIR` | outputs バックアップ保存先 | `outputs/backups` |
 | `SF_AI_OUTPUTS_BACKUP_KEEP` | 保持する snapshot 世代数 | `5` |
+| `OTEL_ENABLED` | OTel SDK を有効化する (`true`/`false`) | `false` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP HTTP エンドポイント | 未設定 |
+| `OTEL_SERVICE_NAME` | OTel サービス名（Jaeger識別用） | `salesforce-ai-company` |
+| `PROMETHEUS_METRICS_PORT` | `/metrics` 公開ポート（`0`で無効） | `0` |
 | `LOG_LEVEL` | ログレベル (error/warn/info/debug) | `info` |
 | `SF_AI_AUTO_APPLY` | 自動適用の有効化 | `false` |
 | `SF_AI_AUTO_APPLY_MIN_SCORE` | 品質スコア下限 | `70` |
