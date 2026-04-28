@@ -23,7 +23,7 @@
 | `skills` | string[] | — | `[]` | 適用スキル名（例: `"apex/apex-best-practices"`） |
 | `filePaths` | string[] | — | `[]` | コンテキストとして渡すファイルパス一覧 |
 | `turns` | number | — | `6` | 生成するプロンプトの会話ターン数 |
-| `maxContextChars` | number | — | — | コンテキスト文字数の上限（500〜200000） |
+| `maxContextChars` | number | — | 自動（実装: 8000 / レビュー: 6000 / 調査: 12000） | コンテキスト文字数の上限（500〜200000） |
 | `appendInstruction` | string | — | — | プロンプト末尾に追加する補足指示 |
 
 ### 利用可能なエージェント名
@@ -91,7 +91,7 @@ chat:
 | `persona` | string | — | ペルソナ名 |
 | `skills` | string[] | — | 適用スキル名 |
 | `repoPath` | string | — | 解析対象リポジトリパス（省略時はサーバー起動ディレクトリ） |
-| `maxContextChars` | number | — | コンテキスト文字数の上限（500〜200000） |
+| `maxContextChars` | number | 自動（実装: 8000 / レビュー: 6000 / 調査: 12000） | コンテキスト文字数の上限（500〜200000） |
 | `appendInstruction` | string | — | プロンプト末尾に追加する補足指示 |
 
 ### 自動コンテキスト収集の動作
@@ -138,7 +138,14 @@ smart_chat:
 | `agents` | string[] | — | 全トピック共通のエージェント（`topicConfigs` の個別設定で上書き可） |
 | `persona` | string | — | 全トピック共通のペルソナ |
 | `skills` | string[] | — | 全トピック共通のスキル |
-| `maxContextChars` | number | 500〜200000 | コンテキスト文字数の上限 |
+| `maxContextChars` | number | 500〜200000（未指定時は自動: 実装 8000 / レビュー 6000 / 調査 12000） | コンテキスト文字数の上限 |
+
+### `maxContextChars` 未指定時の自動ルール
+
+- 明示指定がある場合はその値を優先
+- `filePaths` がある、またはトピックがレビュー系キーワードを含む場合: `6000`
+- トピックが調査・分析系キーワードを含む場合: `12000`
+- それ以外: `8000`
 | `appendInstruction` | string | — | 全トピック共通の補足指示 |
 | `parallel` | boolean | — | `true` のとき全トピックを並行処理（デフォルト: 逐次） |
 

@@ -30,6 +30,93 @@ interface RegisterResourceSearchToolsDeps extends RegisterGovToolDeps {
   registeredToolMetadata: Map<string, ToolMetadata>;
 }
 
+type ConfidenceLevel = "low" | "medium" | "high";
+
+interface ConfidenceSnapshot {
+  level: ConfidenceLevel;
+  topScore: number;
+  secondScore: number;
+  scoreGap: number;
+  relativeGap: number;
+  signalCount: number;
+}
+
+function buildConfidenceSnapshot(scores: number[]): ConfidenceSnapshot {
+  const ranked = [...scores]
+    .filter((score) => Number.isFinite(score) && score > 0)
+    .sort((a, b) => b - a);
+
+  const topScore = ranked[0] ?? 0;
+  const secondScore = ranked[1] ?? 0;
+  const scoreGap = Math.max(0, topScore - secondScore);
+  const relativeGap = topScore > 0 ? scoreGap / topScore : 0;
+
+  if (topScore <= 0) {
+    return {
+      level: "low",
+      topScore,
+      secondScore,
+      scoreGap,
+      relativeGap,
+      signalCount: ranked.length
+    };
+  }
+
+  if (ranked.length <= 1) {
+    return {
+      level: "medium",
+      topScore,
+      secondScore,
+      scoreGap,
+      relativeGap,
+      signalCount: ranked.length
+    };
+  }
+
+  if (relativeGap < 0.15) {
+    return {
+      level: "low",
+      topScore,
+      secondScore,
+      scoreGap,
+      relativeGap,
+      signalCount: ranked.length
+    };
+  }
+
+  if (relativeGap < 0.35) {
+    return {
+      level: "medium",
+      topScore,
+      secondScore,
+      scoreGap,
+      relativeGap,
+      signalCount: ranked.length
+    };
+  }
+
+  return {
+    level: "high",
+    topScore,
+    secondScore,
+    scoreGap,
+    relativeGap,
+    signalCount: ranked.length
+  };
+}
+
+export function evaluateAutoSelectionConfidence(params: {
+  skills: Array<{ score: number }>;
+  tools: Array<{ score: number }>;
+  presets: Array<{ score: number }>;
+}): ConfidenceSnapshot {
+  return buildConfidenceSnapshot([
+    ...params.skills.map((row) => row.score),
+    ...params.tools.map((row) => row.score),
+    ...params.presets.map((row) => row.score)
+  ]);
+}
+
 export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDeps): void {
   const {
     govTool,
@@ -369,6 +456,19 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
         rankedTools[0]?.score ?? 0,
         rankedPresets[0]?.score ?? 0
       );
+
+      const confidence = evaluateAutoSelectionConfidence({
+        skills: rankedSkills,
+        tools: rankedTools,
+        presets: rankedPresets
+      });
+
+      const selected = {
+        skills: rankedSkills.map((x) => x.name),
+        tools: rankedTools.map((x) => x.name),
+        presets: rankedPresets.map((x) => x.name)
+      };
+
       if (overallMax < lowRelevanceScoreThreshold) {
         await emitSystemEvent("low_relevance_detected", {
           source: "auto_select_resources",
@@ -378,6 +478,31 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
         });
       }
 
+      if (confidence.level === "low") {
+        await emitSystemEvent("low_confidence_selection", {
+          source: "auto_select_resources",
+          topic,
+          topScore: confidence.topScore,
+          secondScore: confidence.secondScore,
+          scoreGap: confidence.scoreGap,
+          relativeGap: confidence.relativeGap,
+          signalCount: confidence.signalCount,
+          selected
+        });
+      }
+
+      const fallback = confidence.level === "low"
+        ? {
+          recommendedTool: "chat",
+          reason: "Top candidates are too close. Clarify requirements or run chat with explicit agents/file paths.",
+          clarifyingQuestions: [
+            "このタスクの最優先は何ですか？（速度 / 品質 / セキュリティ / 保守性）",
+            "対象は LWC / Apex / Flow のどれですか？",
+            "関連するファイルパスやエラー文はありますか？"
+          ]
+        }
+        : null;
+
       return {
         content: [
           {
@@ -385,16 +510,14 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
             text: JSON.stringify(
               {
                 topic,
-                selected: {
-                  skills: rankedSkills.map((x) => x.name),
-                  tools: rankedTools.map((x) => x.name),
-                  presets: rankedPresets.map((x) => x.name)
-                },
+                selected,
+                confidence,
                 detail: {
                   skills: rankedSkills,
                   tools: rankedTools,
                   presets: rankedPresets
                 },
+                fallback,
                 note: "Top candidates are returned. Continue by calling relevant tools with this result."
               },
               null,

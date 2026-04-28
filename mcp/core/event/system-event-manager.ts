@@ -11,6 +11,7 @@ export type SystemEventName =
   | "preset_before_execute"
   | "governance_threshold_exceeded"
   | "low_relevance_detected"
+  | "low_confidence_selection"
   | "history_saved"
   | "error_aggregate_detected"
   | "session_end";

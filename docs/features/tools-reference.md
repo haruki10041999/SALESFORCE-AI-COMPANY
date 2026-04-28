@@ -234,6 +234,7 @@ Run `npm run docs:tools` after adding or renaming a tool to refresh this file.
 ### `batch_chat`
 - **Title**: バッチチャット
 - **Description**: 複数トピックのチャットを一括実行します。
+- **Notes**: `maxContextChars` 未指定時はトピック特性で自動適用（実装 8000 / レビュー 6000 / 調査 12000）。
 - **Source**: `mcp/handlers/register-batch-tools.ts`
 
 ## mcp/handlers/register-branch-review-tools.ts
@@ -288,6 +289,7 @@ Run `npm run docs:tools` after adding or renaming a tool to refresh this file.
 ### `chat`
 - **Title**: チャット（デフォルト）
 - **Description**: 既定設定でチャットを実行します。
+- **Notes**: `maxContextChars` 未指定時はトピック特性で自動適用（実装 8000 / レビュー 6000 / 調査 12000）。
 - **Source**: `mcp/handlers/register-chat-orchestration-tools.ts`
 
 ### `dequeue_next_agent`
@@ -739,6 +741,7 @@ Run `npm run docs:tools` after adding or renaming a tool to refresh this file.
 ### `auto_select_resources`
 - **Title**: リソース自動選択
 - **Description**: トピックに適したリソース候補を自動選択します。
+- **Notes**: レスポンスに `confidence`（low/medium/high）を含み、低信頼時は `fallback`（`chat` 推奨と確認質問）を返します。低信頼判定時は `low_confidence_selection` イベントを発行します。
 - **Source**: `mcp/handlers/register-resource-search-tools.ts`
 
 ### `get_skill_rating_report`
@@ -766,6 +769,7 @@ Run `npm run docs:tools` after adding or renaming a tool to refresh this file.
 ### `smart_chat`
 - **Title**: スマートチャット
 - **Description**: 関連ファイルを自動検出してスマートチャットを実行します。
+- **Notes**: `maxContextChars` 未指定時はトピック特性で自動適用（実装 8000 / レビュー 6000 / 調査 12000）。
 - **Source**: `mcp/handlers/register-smart-chat-tools.ts`
 
 ## mcp/handlers/register-vector-prompt-tools.ts

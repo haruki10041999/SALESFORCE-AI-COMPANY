@@ -71,6 +71,9 @@ search_resources:
 トピックに対して最適なエージェント・スキル・プリセットを自動選択します。
 `search_resources` の上位層として、トピックに関連するリソースを一括推薦します。
 
+候補スコアの近さから `confidence`（`low` / `medium` / `high`）を算出し、
+低信頼（`low`）時は `fallback` を返します。
+
 ### 入力パラメータ
 
 | パラメータ | 型 | デフォルト | 説明 |
@@ -85,6 +88,41 @@ auto_select_resources:
   topic: "Salesforce セキュリティレビュー"
   limitPerType: 3
 ```
+
+### 出力例（低信頼時）
+
+```json
+{
+  "topic": "LWC エラー修正",
+  "selected": {
+    "skills": ["lwc/debug"],
+    "tools": ["lwc_analyzer"],
+    "presets": ["Salesforce 開発レビュー"]
+  },
+  "confidence": {
+    "level": "low",
+    "topScore": 0.62,
+    "secondScore": 0.58,
+    "scoreGap": 0.04,
+    "relativeGap": 0.0645,
+    "signalCount": 6
+  },
+  "fallback": {
+    "recommendedTool": "chat",
+    "reason": "Top candidates are too close. Clarify requirements or run chat with explicit agents/file paths.",
+    "clarifyingQuestions": [
+      "このタスクの最優先は何ですか？（速度 / 品質 / セキュリティ / 保守性）",
+      "対象は LWC / Apex / Flow のどれですか？",
+      "関連するファイルパスやエラー文はありますか？"
+    ]
+  }
+}
+```
+
+### 関連イベント
+
+- `low_relevance_detected`: 上位スコアがしきい値未満
+- `low_confidence_selection`: 候補スコア差が小さく、選定信頼度が低い
 
 ---
 

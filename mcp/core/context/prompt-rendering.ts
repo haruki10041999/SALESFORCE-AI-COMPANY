@@ -11,6 +11,35 @@
  */
 import { buildChatPromptFromContext } from "./chat-prompt-builder.js";
 
+const REVIEW_TOPIC_PATTERN = /レビュー|確認|チェック|監査|review|audit|qa|quality/i;
+const EXPLORATION_TOPIC_PATTERN = /調査|分析|原因|探索|investigate|analysis|debug|troubleshoot/i;
+
+export const DEFAULT_MAX_CONTEXT_CHARS = Object.freeze({
+  implementation: 8000,
+  review: 6000,
+  exploration: 12000
+});
+
+export function resolveDefaultMaxContextChars(input: {
+  topic: string;
+  filePaths: string[];
+  maxContextChars?: number;
+}): number {
+  if (input.maxContextChars != null) {
+    return input.maxContextChars;
+  }
+
+  if (input.filePaths.length > 0 || REVIEW_TOPIC_PATTERN.test(input.topic)) {
+    return DEFAULT_MAX_CONTEXT_CHARS.review;
+  }
+
+  if (EXPLORATION_TOPIC_PATTERN.test(input.topic)) {
+    return DEFAULT_MAX_CONTEXT_CHARS.exploration;
+  }
+
+  return DEFAULT_MAX_CONTEXT_CHARS.implementation;
+}
+
 export type FindMdFilesRecursiveFn = (dir: string) => string[];
 export type ToPosixPathFn = (p: string) => string;
 export type TruncateContentFn = (text: string, maxChars: number, label?: string) => string;
@@ -67,8 +96,14 @@ export function createPromptRenderer(deps: PromptRendererDeps): PromptRenderer {
     maxContextChars,
     appendInstruction,
     includeProjectContext
-  ) =>
-    buildChatPromptFromContext(
+  ) => {
+    const resolvedMaxContextChars = resolveDefaultMaxContextChars({
+      topic,
+      filePaths,
+      maxContextChars
+    });
+
+    return buildChatPromptFromContext(
       {
         topic,
         agentNames,
@@ -76,7 +111,7 @@ export function createPromptRenderer(deps: PromptRendererDeps): PromptRenderer {
         skillNames,
         filePaths,
         turns,
-        maxContextChars,
+        maxContextChars: resolvedMaxContextChars,
         appendInstruction,
         includeProjectContext
       },
@@ -88,6 +123,7 @@ export function createPromptRenderer(deps: PromptRendererDeps): PromptRenderer {
         getMdFileAsync: deps.getMdFileAsync
       }
     );
+  };
 
   const buildChatPromptCompat: PromptRenderer["buildChatPromptCompat"] = (
     topic,

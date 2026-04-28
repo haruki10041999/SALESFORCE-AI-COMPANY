@@ -39,11 +39,12 @@
       "enabled": true,
       "protectedTools": [
         "apply_resource_actions",
-        "get_resource_governance",
-        "review_resource_governance",
-        "record_resource_signal",
-        "get_system_events",
+        "get_agent",
         "get_event_automation_config",
+        "get_resource_governance",
+        "get_system_events",
+        "record_resource_signal",
+        "review_resource_governance",
         "update_event_automation_config"
       ],
       "rules": {
@@ -55,6 +56,13 @@
           "maxToolsPerRun": 3
         }
       }
+    },
+    "sla": {
+      "default": {
+        "maxP95Ms": 200,
+        "maxErrorRatePercent": 5
+      },
+      "tools": {}
     }
   },
   "usage": {
@@ -72,5 +80,5 @@
     "tools": [],
     "presets": []
   },
-  "updatedAt": "2026-04-28T00:51:35.440Z"
+  "updatedAt": "2026-04-28T07:35:19.540Z"
 }
