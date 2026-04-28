@@ -3,25 +3,29 @@
 ## まず読む 5 つ (最短経路)
 
 1. [README.md](../README.md) — プロジェクト全体像と起動方法
-2. [architecture.md](./architecture.md) — システム設計概要
+2. **主要領域の README**（実装詳細を知りたい人向け）:
+   - [mcp/README.md](../mcp/README.md) — MCP サーバーアーキテクチャ
+   - [agents/README.md](../agents/README.md) — エージェント（17個）一覧
+   - [skills/README.md](../skills/README.md) — スキル（知識体系）
+   - [personas/README.md](../personas/README.md) — ペルソナ（応答スタイル）
+   - [context/README.md](../context/README.md) — プロンプト構築・注入
 3. 用途別エントリ:
    - 運用したい → [operations-guide.md](./operations-guide.md)
    - 開発したい → [developer-guide.md](./developer-guide.md)
 4. [configuration.md](./configuration.md) — 環境変数・設定キー一覧
-5. [feature-usage-guide.md](./feature-usage-guide.md) — 主要機能のユースケース集
 
-> 上記 5 つを読めば日常作業はカバーできます。以下は必要に応じて参照してください。
+> 上記で日常作業はカバーできます。以下は必要に応じて参照してください。
 
 ## 詳細リファレンス
 
 - 出力構成: [outputs-structure.md](./outputs-structure.md)
-- ストレージ統一計画: [outputs-storage-unification-plan.md](./outputs-storage-unification-plan.md)
 - 学習の仕組み: [learning-guide.md](./learning-guide.md)
 - 指標評価: [metrics-evaluation.md](./metrics-evaluation.md)
 - 検証手順: [verification-guide.md](./verification-guide.md)
-- 全機能動作確認: [full-feature-verification.md](./full-feature-verification.md)
 - リソース一覧: [resource-inventory.md](./resource-inventory.md)
 - OpenCode セットアップ: [opencode-setup.md](./opencode-setup.md)
+- Ollama セットアップ: [ollama-setup.md](./ollama-setup.md)
+- 削除したスクリプト: [deprecated-scripts.md](./deprecated-scripts.md)
 - 変更履歴: [CHANGELOG.md](./CHANGELOG.md)
 - Declarative tool 例 (JSON):
   - compose-prompt 型: [examples/declarative-tool.compose-prompt.example.json](./examples/declarative-tool.compose-prompt.example.json)

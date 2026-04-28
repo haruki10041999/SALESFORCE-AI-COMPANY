@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { createLogger } from "../mcp/core/logging/logger.js";
+import { atomicWriteFileSync } from "../mcp/core/io/atomic-write.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_MEMORY_FILE = join(ROOT, "outputs", "memory.jsonl");
@@ -92,7 +93,7 @@ function saveToDisk(): void {
       .map((text) => JSON.stringify({ text, savedAt: new Date().toISOString() }))
       .join("\n");
     const content = archivePayloadIfNeeded(payload.length > 0 ? `${payload}\n` : "");
-    writeFileSync(storageFilePath, content, "utf-8");
+    atomicWriteFileSync(storageFilePath, content, "utf-8");
   } catch {
     // Keep API non-throwing for tool execution stability.
   }

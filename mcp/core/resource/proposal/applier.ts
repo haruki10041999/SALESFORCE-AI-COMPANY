@@ -16,8 +16,9 @@
  * idempotent: 既存ファイルがあれば overwriteFlag=false の場合スキップする。
  */
 
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { atomicWriteFileSync } from "../../io/atomic-write.js";
 import type { ProposalRecord } from "./queue.js";
 import { DeclarativeToolSpecSchema } from "../../declarative/tool-spec.js";
 
@@ -60,7 +61,7 @@ function applySkill(record: ProposalRecord, options: ProposalApplyOptions): Prop
   if (existsSync(filePath) && !options.overwrite) {
     return { applied: false, filePath, reason: "already-exists" };
   }
-  writeFileSync(filePath, record.content, "utf-8");
+  atomicWriteFileSync(filePath, record.content, "utf-8");
   return { applied: true, filePath, reason: "written" };
 }
 
@@ -122,9 +123,9 @@ function applyTool(record: ProposalRecord, options: ProposalApplyOptions): Propo
       createdAt: new Date().toISOString(),
       proposalId: record.id
     };
-    writeFileSync(filePath, JSON.stringify(legacy, null, 2), "utf-8");
+    atomicWriteFileSync(filePath, JSON.stringify(legacy, null, 2), "utf-8");
   } else {
-    writeFileSync(filePath, JSON.stringify(parsed.data, null, 2), "utf-8");
+    atomicWriteFileSync(filePath, JSON.stringify(parsed.data, null, 2), "utf-8");
   }
   return { applied: true, filePath, reason: "written" };
 }
@@ -169,10 +170,10 @@ function applyPreset(record: ProposalRecord, options: ProposalApplyOptions): Pro
     proposalId: record.id,
     ...payload
   };
-  writeFileSync(versionFile, JSON.stringify(out, null, 2), "utf-8");
+  atomicWriteFileSync(versionFile, JSON.stringify(out, null, 2), "utf-8");
   // ルート latest コピー
   const latestFile = join(presetsRoot, `${slug}.json`);
-  writeFileSync(latestFile, JSON.stringify(out, null, 2), "utf-8");
+  atomicWriteFileSync(latestFile, JSON.stringify(out, null, 2), "utf-8");
   return { applied: true, filePath: versionFile, reason: "written" };
 }
 

@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { createLogger } from "../mcp/core/logging/logger.js";
+import { atomicWriteFileSync } from "../mcp/core/io/atomic-write.js";
 import {
   createEmbeddingProvider,
   cosineSimilarity,
@@ -179,7 +180,7 @@ function saveToDisk(): void {
     mkdirSync(dirname(storageFilePath), { recursive: true });
     const payload = records.map((record) => JSON.stringify(record)).join("\n");
     const content = archivePayloadIfNeeded(payload.length > 0 ? `${payload}\n` : "");
-    writeFileSync(storageFilePath, content, "utf-8");
+    atomicWriteFileSync(storageFilePath, content, "utf-8");
   } catch {
     // ツール実行を落とさないため保存失敗は握りつぶす。
   }

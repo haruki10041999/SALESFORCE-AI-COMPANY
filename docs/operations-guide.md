@@ -88,6 +88,12 @@ npm run ai -- doctor
 
 - `doctor` が成功で終わる
 
+補足:
+
+- Git 管理下では `npm run init` 時に `pre-commit` フックが自動導入されます
+- コミット前に `lint-outputs` と staged file の secret / PII チェックが走ります
+- 手動実行は `npm run guard:precommit` です
+
 3. テスト状況を確認
 
 ```bash

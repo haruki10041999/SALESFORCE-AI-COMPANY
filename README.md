@@ -1,17 +1,59 @@
 # Salesforce AI Company
 
-**Salesforce AI Company** は、MCP サーバーとして Salesforce 開発を支援する AI エージェント・スキル・ツールを**動的に選択・補完・拡張する**システムです。
+**Salesforce AI Company** は、Salesforce 開発支援用の MCP サーバーです。ローカルのコード・メタデータ・運用ログをもとに、分析ツール、会話オーケストレーション、可視化、運用補助をまとめて提供します。
 
-## 📚 ドキュメント
+## 5分セットアップ
 
-最初に読むもの：
+```bash
+npm ci
+npm run init
+npm run build
+npm run ai -- doctor
+```
 
-- **全体像**: README（このファイル）
-- **Ollama Docker 運用**: [docs/ollama-setup.md](docs/ollama-setup.md) ← **環境構築はここから**
-- **アーキテクチャ**: [docs/system-architecture-with-uml.md](docs/system-architecture-with-uml.md)
-- **ドキュメント索引**: [docs/documentation-map.md](docs/documentation-map.md)
-- **学習の仕組み**: [docs/learning-guide.md](docs/learning-guide.md)
-- **OpenCode セットアップ**: [docs/opencode-setup.md](docs/opencode-setup.md)
+`npm run init` で次を自動実行します。
+
+- `outputs/` 配下の初期ディレクトリ作成
+- `.env` 未作成時に `.env.local.sample` から雛形をコピー
+- OpenCode 用 MCP 設定例を `outputs/setup/opencode-mcp.local.json` に生成
+- Git 管理下なら `pre-commit` フックを自動導入
+
+## 最初の1コマンド
+
+```bash
+npm run ai -- doctor
+```
+
+これで設定不足や依存関係の問題を先に確認できます。続けてよく使う導線は次です。
+
+```bash
+npm run ai -- dev
+npm run ai -- observability:dashboard -- --trace-limit 200 --event-limit 1000
+npm run ai -- outputs:cleanup -- --dry-run
+```
+
+## 最初に見るファイル
+
+### 🚀 クイックスタート・セットアップ
+- ローカルセットアップ: [docs/opencode-setup.md](docs/opencode-setup.md)
+- 運用コマンド: [docs/operations-guide.md](docs/operations-guide.md)
+- コマンド一覧: `npm run help`
+
+### 📚 主要領域
+
+次の 5 つは各領域の入口です。まずこれらを目を通すことを推奨します。
+
+- **[mcp/README.md](mcp/README.md)** — MCP サーバーアーキテクチャ・ツール構成
+- **[agents/README.md](agents/README.md)** — 17個のエージェント（役割別 AI）一覧
+- **[skills/README.md](skills/README.md)** — 13カテゴリのスキル（知識体系）
+- **[personas/README.md](personas/README.md)** — 15個のペルソナ（応答スタイル）
+- **[context/README.md](context/README.md)** — プロンプト構築・コンテキスト注入
+
+### 📖 詳細ドキュメント
+- 設定項目: [docs/configuration.md](docs/configuration.md)
+- 全体像: [docs/system-architecture-with-uml.md](docs/system-architecture-with-uml.md)
+- 詳細索引: [docs/documentation-map.md](docs/documentation-map.md)
+- 削除したスクリプト: [docs/deprecated-scripts.md](docs/deprecated-scripts.md)
 
 ## 🏗️ システム構成
 
@@ -46,14 +88,20 @@ mcp/server.ts
 
 ## 🚀 クイックスタート
 
-### インストール
+### 初回セットアップ
 
 ```bash
-npm install
-npm run init      # 初回のみ: outputs/ 初期化
-npm run build     # TypeScript ビルド
-npm run ai -- doctor    # 任意: 設定・権限の診断
+npm ci
+npm run init
+npm run build
+npm run ai -- doctor
 ```
+
+補足:
+
+- `.env` をローカル向け安全設定で始めたい場合、そのまま `npm run init` で十分です
+- OpenCode 連携時は `outputs/setup/opencode-mcp.local.json` を OpenCode 設定へ貼り付けます
+- `dist/mcp/server.js` は `npm run build` 後に生成されます
 
 ### サーバー起動
 
@@ -125,6 +173,7 @@ search_resources / auto_select_resources / trust scoring に反映
 ```bash
 npm test                           # 全テスト実行
 npm run typecheck                  # 型チェック
+npm run guard:precommit            # コミット前ガードを手動実行
 npm run ai -- outputs:cleanup -- --dry-run  # 古いファイル確認
 ```
 
