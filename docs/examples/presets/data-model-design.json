@@ -1,0 +1,30 @@
+{
+  "name": "データモデル設計",
+  "description": "オブジェクト・フィールド・リレーション設計のレビューと最適化",
+  "topic": "Salesforce データモデル設計",
+  "agents": [
+    "data-modeler",
+    "architect",
+    "apex-developer"
+  ],
+  "skills": [
+    "data-model/object-design",
+    "data-model/field-design",
+    "architecture/scalable-design"
+  ],
+  "persona": "strategist",
+  "triggerRules": [
+    {
+      "whenAgent": "data-modeler",
+      "thenAgent": "architect",
+      "messageIncludes": "LDV",
+      "reason": "LDV が懸念される場合はアーキテクチャ観点も確認"
+    },
+    {
+      "whenAgent": "architect",
+      "thenAgent": "apex-developer",
+      "messageIncludes": "クエリ",
+      "reason": "クエリ設計の影響を Apex 観点で確認"
+    }
+  ]
+}

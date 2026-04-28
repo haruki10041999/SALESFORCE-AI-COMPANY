@@ -39,6 +39,11 @@ const COMMANDS: Record<string, CliCommand> = {
     script: "metrics:dashboard",
     description: "メトリクス可視化 HTML を生成"
   },
+  "observability:dashboard": {
+    script: "observability:dashboard",
+    description: "trace/event/governance 統合ダッシュボードを生成",
+    passThroughArgs: true
+  },
   "history:archive": {
     script: "history:archive",
     description: "日別チャット履歴をアーカイブし要約を生成",
@@ -75,7 +80,7 @@ const COMMANDS: Record<string, CliCommand> = {
   },
   scaffold: {
     script: "scaffold",
-    description: "agent/skill の雛形を生成",
+    description: "agent/skill/preset/tool の雛形を生成",
     passThroughArgs: true
   }
 };
@@ -96,6 +101,7 @@ function printUsage(error?: string): void {
   console.error("\nExamples:");
   console.error("  npm run ai -- dev");
   console.error("  npm run ai -- outputs:cleanup -- --dry-run");
+  console.error("  npm run ai -- observability:dashboard -- --trace-limit 100");
   console.error("  npm run ai -- learning:replay -- --limit 20");
 }
 

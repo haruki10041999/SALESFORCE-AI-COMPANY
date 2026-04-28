@@ -256,18 +256,27 @@ export async function evaluateQualityRubric(
   const client = options.client ?? getDefaultOllamaClient();
   const model = options.model ?? "qwen2.5:3b";
   const prompt = buildJudgePrompt(response, criteria, options.topic);
+  const systemPrompt = [
+    "あなたは Salesforce 実装レビューの厳格な評価者です。",
+    "必ず JSON のみを返し、追加説明や前置きは出力しないでください。",
+    "スコアは 0..10 で返してください。"
+  ].join(" ");
 
   try {
-    const out = await client.generate({
+    const out = await client.chat({
       model,
-      prompt,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: prompt }
+      ],
       options: { temperature: 0.0 }
     });
-    const parsed = parseJudgeResponse(out.response);
+    const rawResponse = out.message?.content ?? "";
+    const parsed = parseJudgeResponse(rawResponse);
     if (!parsed || parsed.criteria.length === 0) {
       if (fallback) {
         const heur = evaluateHeuristicRubric(response, criteria);
-        return { ...heur, rawJudgeResponse: out.response };
+        return { ...heur, rawJudgeResponse: rawResponse };
       }
       throw new OllamaError("E_RUBRIC_PARSE_FAILED", "judge response could not be parsed");
     }
@@ -286,7 +295,7 @@ export async function evaluateQualityRubric(
       criteria: merged,
       method: "judge",
       model,
-      rawJudgeResponse: out.response
+      rawJudgeResponse: rawResponse
     };
   } catch (err) {
     if (!fallback) throw err;

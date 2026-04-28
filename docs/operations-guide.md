@@ -8,12 +8,56 @@
 - 異常が出たときに最低限の切り分けをする
 - 必要なログとバックアップを確認する
 
+## Docker有り運用（Ollama + 観測性）
+
+前提:
+
+- Docker Desktop / Docker Compose が利用可能
+- ホスト版 Ollama を同時起動しない（`11434` のポート競合回避）
+
+1. 依存サービスを起動
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+2. MCP サーバ側の `.env` を運用プロファイルで準備
+
+```powershell
+Copy-Item .env.operations.sample .env
+```
+
+3. MCP サーバ起動
+
+```bash
+npm run ai -- dev
+```
+
+4. 疎通確認
+
+- Ollama API: `http://localhost:11434`
+- Jaeger UI: `http://localhost:16686`
+- Prometheus UI: `http://localhost:9090`
+- Grafana UI: `http://localhost:3000`
+
+5. 停止手順
+
+```bash
+docker compose down
+```
+
+補足:
+
+- Docker 構成の詳細は `ollama-setup.md` を参照
+- Prometheus は `host.docker.internal:9464/metrics` を scrape する構成
+
 ## 毎日の確認（5分）
 
 1. 起動できるか確認
 
 ```bash
-npm run mcp:dev
+npm run ai -- dev
 ```
 
 確認ポイント:
@@ -24,7 +68,7 @@ npm run mcp:dev
 2. 健全性チェック
 
 ```bash
-npm run doctor
+npm run ai -- doctor
 ```
 
 確認ポイント:
@@ -46,7 +90,13 @@ npm test
 1. メトリクス確認
 
 ```bash
-npm run metrics:report -- --top 10
+npm run ai -- metrics:report -- --top 10
+```
+
+運用向けダッシュボード再生成:
+
+```bash
+npm run ai -- observability:dashboard -- --trace-limit 200 --event-limit 1000
 ```
 
 見るポイント:
@@ -57,21 +107,21 @@ npm run metrics:report -- --top 10
 2. 古い履歴の整理（まず確認のみ）
 
 ```bash
-npm run outputs:cleanup -- --dry-run
+npm run ai -- outputs:cleanup -- --dry-run
 ```
 
 問題なければ実行:
 
 ```bash
-npm run outputs:cleanup -- --days 30
+npm run ai -- outputs:cleanup -- --days 30
 ```
 
 3. バックアップ作成
 
 ```bash
-npm run outputs:version -- backup
-npm run outputs:version -- list
-npm run outputs:version -- wipe --keep-backups
+npm run ai -- outputs:version -- backup
+npm run ai -- outputs:version -- list
+npm run ai -- outputs:version -- wipe --keep-backups
 ```
 
 見るポイント:
@@ -100,7 +150,7 @@ npm run state:export-jsonl -- --out-dir outputs/exported-jsonl --verify-source-d
 1. まず `doctor` を実行
 
 ```bash
-npm run doctor
+npm run ai -- doctor
 ```
 
 2. ログ確認
@@ -111,20 +161,20 @@ npm run doctor
 3. 必要なら復元
 
 ```bash
-npm run outputs:version -- list
-npm run outputs:version -- restore --snapshot <snapshot-id>
+npm run ai -- outputs:version -- list
+npm run ai -- outputs:version -- restore --snapshot <snapshot-id>
 ```
 
 4. 復元後に再確認
 
 ```bash
-npm run doctor
+npm run ai -- doctor
 ```
 
 5. SQL.js 検証用 DB の整理（必要時）
 
 - 検証で `outputs/state-sqljs.sqlite` など一時 DB を作成した場合、運用 DB を `state.sqlite` に統一したら不要ファイルを整理する
-- 削除前に `npm run outputs:version -- backup` で snapshot を作成する
+- 削除前に `npm run ai -- outputs:version -- backup` で snapshot を作成する
 
 ## どのファイルを見るか
 
@@ -132,3 +182,17 @@ npm run doctor
 - 設定値: `configuration.md`
 - 実行 provenance: `../outputs/execution-origins.jsonl`
 - 変更履歴: `CHANGELOG.md`
+
+## 補足: 統一CLIでの代表コマンド
+
+- `npm run ai -- dev`
+- `npm run ai -- doctor`
+- `npm run ai -- observability:dashboard -- --trace-limit 200`
+- `npm run ai -- outputs:cleanup -- --dry-run`
+- `npm run ai -- outputs:version -- backup`
+- `npm run ai -- scaffold -- preset release-readiness-check --agents release-manager,qa-engineer`
+
+## 参照
+
+- `ollama-setup.md`（Docker 起動・障害対応の詳細）
+- `outputs-structure.md`（保存と復元の詳細）

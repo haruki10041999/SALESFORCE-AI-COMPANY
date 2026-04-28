@@ -1,10 +1,10 @@
 # 全機能 動作検証ガイド (MCP クライアント版)
 
-このドキュメントは、本リポジトリが提供する **88 ツールすべて** を
+このドキュメントは、本リポジトリが提供する **MCP ツール群** を
 **Claude Desktop**、**GitHub Copilot Chat (Agent モード)**、または
 **OpenCode (stdio MCP 対応版)** から実際に呼び出して動作確認するための実践手順です。
 
-> **対象**: 2026-04-27 時点 / Tools 88 件
+> **対象**: 2026-04-28 時点 / ツール件数は `docs/internal/tool-manifest.json` の最新値に準拠
 > **想定 MCP クライアント**: Claude Desktop, VS Code GitHub Copilot Chat (Agent モード), OpenCode (stdio MCP 対応版)
 
 ---
@@ -56,7 +56,7 @@ Claude Desktop を再起動。
 ```
 
 **疎通確認**: Claude Desktop の入力欄左の MCP アイコンに `salesforce-ai-company` が
-表示され、`88 tools` (またはそれに近い件数) が読み込まれていること。
+表示され、最新のツール件数が読み込まれていること。
 
 ### 0.3 OpenCode 設定
 
@@ -149,7 +149,7 @@ VS Code 1.99 以降の Copilot Chat は MCP サーバを直接呼び出せます
    - 入力欄の **左下** にあるツールピッカー
      （**🛠 アイコン**、ホバーすると `Configure Tools...` と表示）をクリック
    - 開いたパネルにツリー状の一覧が出る。`salesforce-ai-company` という
-     ノードを展開すると 88 個のツール (`list_agents`, `chat`,
+    ノードを展開すると最新のツール一覧 (`list_agents`, `chat`,
      `smart_chat` ...) が並んでいるはず
    - 各ツール左のチェックボックスで Copilot に使わせるツールを選別できる
      （初期は全て ON でよい）
@@ -528,7 +528,7 @@ Claude Desktop、Copilot Chat、OpenCode いずれでも同じ結果が得られ
 | ツール一覧に `salesforce-ai-company` が出ない | ビルド未実施 / 設定パス違い | `npm run build` → クライアント再起動 |
 | Copilot Chat の 🛠 にサーバが現れない | `.vscode/mcp.json` が読めていない | `Ctrl+Shift+P` → `MCP: List Servers` で状態確認 → エラーがあれば `Show Output` でログ確認 → 設定修正後 `MCP: Restart Server` |
 | Agent モードのドロップダウンが無い | VS Code が古い | `Help` → `Check for Updates` で 1.99+ に更新 |
-| ツール件数が 88 未満 | 古い build | `npm run docs:manifest` で件数確認 → 再 build |
+| ツール件数が `docs/internal/tool-manifest.json` と不一致 | 古い build / manifest 未再生成 | `npm run docs:manifest` → `npm run build` |
 | `chat` が空応答 | agents 未指定 / persona ファイル欠損 | `list_agents` で存在確認 |
 | `metrics_summary` の phaseBreakdown が空 | `chat` を経由していない / トレース未保存 | `chat` を 1 回実行してから再試行 |
 | `synergy_recommend_combo` が空 | 完了 trace が不足 | `chat` を複数回実行 → 再試行 |
@@ -544,5 +544,5 @@ Claude Desktop、Copilot Chat、OpenCode いずれでも同じ結果が得られ
 - [architecture.md](./architecture.md): 設計概観 + サブシステム関係図
 - [feature-usage-guide.md](./feature-usage-guide.md): 機能ごとの利用例
 - [configuration.md](./configuration.md): 環境変数と既定値
-- [internal/tool-manifest.md](./internal/tool-manifest.md): 全 88 ツールの正式仕様
+- [internal/tool-manifest.md](./internal/tool-manifest.md): 全ツールの正式仕様
 - [.github/copilot-instructions.md](../.github/copilot-instructions.md): Copilot 既定動作

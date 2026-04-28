@@ -1,0 +1,14 @@
+{
+  "name": "エージェント拡張提案",
+  "description": "新しいエージェント・スキル・ペルソナの追加が必要かを評価する",
+  "topic": "エージェント構成レビュー",
+  "agents": [
+    "architect",
+    "product-manager",
+    "ceo"
+  ],
+  "skills": [
+    "architecture/salesforce-architecture"
+  ],
+  "persona": "strategist"
+}

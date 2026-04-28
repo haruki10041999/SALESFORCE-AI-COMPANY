@@ -14,7 +14,7 @@
 npm install
 npm run init
 npm run build
-npm run mcp:dev
+npm run ai -- dev
 ```
 
 ## 品質チェック
@@ -22,7 +22,18 @@ npm run mcp:dev
 ```bash
 npm run typecheck
 npm test
-npm run doctor
+npm run ai -- doctor
+```
+
+## 統一CLI（運用・開発共通）
+
+```bash
+npm run ai -- dev
+npm run ai -- doctor
+npm run ai -- outputs:cleanup -- --dry-run
+npm run ai -- outputs:version -- backup
+npm run ai -- observability:dashboard -- --trace-limit 200 --event-limit 1000
+npm run ai -- scaffold -- preset release-readiness-check --agents release-manager,qa-engineer
 ```
 
 ## MCP SDK 更新ランブック

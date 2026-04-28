@@ -1,0 +1,30 @@
+{
+  "name": "統合設計レビュー",
+  "description": "外部API連携・Platform Event・CDC の方式選定と実装方針確認",
+  "topic": "Salesforce 統合設計",
+  "agents": [
+    "integration-developer",
+    "architect",
+    "security-engineer"
+  ],
+  "skills": [
+    "integration/integration-patterns",
+    "integration/rest-api",
+    "security/secure-apex"
+  ],
+  "persona": "strategist",
+  "triggerRules": [
+    {
+      "whenAgent": "architect",
+      "thenAgent": "integration-developer",
+      "messageIncludes": "非同期",
+      "reason": "非同期方式が選定されたら実装詳細へ"
+    },
+    {
+      "whenAgent": "integration-developer",
+      "thenAgent": "security-engineer",
+      "messageIncludes": "認証",
+      "reason": "認証設計が出たらセキュリティ確認"
+    }
+  ]
+}

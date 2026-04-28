@@ -41,3 +41,11 @@
 | 09 | [リソースガバナンス](./features/09-resource-governance.md) |
 | 10 | [イベント自動化](./features/10-event-automation.md) |
 | 11 | [メトリクス/ベンチマーク](./features/11-metrics-benchmarks.md) |
+
+## 内部ドキュメント (docs/internal)
+
+運用に必要な内部資料は次の 3 つに整理しています。
+
+- [internal/tool-manifest.md](./internal/tool-manifest.md) — ツール仕様の人間可読版
+- [internal/tool-manifest.json](./internal/tool-manifest.json) — ツール仕様の機械可読版
+- [internal/test-matrix.md](./internal/test-matrix.md) — ツールとテストの対応表

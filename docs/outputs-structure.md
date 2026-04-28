@@ -39,7 +39,7 @@
 
 ### 基本ルール
 
-- 手動削除より、まず `npm run outputs:cleanup -- --dry-run` を使う
+- 手動削除より、まず `npm run ai -- outputs:cleanup -- --dry-run` を使う
 - 復元に使う可能性があるため、`outputs/backups/` は消さない
 - `outputs:cleanup` は `history/`, `sessions/`, `reports/`, `dashboards/`, `benchmark/`, `debug/` を再帰的に整理する
 - `outputs/events/` は現行の `system-events.jsonl`, `trace-log.jsonl`, `metrics-samples.jsonl` を残し、古い rotate 済みログだけを整理する
@@ -66,30 +66,33 @@
 npm run init
 
 # 健全性をチェック
-npm run doctor
+npm run ai -- doctor
 
 # 古い履歴を整理（まずは確認だけ）
-npm run outputs:cleanup -- --dry-run
+npm run ai -- outputs:cleanup -- --dry-run
 
 # バックアップ作成
-npm run outputs:version -- backup
+npm run ai -- outputs:version -- backup
 
 # バックアップ一覧
-npm run outputs:version -- list
+npm run ai -- outputs:version -- list
 
 # backups を残して outputs を空にする
-npm run outputs:version -- wipe --keep-backups
+npm run ai -- outputs:version -- wipe --keep-backups
 
 # 復元
-npm run outputs:version -- restore --snapshot <snapshot-id>
+npm run ai -- outputs:version -- restore --snapshot <snapshot-id>
+
+# 可観測性ダッシュボード再生成
+npm run ai -- observability:dashboard -- --trace-limit 200 --event-limit 1000
 ```
 
 ## 障害時の最短手順
 
-1. `npm run doctor` を実行
+1. `npm run ai -- doctor` を実行
 2. `outputs/events/system-events.jsonl` を確認
 3. 必要なら `outputs:version` で直近バックアップへ復元
-4. 復元後に再度 `npm run doctor`
+4. 復元後に再度 `npm run ai -- doctor`
 
 ## 参考（詳細構成）
 
@@ -141,7 +144,7 @@ npm run outputs:version -- restore --snapshot <snapshot-id>
 
 | パス | 生成される時 | 備考 |
 |------|--------------|------|
-| `outputs/backups/<snapshot>/...` | `npm run outputs:version -- backup` / `wipe` 前の事前 snapshot / restore 前の事前 snapshot | 手動コマンド中心 |
+| `outputs/backups/<snapshot>/...` | `npm run ai -- outputs:version -- backup` / `wipe` 前の事前 snapshot / restore 前の事前 snapshot | 手動コマンド中心 |
 | `outputs/history/archive/YYYY-MM-DD.json` | `npm run history:archive` / `archive_history` | 日次アーカイブ |
 | `outputs/history/archive/YYYY-MM-DD-summary.md` | `npm run history:archive` / `archive_history` | 日次サマリ |
 | `outputs/dashboards/observability.{html,md,json}` | `observability_dashboard` 実行時 | 可観測性ダッシュボード |
@@ -196,7 +199,7 @@ npm run outputs:version -- restore --snapshot <snapshot-id>
 | `outputs/cleanup-schedule.json` | JSON | `governance_auto_cleanup_schedule` ツール実行時 (TASK-041) | `mcp/core/resource/cleanup-scheduler.ts` |
 | `outputs/prompt-cache.jsonl` | JSONL (追記/圧縮) | `PROMPT_CACHE_FILE` 設定時、プロンプトキャッシュ追加/退避ごと (TASK-046) | `mcp/core/context/prompt-cache-persistence.ts` |
 | `outputs/benchmark/<stamp>.json` / `latest.json` | JSON | nightly CI (`benchmark-nightly.yml`) 実行時 (TASK-050) | `scripts/benchmark-suite.ts` |
-| `outputs/backups/<snapshot>/...` | フォルダ世代 | `npm run outputs:version -- backup` または auto-apply 削除前 | `mcp/core/governance/outputs-versioning.ts` |
+| `outputs/backups/<snapshot>/...` | フォルダ世代 | `npm run ai -- outputs:version -- backup` または auto-apply 削除前 | `mcp/core/governance/outputs-versioning.ts` |
 | `outputs/custom-tools/*.json` | JSON (`DeclarativeToolSpec`) | `apply_resource_actions` または提案フロー (`apply_proposal` / `auto_apply_pending_proposals`) で作成時 | `mcp/handlers/register-resource-action-tools.ts`, `mcp/core/resource/proposal-applier.ts`, `mcp/core/declarative/loader.ts` (起動時に動的登録) |
 | `outputs/tool-proposals/{pending,approved,rejected}/<id>.json` | JSON | `enqueue_proposal` でキュー → `approve_proposal` / `apply_proposal` / `reject_proposal` / `auto_apply_pending_proposals` で状態遷移 | `mcp/core/resource/proposal-queue.ts`, `mcp/core/resource/proposal-applier.ts`, `mcp/core/resource/auto-create-gate.ts` |
 

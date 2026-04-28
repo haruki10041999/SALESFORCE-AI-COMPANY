@@ -52,7 +52,7 @@ mcp/server.ts
 npm install
 npm run init      # 初回のみ: outputs/ 初期化
 npm run build     # TypeScript ビルド
-npm run doctor    # 任意: 設定・権限の診断
+npm run ai -- doctor    # 任意: 設定・権限の診断
 ```
 
 ### サーバー起動
@@ -71,6 +71,7 @@ npm run mcp:start
 npm run ai -- dev               # 開発起動
 npm run ai -- doctor            # 診断
 npm run ai -- metrics:report    # メトリクス確認
+npm run ai -- observability:dashboard -- --trace-limit 200 --event-limit 1000
 npm run ai -- outputs:cleanup -- --dry-run
 npm run ai -- outputs:version -- backup
 npm run ai -- outputs:version -- list
@@ -78,14 +79,15 @@ npm run ai -- outputs:version -- wipe --keep-backups
 npm run ai -- learning:replay -- --limit 20
 npm run ai -- scaffold -- agent my-agent
 npm run ai -- scaffold -- skill apex/my-skill
+npm run ai -- scaffold -- preset release-readiness-check --agents release-manager,qa-engineer
 ```
 
 ### outputs 運用の要点
 
 - `SF_AI_OUTPUTS_DIR` を絶対パスで指定すると、どのリポジトリから使っても出力先を 1 箇所に集約できます
-- `npm run outputs:cleanup -- --dry-run` は古い生成物だけを整理します
-- `npm run outputs:version -- backup` は現在の `outputs/` を世代バックアップします
-- `npm run outputs:version -- wipe --keep-backups` は `backups/` を残して `outputs/` を空にします
+- `npm run ai -- outputs:cleanup -- --dry-run` は古い生成物だけを整理します
+- `npm run ai -- outputs:version -- backup` は現在の `outputs/` を世代バックアップします
+- `npm run ai -- outputs:version -- wipe --keep-backups` は `backups/` を残して `outputs/` を空にします
 - `outputs/execution-origins.jsonl` には、どのリポジトリ起点の実行かが JSONL で追記されます
 - 履歴保存を SQLite へ切り替える場合は `SF_AI_HISTORY_SQLITE=true` を指定します（実装は `sql.js` ベース）
 - SQLite ファイルの保存先は `SF_AI_STATE_DB_PATH` で変更できます（既定: `outputs/state.sqlite`）
@@ -123,7 +125,7 @@ search_resources / auto_select_resources / trust scoring に反映
 ```bash
 npm test                           # 全テスト実行
 npm run typecheck                  # 型チェック
-npm run outputs:cleanup -- --dry-run  # 古いファイル確認
+npm run ai -- outputs:cleanup -- --dry-run  # 古いファイル確認
 ```
 
 ## 📦 リソース
@@ -201,18 +203,18 @@ npm run metrics:dashboard
 
 ```bash
 # 診断実行
-npm run doctor
+npm run ai -- doctor
 
 # ファイルシステムの健全性確認
-npm run outputs:cleanup -- --dry-run
+npm run ai -- outputs:cleanup -- --dry-run
 
 # outputs をバックアップしてから空にする
-npm run outputs:version -- backup
-npm run outputs:version -- wipe --keep-backups
+npm run ai -- outputs:version -- backup
+npm run ai -- outputs:version -- wipe --keep-backups
 
 # 必要なら snapshot から復元
-npm run outputs:version -- list
-npm run outputs:version -- restore --snapshot <snapshot-id>
+npm run ai -- outputs:version -- list
+npm run ai -- outputs:version -- restore --snapshot <snapshot-id>
 ```
 
 詳細: [docs/verification-guide.md](docs/verification-guide.md)

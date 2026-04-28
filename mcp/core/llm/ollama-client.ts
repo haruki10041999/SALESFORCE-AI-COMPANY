@@ -73,6 +73,27 @@ export interface OllamaGenerateResponse {
   eval_count?: number;
 }
 
+export interface OllamaChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface OllamaChatRequest {
+  model: string;
+  messages: OllamaChatMessage[];
+  stream?: false;
+  options?: Record<string, unknown>;
+}
+
+export interface OllamaChatResponse {
+  model: string;
+  message: OllamaChatMessage;
+  done: boolean;
+  total_duration?: number;
+  load_duration?: number;
+  eval_count?: number;
+}
+
 /** T-OLLAMA-03: ストリーム generate の 1 チャンク */
 export interface OllamaGenerateChunk {
   /** モデル名 */
@@ -156,6 +177,17 @@ export class OllamaClient {
   public async generate(req: OllamaGenerateRequest): Promise<OllamaGenerateResponse> {
     if (!req.model) throw new OllamaError("E_OLLAMA_BAD_REQUEST", "model is required");
     return await this.requestJson<OllamaGenerateResponse>("POST", "/api/generate", {
+      ...req,
+      stream: false
+    });
+  }
+
+  public async chat(req: OllamaChatRequest): Promise<OllamaChatResponse> {
+    if (!req.model) throw new OllamaError("E_OLLAMA_BAD_REQUEST", "model is required");
+    if (!Array.isArray(req.messages) || req.messages.length === 0) {
+      throw new OllamaError("E_OLLAMA_BAD_REQUEST", "messages is required");
+    }
+    return await this.requestJson<OllamaChatResponse>("POST", "/api/chat", {
       ...req,
       stream: false
     });

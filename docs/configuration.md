@@ -31,7 +31,7 @@
 ### 1. 保存先を別ディスクにしたい
 
 ```bash
-SF_AI_OUTPUTS_DIR=D:/sf-ai-data/outputs npm run mcp:dev
+SF_AI_OUTPUTS_DIR=D:/sf-ai-data/outputs npm run ai -- dev
 ```
 
 補足:
@@ -43,10 +43,25 @@ SF_AI_OUTPUTS_DIR=D:/sf-ai-data/outputs npm run mcp:dev
 ### 2. 調査のため詳細ログを出したい
 
 ```bash
-LOG_LEVEL=debug SF_AI_DEBUG_VERBOSE_PROMPT=true npm run mcp:dev
+LOG_LEVEL=debug SF_AI_DEBUG_VERBOSE_PROMPT=true npm run ai -- dev
 ```
 
 注意: `SF_AI_DEBUG_VERBOSE_PROMPT=true` はプロンプト本文まで出力するため、通常運用では `false` 推奨です。
+
+## 推奨プロファイル
+
+用途別に、次のサンプルをベースに `.env` を作成できます。
+
+- ローカル開発向け: `../.env.local.sample`
+- 運用向け（可観測性重視）: `../.env.operations.sample`
+
+例 (PowerShell):
+
+```powershell
+Copy-Item .env.local.sample .env
+# または
+Copy-Item .env.operations.sample .env
+```
 
 ## バックアップ関連
 
@@ -57,10 +72,10 @@ LOG_LEVEL=debug SF_AI_DEBUG_VERBOSE_PROMPT=true npm run mcp:dev
 
 関連コマンド:
 
-- `npm run outputs:version -- backup`
-- `npm run outputs:version -- list`
-- `npm run outputs:version -- wipe --keep-backups`
-- `npm run outputs:version -- restore --snapshot <snapshot-id>`
+- `npm run ai -- outputs:version -- backup`
+- `npm run ai -- outputs:version -- list`
+- `npm run ai -- outputs:version -- wipe --keep-backups`
+- `npm run ai -- outputs:version -- restore --snapshot <snapshot-id>`
 
 ## 自動運用（必要な場合のみ）
 
@@ -90,6 +105,8 @@ LOG_LEVEL=debug SF_AI_DEBUG_VERBOSE_PROMPT=true npm run mcp:dev
 | `LOG_LEVEL` | ログ出力レベル（`error` / `warn` / `info` / `debug`） | `info` |
 | `SF_AI_DEBUG_VERBOSE_PROMPT` | `LOG_LEVEL=debug` 時にプロンプト本文までログ出力するか | `false` |
 | `SF_AI_LOCALE` | `AppError` 等のローカライズ言語（`ja` / `en`）。未対応値は `ja` にフォールバック (TASK-F8) | `ja` |
+| `SF_AI_DOTENV_DISABLE` | `.env` 自動読込を無効化する (`1` で無効) | `0` |
+| `SF_AI_DOTENV_PATH` | 読み込む `.env` のパスを明示指定（指定時は優先） | 未設定 |
 | `PROMPT_CACHE_MAX_ENTRIES` | メモリ上にキャッシュするプロンプトの最大件数 | `100` |
 | `PROMPT_CACHE_TTL_SECONDS` | キャッシュエントリの有効期間（秒） | `600` |
 | `PROMPT_CACHE_FILE` | プロンプトキャッシュを JSONL に永続化する先（未指定なら永続化しない / TASK-046） | 未設定 |
@@ -104,6 +121,8 @@ LOG_LEVEL=debug SF_AI_DEBUG_VERBOSE_PROMPT=true npm run mcp:dev
 | `SF_AI_AUTO_APPLY_MIN_SCORE` | 自動 apply を実行する最低品質スコア（0〜100） | `70` |
 | `SF_AI_AUTO_APPLY_MAX_PER_DAY` | 1日あたりの自動リソース作成上限件数 | `5` |
 | `SF_AI_AUTO_APPLY_MAX_DELETIONS` | 1回の閾値ハンドリングで許可する削除件数の上限 | `3` |
+| `OLLAMA_REQUIRED` | `true` の場合、Ollama が利用不可なら起動を中断する | `false` |
+| `SF_AI_BENCHMARK_TRACE_LIMIT` | `benchmark-suite` が参照する直近 trace 件数 | `300` |
 | `EVENT_HISTORY_MAX` | EventDispatcher がメモリ上に保持するイベントの最大件数 | `1000` |
 | `TRACE_HISTORY_MAX` | メモリ上に保持する完了トレースの最大件数 | `500` |
 | `METRICS_SAMPLES_MAX` | メモリ上に保持するメトリクスサンプルの最大件数 | `2000` |

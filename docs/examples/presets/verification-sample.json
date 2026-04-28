@@ -1,0 +1,12 @@
+{
+  "name": "Verification Sample",
+  "description": "Verification Sample 用のプリセットです。",
+  "topic": "Verification Sample の検討",
+  "agents": [
+    "architect",
+    "qa-engineer"
+  ],
+  "skills": [],
+  "persona": "engineer",
+  "triggerRules": []
+}

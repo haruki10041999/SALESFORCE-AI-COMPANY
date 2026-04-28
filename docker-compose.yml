@@ -4,6 +4,8 @@
 #
 #   # 全サービス起動 (Ollama + 観測性)
 #   docker compose up -d
+#   # 初回モデル導入ログ
+#   docker compose logs -f ollama-init
 #
 #   # 観測性のみ (Ollama を Docker で起動しない場合)
 #   docker compose up -d jaeger prometheus grafana
@@ -21,6 +23,9 @@
 #   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 #   PROMETHEUS_METRICS_PORT=9464
 #   OLLAMA_BASE_URL=http://localhost:11434
+#
+# 任意: 初回導入モデルを変更する場合
+#   OLLAMA_INIT_MODELS="qwen2.5:3b nomic-embed-text:latest"
 
 services:
   # ---- Ollama (LLM / Embedding 既定提供) -----------------------------------
@@ -42,6 +47,22 @@ services:
     #         - driver: nvidia
     #           count: all
     #           capabilities: [gpu]
+
+  # 初回モデル導入用の one-shot ジョブ。
+  # - 既に pull 済みモデルは再利用される (named volume: ollama-data)
+  # - 既定モデルは OLLAMA_INIT_MODELS で上書き可能
+  ollama-init:
+    image: ollama/ollama:0.21.2
+    container_name: sfai-ollama-init
+    restart: "no"
+    depends_on:
+      - ollama
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "/init/ollama-init.sh"]
+    volumes:
+      - ollama-data:/root/.ollama
+      - ./scripts/ollama-init.sh:/init/ollama-init.sh:ro
 
   # ---- Observability -------------------------------------------------------
   jaeger:

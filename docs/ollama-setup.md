@@ -93,6 +93,12 @@ docker compose ps
 docker compose logs -f ollama
 ```
 
+初回モデル導入の進捗確認:
+
+```bash
+docker compose logs -f ollama-init
+```
+
 **出力例:**
 ```
 CONTAINER ID   IMAGE                    COMMAND                  NAMES
@@ -102,6 +108,21 @@ xyz789uvw012   jaegertracing/jaeger:latest ...                   sfai-jaeger
 ```
 
 ### 4. モデルのプル（初回のみ）
+
+既定では `docker-compose.yml` の `ollama-init` サービスが起動時に次のモデルを自動導入します。
+
+実体スクリプト: `scripts/ollama-init.sh`
+
+- `qwen2.5:3b`
+- `nomic-embed-text:latest`
+
+導入モデルを変更する場合は、Compose 実行時に `OLLAMA_INIT_MODELS` を指定します。
+
+```bash
+OLLAMA_INIT_MODELS="qwen2.5:3b mistral:latest" docker compose up -d
+```
+
+手動で導入する場合（フォールバック）:
 
 ```bash
 # Ollama コンテナシェルに接続
@@ -117,6 +138,11 @@ ollama list
 # シェル終了
 exit
 ```
+
+補足:
+
+- pull 済みモデルは named volume (`ollama-data`) に保存されるため、`docker compose down` 後も再利用されます。
+- volume を削除した場合は再度 pull が必要です。
 
 ---
 

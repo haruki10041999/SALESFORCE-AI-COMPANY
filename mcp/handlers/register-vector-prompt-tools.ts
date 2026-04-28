@@ -7,6 +7,7 @@ import {
   evaluateHeuristicRubric,
   DEFAULT_RUBRIC_CRITERIA
 } from "../core/llm/quality-rubric.js";
+import { runSelfRefineLoop } from "../core/learning/self-refine-loop.js";
 
 interface RegisterVectorPromptToolsDeps extends RegisterGovToolDeps {
   addRecord: (record: { id: string; text: string; tags: string[] }) => void;
@@ -16,7 +17,11 @@ interface RegisterVectorPromptToolsDeps extends RegisterGovToolDeps {
     query: string,
     options?: { limit?: number; minScore?: number }
   ) => Promise<Array<{ id: string; text: string; tags?: string[]; score?: number }>>;
-  buildPrompt: (agent: { name: string; content: string }, task: string) => string;
+  buildPrompt: (
+    agent: { name: string; content: string },
+    task: string,
+    options?: { strategy?: "auto" | "plan" | "reflect" | "tree-of-thought" }
+  ) => string;
   evaluatePromptMetrics: (prompt: string, skills?: string[], triggerKeywords?: string[]) => {
     lengthChars: number;
     lineCount: number;
@@ -154,11 +159,26 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
       inputSchema: {
         agentName: z.string(),
         agentContent: z.string(),
-        task: z.string()
+        task: z.string(),
+        reasoningStrategy: z.enum(["auto", "plan", "reflect", "tree-of-thought"]).optional()
       }
     },
-    async ({ agentName, agentContent, task }: { agentName: string; agentContent: string; task: string }) => {
-      const prompt = buildPrompt({ name: agentName, content: agentContent }, task);
+    async ({
+      agentName,
+      agentContent,
+      task,
+      reasoningStrategy
+    }: {
+      agentName: string;
+      agentContent: string;
+      task: string;
+      reasoningStrategy?: "auto" | "plan" | "reflect" | "tree-of-thought";
+    }) => {
+      const prompt = buildPrompt(
+        { name: agentName, content: agentContent },
+        task,
+        { strategy: reasoningStrategy ?? "auto" }
+      );
       logger.debug("build_prompt completed", {
         agentName,
         taskLength: task.length,
@@ -273,6 +293,64 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
         overallScore: result.overallScore,
         criteriaCount: result.criteria.length
       });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  // F-18: Self-Refine ループ。rubric 評価に基づいて応答を反復改善する。
+  govTool(
+    "self_refine_response",
+    {
+      title: "自己改善ループ",
+      description: "応答を quality rubric で評価し、目標スコアまで反復リライトします。",
+      inputSchema: {
+        response: z.string().min(1),
+        topic: z.string().optional(),
+        maxIterations: z.number().int().min(1).max(10).optional(),
+        targetScore: z.number().min(0).max(10).optional(),
+        minImprovement: z.number().min(0).max(5).optional(),
+        judge: z.boolean().optional(),
+        model: z.string().optional(),
+        refineModel: z.string().optional()
+      }
+    },
+    async ({
+      response,
+      topic,
+      maxIterations,
+      targetScore,
+      minImprovement,
+      judge,
+      model,
+      refineModel
+    }: {
+      response: string;
+      topic?: string;
+      maxIterations?: number;
+      targetScore?: number;
+      minImprovement?: number;
+      judge?: boolean;
+      model?: string;
+      refineModel?: string;
+    }) => {
+      const result = await runSelfRefineLoop(response, {
+        topic,
+        maxIterations,
+        targetScore,
+        minImprovement,
+        judge,
+        model,
+        refineModel
+      });
+
+      logger.debug("self_refine_response completed", {
+        iterations: result.iterations.length,
+        finalScore: result.finalScore,
+        stoppedReason: result.stoppedReason
+      });
+
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
       };

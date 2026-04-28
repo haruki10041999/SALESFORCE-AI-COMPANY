@@ -43,9 +43,14 @@ test("server exposes expected core tool registrations", () => {
     "run_tests",
     "run_deployment_verification",
     "suggest_flow_test_cases",
+    "flow_condition_simulate",
+    "simulate_flow_conditions",
     "resource_dependency_graph",
     "flow_analyze",
     "permission_set_analyze",
+    "permission_set_diff",
+    "compare_permission_sets",
+    "compare_org_metadata",
     "recommend_permission_sets",
     "metrics_summary",
     "deployment_plan_generate",
@@ -87,9 +92,32 @@ test("server exposes expected core tool registrations", () => {
     "suggest_cleanup_resources",
     "record_reasoning_step",
     "get_trace_reasoning",
+    "proposal_feedback_learn",
   ]) {
     assert.ok(names.includes(required), `missing tool: ${required}`);
   }
+});
+
+test("simulate_flow_conditions alias returns trigger result", async () => {
+  const payload = parseFirstJson<{
+    flowName: string;
+    shouldTrigger: boolean;
+    trace: Array<{ op: string; result: boolean }>;
+  }>(await callTool("simulate_flow_conditions", {
+    flowName: "AliasFlow",
+    record: { Status: "New", Priority: "High" },
+    condition: {
+      op: "all",
+      conditions: [
+        { op: "eq", field: "Status", value: "New" },
+        { op: "eq", field: "Priority", value: "High" }
+      ]
+    }
+  }));
+
+  assert.equal(payload.flowName, "AliasFlow");
+  assert.equal(payload.shouldTrigger, true);
+  assert.ok(payload.trace.length > 0);
 });
 
 test("deploy_org returns JSON with command and dryRun", async () => {
@@ -284,6 +312,61 @@ test("recommend_permission_sets returns ranked permission set candidates", async
     const mdPath = isAbsolute(payload.reportMarkdownPath) ? payload.reportMarkdownPath : resolve(process.cwd(), payload.reportMarkdownPath);
     assert.ok(existsSync(jsonPath));
     assert.ok(existsSync(mdPath));
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("compare_permission_sets alias detects permission drift", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "sf-ai-perm-diff-int-"));
+  try {
+    const baseline = join(tempDir, "baseline.permissionset-meta.xml");
+    const target = join(tempDir, "target.permissionset-meta.xml");
+
+    writeFileSync(
+      baseline,
+      [
+        "<PermissionSet>",
+        "  <objectPermissions>",
+        "    <object>Account</object>",
+        "    <allowRead>true</allowRead>",
+        "    <allowCreate>false</allowCreate>",
+        "    <allowEdit>false</allowEdit>",
+        "    <allowDelete>false</allowDelete>",
+        "    <viewAllRecords>false</viewAllRecords>",
+        "    <modifyAllRecords>false</modifyAllRecords>",
+        "  </objectPermissions>",
+        "</PermissionSet>"
+      ].join("\n"),
+      "utf-8"
+    );
+
+    writeFileSync(
+      target,
+      [
+        "<PermissionSet>",
+        "  <objectPermissions>",
+        "    <object>Account</object>",
+        "    <allowRead>true</allowRead>",
+        "    <allowCreate>true</allowCreate>",
+        "    <allowEdit>true</allowEdit>",
+        "    <allowDelete>false</allowDelete>",
+        "    <viewAllRecords>false</viewAllRecords>",
+        "    <modifyAllRecords>false</modifyAllRecords>",
+        "  </objectPermissions>",
+        "</PermissionSet>"
+      ].join("\n"),
+      "utf-8"
+    );
+
+    const payload = parseFirstJson<{
+      summary: { missingCount: number; excessiveCount: number };
+    }>(await callTool("compare_permission_sets", {
+      baselineFilePath: baseline,
+      targetFilePath: target
+    }));
+
+    assert.ok(payload.summary.missingCount > 0 || payload.summary.excessiveCount > 0);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

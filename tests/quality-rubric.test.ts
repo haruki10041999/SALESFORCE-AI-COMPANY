@@ -11,13 +11,46 @@ import {
 import { OllamaClient } from "../mcp/core/llm/ollama-client.js";
 
 function judgeClient(jsonResponse: string): OllamaClient {
-  const fakeFetch = (async () => ({
-    ok: true,
-    status: 200,
-    json: async () => ({ model: "qwen2.5:3b", response: jsonResponse, done: true }),
-    text: async () => ""
-  } as unknown as Response)) as unknown as typeof fetch;
+  const fakeFetch = (async (_input: unknown, init?: RequestInit) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    if (body?.messages) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: "qwen2.5:3b",
+          message: { role: "assistant", content: jsonResponse },
+          done: true
+        }),
+        text: async () => ""
+      } as unknown as Response;
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ model: "qwen2.5:3b", response: jsonResponse, done: true }),
+      text: async () => ""
+    } as unknown as Response;
+  }) as unknown as typeof fetch;
   return new OllamaClient({ fetchImpl: fakeFetch, maxRetries: 0 });
+}
+
+function endpointTrackingJudgeClient(jsonResponse: string): { client: OllamaClient; endpoints: string[] } {
+  const endpoints: string[] = [];
+  const fakeFetch = (async (input: unknown) => {
+    endpoints.push(String(input));
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        model: "qwen2.5:3b",
+        message: { role: "assistant", content: jsonResponse },
+        done: true
+      }),
+      text: async () => ""
+    } as unknown as Response;
+  }) as unknown as typeof fetch;
+  return { client: new OllamaClient({ fetchImpl: fakeFetch, maxRetries: 0 }), endpoints };
 }
 
 function failingClient(): OllamaClient {
@@ -100,6 +133,15 @@ test("evaluateQualityRubric: judge mode parses response", async () => {
   assert.equal(r.method, "judge");
   assert.equal(r.criteria.length, 5);
   assert.ok(r.overallScore > 6 && r.overallScore < 10);
+});
+
+test("evaluateQualityRubric: uses /api/chat endpoint for judge", async () => {
+  const tracked = endpointTrackingJudgeClient(
+    '{"criteria":[{"id":"relevance","score":8,"rationale":"r"},{"id":"completeness","score":7,"rationale":"r"},{"id":"actionability","score":9,"rationale":"r"},{"id":"safety","score":8,"rationale":"r"},{"id":"structure","score":7,"rationale":"r"}]}'
+  );
+  const r = await evaluateQualityRubric("any response", { client: tracked.client });
+  assert.equal(r.method, "judge");
+  assert.ok(tracked.endpoints.some((endpoint) => endpoint.endsWith("/api/chat")));
 });
 
 test("evaluateQualityRubric: judge missing some criteria -> heuristic fills", async () => {

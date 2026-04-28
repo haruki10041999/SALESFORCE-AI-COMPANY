@@ -20,12 +20,10 @@
       "maxDelayMs": 2000,
       "retryablePatterns": [
         "timeout",
-        "timed out",
         "econnreset",
         "econnrefused",
         "503",
-        "429",
-        "temporarily unavailable"
+        "429"
       ],
       "retryableCodes": [
         "ETIMEDOUT",
@@ -57,13 +55,6 @@
           "maxToolsPerRun": 3
         }
       }
-    },
-    "sla": {
-      "default": {
-        "maxP95Ms": 200,
-        "maxErrorRatePercent": 5
-      },
-      "tools": {}
     }
   },
   "usage": {
@@ -81,5 +72,5 @@
     "tools": [],
     "presets": []
   },
-  "updatedAt": "2026-04-27T00:30:48.475Z"
+  "updatedAt": "2026-04-28T00:51:35.440Z"
 }

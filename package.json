@@ -24,6 +24,7 @@
     "tail:progress": "tsx scripts/tail-progress.ts",
     "metrics:seed": "node scripts/seed-metrics.js",
     "metrics:dashboard": "node scripts/metrics-dashboard.js",
+    "observability:dashboard": "tsx scripts/observability-dashboard.ts",
     "history:archive": "tsx scripts/archive-history.ts",
     "test:matrix": "tsx scripts/test-matrix.ts",
     "test:selective": "tsx scripts/run-selective-tests.ts",

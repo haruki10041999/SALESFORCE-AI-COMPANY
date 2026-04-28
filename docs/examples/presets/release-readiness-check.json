@@ -1,0 +1,39 @@
+{
+  "name": "リリース準備チェック",
+  "description": "デプロイ手順・回帰テスト・ロールバック観点を事前確認",
+  "topic": "Salesforce リリース判定レビュー",
+  "agents": [
+    "devops-engineer",
+    "qa-engineer",
+    "release-manager",
+    "documentation-writer"
+  ],
+  "skills": [
+    "devops/deployment",
+    "devops/branching",
+    "testing/test-data",
+    "documentation/documentation"
+  ],
+  "persona": "captain",
+  "triggerRules": [
+    {
+      "whenAgent": "qa-engineer",
+      "thenAgent": "release-manager",
+      "messageIncludes": "カバレッジ",
+      "reason": "テスト結果が出たらリリース判定へ連携"
+    },
+    {
+      "whenAgent": "release-manager",
+      "thenAgent": "devops-engineer",
+      "messageIncludes": "Go",
+      "reason": "Go判定が出たらデプロイ手順の確認へ"
+    },
+    {
+      "whenAgent": "devops-engineer",
+      "thenAgent": "documentation-writer",
+      "messageIncludes": "コマンド",
+      "reason": "手順が固まったらリリースノートへ連携",
+      "once": true
+    }
+  ]
+}

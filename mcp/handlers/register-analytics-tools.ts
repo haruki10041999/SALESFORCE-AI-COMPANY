@@ -21,6 +21,15 @@ import { scoreAgentSynergy } from "../tools/agent-synergy-score.js";
 import { drillDownDashboard } from "../core/observability/dashboard-drill-down.js";
 import { estimatePromptCost } from "../../prompt-engine/prompt-evaluator.js";
 import { recordUserFeedback, computeFeedbackMetrics, loadFeedbackForSession } from "../core/learning/feedback-manager.js";
+import { summarizeAbCausalHistory, type AgentAbHistoryRun } from "../core/learning/ab-causal-analysis.js";
+import {
+  createLinUcbState,
+  fromLinUcbSnapshot,
+  rankLinUcbArms,
+  toLinUcbSnapshot,
+  updateLinUcbArm,
+  type LinUcbSnapshot
+} from "../core/learning/lin-ucb-bandit.js";
 
 interface RegisterAnalyticsToolsDeps extends RegisterGovToolDeps {
   agentLog: AgentMessage[];
@@ -216,77 +225,6 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
     }
 
     return recommendations.sort((a, b) => b.confidence - a.confidence || b.support - a.support);
-  }
-
-  type AgentAbHistoryRun = {
-    winner?: { overall?: string };
-    comparison?: string;
-    runs?: {
-      agentA?: { agent?: string; qualityScore?: number; durationMs?: number };
-      agentB?: { agent?: string; qualityScore?: number; durationMs?: number };
-    };
-    generatedAt?: string;
-  };
-
-  function summarizeAbHistory(runs: AgentAbHistoryRun[]) {
-    const perAgent = new Map<string, { runs: number; wins: number; totalQuality: number; totalLatency: number }>();
-    const byComparison = new Map<string, { runs: number; winnerCounts: Record<string, number> }>();
-
-    for (const run of runs) {
-      const a = run.runs?.agentA;
-      const b = run.runs?.agentB;
-      const winner = run.winner?.overall;
-      if (!a?.agent || !b?.agent) continue;
-      const aAgent = a.agent;
-      const bAgent = b.agent;
-
-      const pairKey = run.comparison ?? `${aAgent} vs ${bAgent}`;
-      const pairStats = byComparison.get(pairKey) ?? { runs: 0, winnerCounts: {} };
-      pairStats.runs += 1;
-      if (winner) {
-        pairStats.winnerCounts[winner] = (pairStats.winnerCounts[winner] ?? 0) + 1;
-      }
-      byComparison.set(pairKey, pairStats);
-
-      const participants: Array<{ agent: string; qualityScore?: number; durationMs?: number }> = [
-        { agent: aAgent, qualityScore: a.qualityScore, durationMs: a.durationMs },
-        { agent: bAgent, qualityScore: b.qualityScore, durationMs: b.durationMs }
-      ];
-
-      for (const side of participants) {
-        const stats = perAgent.get(side.agent) ?? { runs: 0, wins: 0, totalQuality: 0, totalLatency: 0 };
-        stats.runs += 1;
-        stats.totalQuality += side.qualityScore ?? 0;
-        stats.totalLatency += side.durationMs ?? 0;
-        if (winner === side.agent) stats.wins += 1;
-        perAgent.set(side.agent, stats);
-      }
-    }
-
-    const agentRanking = [...perAgent.entries()]
-      .map(([agent, s]) => ({
-        agent,
-        runs: s.runs,
-        wins: s.wins,
-        winRate: s.runs > 0 ? Number((s.wins / s.runs).toFixed(4)) : 0,
-        avgQuality: s.runs > 0 ? Number((s.totalQuality / s.runs).toFixed(2)) : 0,
-        avgLatencyMs: s.runs > 0 ? Number((s.totalLatency / s.runs).toFixed(2)) : 0
-      }))
-      .sort((x, y) => y.winRate - x.winRate || y.avgQuality - x.avgQuality);
-
-    const comparisons = [...byComparison.entries()]
-      .map(([comparison, s]) => ({
-        comparison,
-        runs: s.runs,
-        winnerCounts: s.winnerCounts
-      }))
-      .sort((x, y) => y.runs - x.runs);
-
-    return {
-      totalRuns: runs.length,
-      agentRanking,
-      comparisons
-    };
   }
 
   govTool(
@@ -1088,9 +1026,10 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
           .map((line) => line.trim())
           .filter((line) => line.length > 0)
           .map((line) => JSON.parse(line) as AgentAbHistoryRun);
-        const summary = summarizeAbHistory(allRuns);
+        const summary = summarizeAbCausalHistory(allRuns);
         const effectiveMinRuns = minRuns ?? 1;
         const filteredRanking = summary.agentRanking.filter((row) => row.runs >= effectiveMinRuns);
+        const filteredComparisons = summary.comparisons.filter((row) => row.runs >= effectiveMinRuns);
 
         const analysisPath = join(dir, "analysis-latest.json");
         await fsPromises.writeFile(analysisPath, JSON.stringify({
@@ -1099,7 +1038,8 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
           minRuns: effectiveMinRuns,
           totalRuns: summary.totalRuns,
           agentRanking: filteredRanking,
-          comparisons: summary.comparisons
+          comparisons: filteredComparisons,
+          monthlyStrata: summary.monthlyStrata
         }, null, 2), "utf-8");
 
         return {
@@ -1109,9 +1049,81 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
               analysisPath,
               totalRuns: summary.totalRuns,
               topAgents: filteredRanking.slice(0, 10),
-              comparisons: summary.comparisons.slice(0, 10)
+              comparisons: filteredComparisons.slice(0, 10),
+              monthlyStrata: summary.monthlyStrata
             }, null, 2)
           }]
+        };
+      }
+    );
+
+    // F-19: Contextual Bandit (LinUCB) による候補腕の推奨。
+    govTool(
+      "linucb_rank_arms",
+      {
+        title: "LinUCB 候補推奨",
+        description: "特徴量と報酬履歴から LinUCB で候補をランキングします。",
+        inputSchema: {
+          arms: z.array(
+            z.object({
+              name: z.string().min(1),
+              features: z.array(z.number()).min(1)
+            })
+          ).min(1),
+          feedbacks: z.array(
+            z.object({
+              name: z.string().min(1),
+              features: z.array(z.number()).min(1),
+              reward: z.number()
+            })
+          ).optional(),
+          alpha: z.number().min(0).max(10).optional(),
+          limit: z.number().int().min(1).max(100).optional(),
+          snapshot: z.any().optional()
+        }
+      },
+      async ({
+        arms,
+        feedbacks,
+        alpha,
+        limit,
+        snapshot
+      }: {
+        arms: Array<{ name: string; features: number[] }>;
+        feedbacks?: Array<{ name: string; features: number[]; reward: number }>;
+        alpha?: number;
+        limit?: number;
+        snapshot?: LinUcbSnapshot;
+      }) => {
+        const dimension = arms[0]?.features.length ?? 0;
+        if (dimension <= 0) {
+          throw new Error("arms.features must contain at least one value");
+        }
+
+        const state = snapshot
+          ? fromLinUcbSnapshot(snapshot)
+          : createLinUcbState(
+              dimension,
+              [...new Set(arms.map((a) => a.name))]
+            );
+
+        if (state.dimension !== dimension) {
+          throw new Error(`snapshot dimension mismatch: snapshot=${state.dimension}, arms=${dimension}`);
+        }
+
+        for (const fb of feedbacks ?? []) {
+          updateLinUcbArm(state, fb.name, fb.features, fb.reward);
+        }
+
+        const ranking = rankLinUcbArms(state, arms, alpha ?? 1, limit);
+        const out = {
+          recommended: ranking[0] ?? null,
+          ranking,
+          snapshot: toLinUcbSnapshot(state)
+        };
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(out, null, 2) }]
         };
       }
     );

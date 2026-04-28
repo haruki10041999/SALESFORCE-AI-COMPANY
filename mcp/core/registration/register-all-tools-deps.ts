@@ -73,7 +73,11 @@ interface BuildRegisterAllToolsDepsOptions {
     query: string,
     options?: { limit?: number; minScore?: number }
   ) => Promise<Array<{ id: string; text: string; tags?: string[]; score?: number }>>;
-  buildPrompt: (agent: { name: string; content: string }, task: string) => string;
+  buildPrompt: (
+    agent: { name: string; content: string },
+    task: string,
+    options?: { strategy?: "auto" | "plan" | "reflect" | "tree-of-thought" }
+  ) => string;
   evaluatePromptMetrics: RegisterAllToolsDeps["evaluatePromptMetrics"];
   presetsDir: string;
   toolProposalsDir: string;

@@ -204,21 +204,23 @@ run_deployment_verification:
 ### 3.12 scaffold (開発補助スクリプト)
 
 用途:
-- 新規 agent / skill / custom tool の雛形を生成
+- 新規 agent / skill / preset / custom tool の雛形を生成
 - 引数なし実行で対話型 Wizard を起動
 
 実行例:
 
 ```bash
-npm run scaffold --
-npm run scaffold -- --non-interactive agent release-coordinator
-npm run scaffold -- --non-interactive skill apex/trigger-audit --title "Trigger Audit"
-npm run scaffold -- --non-interactive tool release_guard --description "Release safety check" --agents release-manager,qa-engineer
+npm run ai -- scaffold --
+npm run ai -- scaffold -- --non-interactive agent release-coordinator
+npm run ai -- scaffold -- --non-interactive skill apex/trigger-audit --title "Trigger Audit"
+npm run ai -- scaffold -- --non-interactive preset release-readiness-check --title "Release Readiness Check" --agents release-manager,qa-engineer
+npm run ai -- scaffold -- --non-interactive tool release_guard --description "Release safety check" --agents release-manager,qa-engineer
 ```
 
 主な出力:
 - `agents/*.md`
 - `skills/<category>/*.md`
+- `outputs/presets/*.json`
 - `outputs/custom-tools/*.json`
 
 ### 3.13 suggest_flow_test_cases

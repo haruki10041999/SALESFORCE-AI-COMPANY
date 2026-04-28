@@ -26,10 +26,89 @@ npm test
 4. 健全性チェック
 
 ```bash
-npm run doctor
+npm run ai -- doctor
 ```
 
+5. 可観測性ダッシュボード生成 (CLI)
+
+```bash
+npm run ai -- observability:dashboard -- --trace-limit 200 --event-limit 1000
+```
+
+確認ポイント:
+
+- `outputs/dashboards/observability.html`
+- `outputs/dashboards/observability.md`
+- `outputs/dashboards/observability.json`
+
+6. 雛形ジェネレータ確認
+
+```bash
+npm run ai -- scaffold -- --non-interactive preset verification-sample --overwrite
+```
+
+確認ポイント:
+
+- `outputs/presets/verification-sample.json` が生成される
+
 ## 変更タイプ別の追加検証
+
+## Docker環境での動作検証（Ollama + 観測性）
+
+Docker を併用する運用での最小検証フローです。
+
+1. 依存サービス起動
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+2. `.env` を運用プロファイルで準備
+
+```powershell
+Copy-Item .env.operations.sample .env
+```
+
+3. 診断実行
+
+```bash
+npm run ai -- doctor
+```
+
+確認ポイント:
+
+- `ERROR 0` で終了する
+- `outputs dir` が意図した保存先（例: `D:/sf-ai-data/outputs`）になっている
+
+4. 可観測性ダッシュボード生成
+
+```bash
+npm run ai -- observability:dashboard -- --trace-limit 200 --event-limit 1000
+```
+
+確認ポイント:
+
+- `outputs/dashboards/observability.html`
+- `outputs/dashboards/observability.md`
+- `outputs/dashboards/observability.json`
+
+5. 外部 UI 疎通確認
+
+- Jaeger: `http://localhost:16686`
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000`
+
+6. 後片付け（必要時）
+
+```bash
+docker compose down
+```
+
+補足:
+
+- 詳細セットアップと障害対応は `ollama-setup.md` を参照
+- ホスト版 Ollama と Docker 版 Ollama の同時起動は避ける（`11434` 競合）
 
 ### 解析ツールを追加・変更した場合
 
@@ -105,6 +184,7 @@ node --import tsx --test tests/new-tools.test.ts
 
 - `npm run build` 成功
 - `npm test` で fail 0
+- `npm run ai -- doctor` で ERROR 0
 - `CHANGELOG.md` 更新済み
 - 必要なドキュメント更新済み（設定・運用・機能仕様）
 - 全機能の動作確認は [full-feature-verification.md](./full-feature-verification.md) を参照

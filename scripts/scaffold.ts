@@ -4,13 +4,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-type ResourceType = "agent" | "skill" | "tool";
+type ResourceType = "agent" | "skill" | "preset" | "tool";
 
 interface ParsedOptions {
   type: ResourceType;
   name: string;
   title?: string;
   description?: string;
+  topic?: string;
   agents?: string[];
   skills?: string[];
   tags?: string[];
@@ -32,12 +33,14 @@ function printUsage(error?: string): void {
   console.error("Usage:");
   console.error("  npm run scaffold -- [--non-interactive] agent <name> [--title \"表示名\"] [--overwrite]");
   console.error("  npm run scaffold -- [--non-interactive] skill <category>/<name> [--title \"表示名\"] [--overwrite]");
+  console.error("  npm run scaffold -- [--non-interactive] preset <name> [--title \"表示名\"] [--description \"説明\"] [--topic \"議題\"] [--agents <a,b>] [--skills <c/d,e/f>] [--persona <name>] [--overwrite]");
   console.error("  npm run scaffold -- [--non-interactive] tool <name> --description \"説明\" --agents <a,b> [--skills <c/d,e/f>] [--tags <x,y>] [--persona <name>] [--overwrite]");
   console.error("  npm run scaffold --                   # 対話型 Wizard");
   console.error("");
   console.error("Examples:");
   console.error("  npm run scaffold -- agent release-coordinator");
   console.error("  npm run scaffold -- skill apex/trigger-audit");
+  console.error("  npm run scaffold -- preset release-readiness-check --agents release-manager,qa-engineer");
   console.error("  npm run scaffold -- skill security/permission-audit --title \"Permission Audit\"");
   console.error("  npm run scaffold -- tool release_guard --description \"Release safety check\" --agents release-manager,qa-engineer");
 }
@@ -97,8 +100,8 @@ function parseOptions(argv: string[]): ParsedOptions {
   }
 
   const type = args[0];
-  if (type !== "agent" && type !== "skill" && type !== "tool") {
-    throw new Error(`type は 'agent' / 'skill' / 'tool' を指定してください: ${type}`);
+  if (type !== "agent" && type !== "skill" && type !== "preset" && type !== "tool") {
+    throw new Error(`type は 'agent' / 'skill' / 'preset' / 'tool' を指定してください: ${type}`);
   }
 
   const name = args[1];
@@ -108,6 +111,7 @@ function parseOptions(argv: string[]): ParsedOptions {
 
   let title: string | undefined;
   let description: string | undefined;
+  let topic: string | undefined;
   let agents: string[] | undefined;
   let skills: string[] | undefined;
   let tags: string[] | undefined;
@@ -160,6 +164,16 @@ function parseOptions(argv: string[]): ParsedOptions {
       continue;
     }
 
+    if (token === "--topic") {
+      const value = args[i + 1];
+      if (!value || value.startsWith("--")) {
+        throw new Error("--topic には値が必要です。");
+      }
+      topic = value;
+      i += 1;
+      continue;
+    }
+
     if (token === "--skills") {
       const value = args[i + 1];
       if (!value || value.startsWith("--")) {
@@ -202,7 +216,11 @@ function parseOptions(argv: string[]): ParsedOptions {
     }
   }
 
-  return { type, name, title, description, agents, skills, tags, persona, overwrite, nonInteractive };
+  if (type === "preset" && skills && !skills.every((skill) => validateSkillRef(skill))) {
+    throw new Error("preset 作成時の --skills は category/name 形式で指定してください。");
+  }
+
+  return { type, name, title, description, topic, agents, skills, tags, persona, overwrite, nonInteractive };
 }
 
 function ensureParentDir(filePath: string): void {
@@ -235,6 +253,27 @@ function buildSkillTemplate(name: string, title?: string): string {
   return template
     .replaceAll("{{TITLE}}", resolvedTitle)
     .replaceAll("{{NAME}}", name);
+}
+
+function buildPresetTemplate(options: ParsedOptions): string {
+  const displayName = options.title ?? toTitleCase(options.name);
+  const payload = {
+    name: displayName,
+    description: options.description ?? `${displayName} 用のプリセットです。`,
+    topic: options.topic ?? `${displayName} の検討`,
+    agents: options.agents ?? ["architect", "qa-engineer"],
+    skills: options.skills ?? [],
+    persona: options.persona ?? "engineer",
+    triggerRules: [] as Array<{
+      whenAgent: string;
+      thenAgent: string;
+      messageIncludes?: string;
+      reason?: string;
+      once?: boolean;
+    }>
+  };
+
+  return `${JSON.stringify(payload, null, 2)}\n`;
 }
 
 function buildToolTemplate(options: ParsedOptions): string {
@@ -283,6 +322,13 @@ function resolveToolFilePath(name: string): string {
   return join(ROOT, "outputs", "custom-tools", `${name}.json`);
 }
 
+function resolvePresetFilePath(name: string): string {
+  if (!isSafeSegment(name)) {
+    throw new Error(`preset 名は英小文字・数字・ハイフンのみ使用できます: ${name}`);
+  }
+  return join(ROOT, "outputs", "presets", `${name}.json`);
+}
+
 async function promptUntil(
   rl: ReturnType<typeof createInterface>,
   question: string,
@@ -314,8 +360,8 @@ async function runWizard(argv: string[]): Promise<ParsedOptions> {
     console.log("[scaffold] Interactive Wizard");
     const type = await promptUntil(
       rl,
-      "resource type (agent/skill/tool): ",
-      (value) => (value === "agent" || value === "skill" || value === "tool" ? null : "agent/skill/tool のいずれかを入力してください。")
+      "resource type (agent/skill/preset/tool): ",
+      (value) => (value === "agent" || value === "skill" || value === "preset" || value === "tool" ? null : "agent/skill/preset/tool のいずれかを入力してください。")
     ) as ResourceType;
 
     if (type === "agent") {
@@ -343,6 +389,40 @@ async function runWizard(argv: string[]): Promise<ParsedOptions> {
       const title = await promptUntil(rl, "title (optional): ", () => null, true);
       const overwrite = (await promptUntil(rl, "overwrite if exists? (y/N): ", () => null, true)).toLowerCase() === "y";
       return { type, name: `${category}/${skillName}`, title: title || undefined, overwrite, nonInteractive };
+    }
+
+    if (type === "preset") {
+      const name = await promptUntil(
+        rl,
+        "preset name (kebab-case): ",
+        (value) => (isSafeSegment(value) ? null : "英小文字・数字・ハイフンのみ使用できます。")
+      );
+      const title = await promptUntil(rl, "display name (optional): ", () => null, true);
+      const description = await promptUntil(rl, "description (optional): ", () => null, true);
+      const topic = await promptUntil(rl, "topic (optional): ", () => null, true);
+      const agentsRaw = await promptUntil(rl, "agents (comma-separated, optional): ", () => null, true);
+      const skillsRaw = await promptUntil(rl, "skills (comma-separated, optional category/name): ", () => null, true);
+      const persona = await promptUntil(rl, "persona (optional): ", () => null, true);
+      const overwrite = (await promptUntil(rl, "overwrite if exists? (y/N): ", () => null, true)).toLowerCase() === "y";
+
+      const agents = parseCsv(agentsRaw);
+      const skills = parseCsv(skillsRaw);
+      if (!skills.every((skill) => validateSkillRef(skill))) {
+        throw new Error("skills は category/name 形式で指定してください。");
+      }
+
+      return {
+        type,
+        name,
+        title: title || undefined,
+        description: description || undefined,
+        topic: topic || undefined,
+        agents,
+        skills,
+        persona: persona || undefined,
+        overwrite,
+        nonInteractive
+      };
     }
 
     const name = await promptUntil(
@@ -406,6 +486,21 @@ function writeTemplate(filePath: string, content: string, overwrite: boolean): v
 }
 
 function validateOptions(options: ParsedOptions): void {
+  if (options.type === "preset") {
+    if (!isSafeSegment(options.name)) {
+      throw new Error(`preset 名は英小文字・数字・ハイフンのみ使用できます: ${options.name}`);
+    }
+    if (options.agents && !options.agents.every((agent) => isSafeSegment(agent))) {
+      throw new Error("preset の agents は英小文字・数字・ハイフンのみ使用できます。");
+    }
+    if (options.skills && !options.skills.every((skill) => validateSkillRef(skill))) {
+      throw new Error("preset の skills は category/name 形式で指定してください。");
+    }
+    if (options.persona && !isSafeSegment(options.persona)) {
+      throw new Error("preset の persona は英小文字・数字・ハイフンのみ使用できます。");
+    }
+  }
+
   if (options.type === "tool") {
     if (!isSafeSegment(options.name)) {
       throw new Error(`tool 名は英小文字・数字・ハイフンのみ使用できます: ${options.name}`);
@@ -451,6 +546,13 @@ async function run(argv: string[]): Promise<number> {
       const target = resolveToolFilePath(options.name);
       writeTemplate(target, buildToolTemplate(options), options.overwrite);
       console.log(`[scaffold] tool template created: ${target}`);
+      return 0;
+    }
+
+    if (options.type === "preset") {
+      const target = resolvePresetFilePath(options.name);
+      writeTemplate(target, buildPresetTemplate(options), options.overwrite);
+      console.log(`[scaffold] preset template created: ${target}`);
       return 0;
     }
 

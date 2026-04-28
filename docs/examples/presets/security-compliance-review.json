@@ -1,0 +1,31 @@
+{
+  "name": "セキュリティ・コンプライアンス確認",
+  "description": "権限設計・データアクセス・インジェクション対策を重点確認",
+  "topic": "Salesforce セキュリティレビュー",
+  "agents": [
+    "security-engineer",
+    "architect",
+    "qa-engineer"
+  ],
+  "skills": [
+    "security/secure-apex",
+    "security/security-rules",
+    "testing/apex-test"
+  ],
+  "persona": "detective",
+  "triggerRules": [
+    {
+      "whenAgent": "security-engineer",
+      "thenAgent": "qa-engineer",
+      "messageIncludes": "脆弱性",
+      "reason": "脆弱性が見つかったらテストでの検証を促す"
+    },
+    {
+      "whenAgent": "architect",
+      "thenAgent": "security-engineer",
+      "messageIncludes": "設計",
+      "reason": "設計変更提案が出たらセキュリティ観点を再確認",
+      "once": true
+    }
+  ]
+}

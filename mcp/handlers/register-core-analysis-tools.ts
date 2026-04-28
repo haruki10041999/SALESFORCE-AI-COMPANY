@@ -432,6 +432,38 @@ export function registerCoreAnalysisTools(govTool: GovTool, deps: CoreAnalysisTo
     }
   );
 
+  // Compatibility alias: older task naming
+  govTool(
+    "simulate_flow_conditions",
+    {
+      title: "Flow条件シミュレータ (alias)",
+      description: "flow_condition_simulate の互換エイリアスです。",
+      inputSchema: {
+        flowName: z.string().optional(),
+        record: z.record(z.string(), z.any()),
+        condition: z.any()
+      }
+    },
+    async ({
+      flowName,
+      record,
+      condition
+    }: {
+      flowName?: string;
+      record: Record<string, unknown>;
+      condition: unknown;
+    }) => {
+      const result = simulateFlowCondition({
+        flowName,
+        record,
+        condition: condition as never
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
   govTool(
     "suggest_flow_test_cases",
     {
@@ -491,6 +523,34 @@ export function registerCoreAnalysisTools(govTool: GovTool, deps: CoreAnalysisTo
         sampleLimit
       });
 
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+      };
+    }
+  );
+
+  // Compatibility alias: task name used in planning docs
+  govTool(
+    "compare_permission_sets",
+    {
+      title: "Permission Set差分検出 (alias)",
+      description: "permission_set_diff の互換エイリアスです。",
+      inputSchema: {
+        baselineFilePath: z.string(),
+        targetFilePath: z.string(),
+        sampleLimit: z.number().int().min(1).max(100).optional()
+      }
+    },
+    async ({
+      baselineFilePath,
+      targetFilePath,
+      sampleLimit
+    }: {
+      baselineFilePath: string;
+      targetFilePath: string;
+      sampleLimit?: number;
+    }) => {
+      const result = diffPermissionSet({ baselineFilePath, targetFilePath, sampleLimit });
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
       };
