@@ -51,3 +51,15 @@ test("lint-outputs detects unexpected top-level entries and --fix repairs schema
     await rm(sentinelDir, { recursive: true, force: true });
   }
 });
+
+test("lint-outputs allows timestamped gzip archives for known jsonl outputs", async () => {
+  const archiveFile = join(repoRoot, "outputs", `memory.jsonl.${Date.now()}.gz`);
+  await writeFile(archiveFile, "gzip-bytes-placeholder", "utf-8");
+
+  try {
+    const result = runLint(repoRoot);
+    assert.equal(result.code, 0, `lint-outputs should allow timestamped jsonl archives: ${result.stderr}\n${result.stdout}`);
+  } finally {
+    await rm(archiveFile, { force: true });
+  }
+});

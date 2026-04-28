@@ -25,6 +25,18 @@ interface Schema {
   allowedFiles: string[];
 }
 
+/**
+ * Allow timestamped gzip archives for known top-level jsonl files.
+ * Example: memory.jsonl.1777359892395.gz
+ */
+function isAllowedOutputFile(name: string, allowedFiles: Set<string>): boolean {
+  if (allowedFiles.has(name)) return true;
+  const archived = name.match(/^(.+\.jsonl)\.(\d{10,})\.gz$/);
+  if (!archived) return false;
+  const baseName = archived[1];
+  return allowedFiles.has(baseName);
+}
+
 async function loadSchema(): Promise<Schema> {
   const raw = await readFile(schemaPath, "utf8");
   const parsed = JSON.parse(raw);
@@ -57,7 +69,7 @@ async function main(): Promise<void> {
       }
     } else if (entry.isFile()) {
       seenFileNames.add(entry.name);
-      if (!fileSet.has(entry.name)) {
+      if (!isAllowedOutputFile(entry.name, fileSet)) {
         if (fix) newFiles.push(entry.name);
         else violations.push(`unexpected file: outputs/${entry.name}`);
       }

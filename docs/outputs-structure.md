@@ -230,6 +230,7 @@ npm run ai -- observability:dashboard -- --trace-limit 200 --event-limit 1000
 
 - `allowedDirectories`: トップレベルのサブディレクトリ名 (`history`, `events`, `sessions`, `orgs` など)。
 - `allowedFiles`: トップレベルに置けるファイル名 (`memory.jsonl`, `vector-store.jsonl`, `tool-catalog.json` など)。
+- `allowedFiles` に含まれる `*.jsonl` については、`<base>.jsonl.<timestamp>.gz` 形式のアーカイブファイルも許可されます（例: `memory.jsonl.1777359892395.gz`）。
 - 検査は **トップレベルの完全一致のみ**。サブツリー内のファイル構造はチェックしません。
 
 ### Lint の実行
