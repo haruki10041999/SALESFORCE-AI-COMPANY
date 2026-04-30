@@ -144,16 +144,21 @@
 
 ## ツール分類
 
-プロジェクトで利用可能なツールは約 60+ 個あります。主なカテゴリ：
+プロジェクトで利用可能なツールは 120+ 個あります。主なカテゴリ：
 
 - **静的解析**: `apex_analyze`, `lwc_analyze`, `repo_analyze`, `apex_dependency_graph`, `permission_set_diff`, `org_metadata_diff`
 - **デプロイ・テスト**: `deploy_org`, `run_tests`
 - **差分・レビュー**: `branch_diff_summary`, `branch_diff_to_prompt`, `pr_readiness_check`, `security_delta_scan`, `deployment_impact_summary`, `changed_tests_suggest`
 - **プロンプト生成**: `chat`, `smart_chat`, `simulate_chat`, `batch_chat`
-- **オーケストレーション**: `orchestrate_chat`, `evaluate_triggers`, `dequeue_next_agent`
-- **ガバナンス**: `get_resource_governance`, `apply_resource_actions`, `record_resource_signal`
+- **オーケストレーション**: `orchestrate_chat`, `evaluate_triggers`, `dequeue_next_agent`（`graphRecommendation` を返却）
+- **ガバナンス**: `get_resource_governance`, `apply_resource_actions`, `record_resource_signal`, `update_resource_lifecycle`, `list_resource_lifecycle`
 - **プリセット**: `create_preset`, `run_preset`, `list_presets`
-- **メモリ**: `add_memory`, `search_memory`, `list_memory`, `clear_memory`
+- **メモリ**: `add_memory`, `search_memory`, `list_memory`, `clear_memory`, `record_failure`, `search_failures`, `list_failures`
+
+F14 関連の主要出力:
+
+- `outputs/agent-graph.jsonl`: agent 遷移学習ログ
+- `outputs/audit/tool-executions.jsonl`: ツール実行監査ログ（execution policy / RBAC 含む）
 
 **参考**: ツール全一覧は `docs/system-architecture-with-uml.md` の「10. ツール分類一覧」を参照してください。
 
@@ -183,6 +188,6 @@ npm run ai -- scaffold -- --non-interactive agent <name>
 
 ## 最終更新
 
-2026-04-24
+2026-04-30
 
 ドキュメント作成時点のファイル構成に基づいています。最新は `list_agents` / `list_skills` / `list_personas` でご確認ください。

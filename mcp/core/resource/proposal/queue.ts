@@ -20,8 +20,27 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFile
 import { join } from "node:path";
 
 export type ProposalStatus = "pending" | "approved" | "rejected";
+export type ApprovalStage = "reviewer" | "admin";
+export type ProposalApprovalDecision = "approved" | "rejected";
 
 export type ProposalResourceType = "skills" | "tools" | "presets";
+
+export interface ProposalApprovalAction {
+  stage: ApprovalStage;
+  actor: string;
+  decision: ProposalApprovalDecision;
+  decidedAt: string;
+  comment?: string;
+}
+
+export interface ProposalApprovalState {
+  requiredStages: ApprovalStage[];
+  currentStage: ApprovalStage;
+  completedStages: ApprovalStage[];
+  history: ProposalApprovalAction[];
+  finalApprovedAt?: string;
+  rejectedAt?: string;
+}
 
 export interface ProposalRecord {
   /** 安定ソート可能な ID。`prop-<unix-ms>-<rand>` 形式。 */
@@ -43,6 +62,8 @@ export interface ProposalRecord {
   resolvedAt?: string;
   /** 却下理由 (rejected の場合のみ) */
   rejectReason?: string;
+  /** F12: multi-stage approval 状態 */
+  approval?: ProposalApprovalState;
   status: ProposalStatus;
 }
 
@@ -53,6 +74,7 @@ export interface NewProposalInput {
   confidence?: number;
   sourceEvent?: string;
   origin?: string;
+  requiredApprovalStages?: ApprovalStage[];
 }
 
 const PROPOSAL_ID_PREFIX = "prop";
@@ -82,6 +104,7 @@ export function buildProposal(input: NewProposalInput, now: Date, id: string): P
   if (input.content.trim().length === 0) {
     throw new Error("proposal content must not be empty");
   }
+  const requiredStages = normalizeApprovalStages(input.requiredApprovalStages);
   return {
     id,
     resourceType: input.resourceType,
@@ -90,8 +113,35 @@ export function buildProposal(input: NewProposalInput, now: Date, id: string): P
     confidence,
     sourceEvent: input.sourceEvent,
     origin: input.origin,
+    approval: {
+      requiredStages,
+      currentStage: requiredStages[0],
+      completedStages: [],
+      history: []
+    },
     createdAt: now.toISOString(),
     status: "pending"
+  };
+}
+
+function normalizeApprovalStages(stages?: ApprovalStage[]): ApprovalStage[] {
+  const defaults: ApprovalStage[] = ["reviewer", "admin"];
+  if (!Array.isArray(stages) || stages.length === 0) {
+    return defaults;
+  }
+  const normalized = [...new Set(stages)];
+  const filtered = normalized.filter((stage): stage is ApprovalStage => stage === "reviewer" || stage === "admin");
+  return filtered.length > 0 ? filtered : defaults;
+}
+
+function ensureApprovalState(record: ProposalRecord): ProposalApprovalState {
+  if (record.approval) return record.approval;
+  const requiredStages = normalizeApprovalStages();
+  return {
+    requiredStages,
+    currentStage: requiredStages[0],
+    completedStages: [],
+    history: []
   };
 }
 
@@ -140,6 +190,26 @@ export function enqueueProposal(
   const record = buildProposal(input, now, id);
   writeFileSync(proposalFilePath(paths.pendingDir, id), JSON.stringify(record, null, 2), "utf-8");
   return record;
+}
+
+function updatePendingProposal(
+  outputsDir: string,
+  id: string,
+  patch: Partial<ProposalRecord>
+): ProposalRecord {
+  const paths = resolveProposalQueuePaths(outputsDir);
+  ensureDirs(paths);
+  const fp = proposalFilePath(paths.pendingDir, id);
+  if (!existsSync(fp)) {
+    throw new Error(`proposal not found in pending: ${id}`);
+  }
+  const current = JSON.parse(readFileSync(fp, "utf-8")) as ProposalRecord;
+  const next: ProposalRecord = {
+    ...current,
+    ...patch
+  };
+  writeFileSync(fp, JSON.stringify(next, null, 2), "utf-8");
+  return next;
 }
 
 function readDirRecords(dir: string): ProposalRecord[] {
@@ -221,7 +291,33 @@ function moveProposal(
 }
 
 export function approveProposal(outputsDir: string, id: string): ProposalRecord {
-  return moveProposal(outputsDir, id, "approved", {});
+  const current = getProposal(outputsDir, id);
+  const approval = current ? ensureApprovalState(current) : undefined;
+  const now = new Date().toISOString();
+  const history: ProposalApprovalAction[] = approval
+    ? [
+        ...approval.history,
+        {
+          stage: approval.currentStage,
+          actor: "system",
+          decision: "approved" as const,
+          decidedAt: now,
+          comment: "legacy direct approval"
+        }
+      ]
+    : [];
+
+  return moveProposal(outputsDir, id, "approved", {
+    approval: approval
+      ? {
+          ...approval,
+          completedStages: [...new Set([...approval.completedStages, ...approval.requiredStages])],
+          currentStage: approval.requiredStages[approval.requiredStages.length - 1] ?? "admin",
+          history,
+          finalApprovedAt: now
+        }
+      : undefined
+  });
 }
 
 export function rejectProposal(outputsDir: string, id: string, reason: string): ProposalRecord {
@@ -229,7 +325,124 @@ export function rejectProposal(outputsDir: string, id: string, reason: string): 
   if (trimmed.length === 0) {
     throw new Error("rejectReason must not be empty");
   }
-  return moveProposal(outputsDir, id, "rejected", { rejectReason: trimmed });
+  const current = getProposal(outputsDir, id);
+  const approval = current ? ensureApprovalState(current) : undefined;
+  const now = new Date().toISOString();
+  const history: ProposalApprovalAction[] = approval
+    ? [
+        ...approval.history,
+        {
+          stage: approval.currentStage,
+          actor: "system",
+          decision: "rejected" as const,
+          decidedAt: now,
+          comment: trimmed
+        }
+      ]
+    : [];
+  return moveProposal(outputsDir, id, "rejected", {
+    rejectReason: trimmed,
+    approval: approval
+      ? {
+          ...approval,
+          history,
+          rejectedAt: now
+        }
+      : undefined
+  });
+}
+
+export function approveProposalStage(
+  outputsDir: string,
+  id: string,
+  input: { stage: ApprovalStage; actor: string; comment?: string }
+): ProposalRecord {
+  const current = getProposal(outputsDir, id);
+  if (!current || current.status !== "pending") {
+    throw new Error(`proposal not found in pending: ${id}`);
+  }
+  const approval = ensureApprovalState(current);
+  if (approval.currentStage !== input.stage) {
+    throw new Error(`current stage is ${approval.currentStage}; requested ${input.stage}`);
+  }
+
+  const now = new Date().toISOString();
+  const completedStages = [...new Set([...approval.completedStages, input.stage])];
+  const history: ProposalApprovalAction[] = [
+    ...approval.history,
+    {
+      stage: input.stage,
+      actor: input.actor,
+      decision: "approved",
+      decidedAt: now,
+      comment: input.comment
+    }
+  ];
+
+  const requiredStages = normalizeApprovalStages(approval.requiredStages);
+  const currentIdx = requiredStages.indexOf(input.stage);
+  const nextStage = requiredStages[currentIdx + 1];
+
+  if (!nextStage) {
+    return moveProposal(outputsDir, id, "approved", {
+      approval: {
+        ...approval,
+        requiredStages,
+        completedStages,
+        history,
+        finalApprovedAt: now
+      }
+    });
+  }
+
+  return updatePendingProposal(outputsDir, id, {
+    approval: {
+      ...approval,
+      requiredStages,
+      completedStages,
+      currentStage: nextStage,
+      history
+    }
+  });
+}
+
+export function rejectProposalStage(
+  outputsDir: string,
+  id: string,
+  input: { stage: ApprovalStage; actor: string; reason: string }
+): ProposalRecord {
+  const current = getProposal(outputsDir, id);
+  if (!current || current.status !== "pending") {
+    throw new Error(`proposal not found in pending: ${id}`);
+  }
+  const approval = ensureApprovalState(current);
+  if (approval.currentStage !== input.stage) {
+    throw new Error(`current stage is ${approval.currentStage}; requested ${input.stage}`);
+  }
+  const trimmed = input.reason.trim();
+  if (trimmed.length === 0) {
+    throw new Error("rejectReason must not be empty");
+  }
+  const now = new Date().toISOString();
+  const history: ProposalApprovalAction[] = [
+    ...approval.history,
+    {
+      stage: input.stage,
+      actor: input.actor,
+      decision: "rejected",
+      decidedAt: now,
+      comment: trimmed
+    }
+  ];
+
+  return moveProposal(outputsDir, id, "rejected", {
+    rejectReason: trimmed,
+    approval: {
+      ...approval,
+      history,
+      rejectedAt: now
+    }
+  });
 }
 
 export interface ProposalQueueSummary {

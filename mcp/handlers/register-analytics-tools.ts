@@ -30,6 +30,11 @@ import {
   updateLinUcbArm,
   type LinUcbSnapshot
 } from "../core/learning/lin-ucb-bandit.js";
+import {
+  buildAgentReputationSnapshot,
+  loadAgentReputationRecords,
+  updateAgentReputation
+} from "../core/learning/agent-reputation.js";
 
 interface RegisterAnalyticsToolsDeps extends RegisterGovToolDeps {
   agentLog: AgentMessage[];
@@ -81,6 +86,14 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
     evaluatePromptMetrics,
     outputsDir
   } = deps;
+
+  function starToRating(stars: number): "thumbs-up" | "thumbs-down" | "neutral" {
+    if (stars >= 4) return "thumbs-up";
+    if (stars <= 2) return "thumbs-down";
+    return "neutral";
+  }
+
+  const agentReputationFile = resolve(outputsDir, "agent-reputation.jsonl");
 
   function aggregateToolAfterExecuteEvents(events: SystemEventRecord[]): {
     totals: {
@@ -1204,6 +1217,149 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
 
         return {
           content: [{ type: "text", text: JSON.stringify(out, null, 2) }]
+        };
+      }
+    );
+
+    govTool(
+      "update_agent_reputation",
+      {
+        title: "Agent Reputation 更新",
+        description: "agent の reputation を global/topic/org/user 単位で更新します。",
+        inputSchema: {
+          agentName: z.string().min(1),
+          delta: z.number().min(-1).max(1),
+          reason: z.string().optional(),
+          topic: z.string().optional(),
+          org: z.string().optional(),
+          user: z.string().optional(),
+          updateGlobal: z.boolean().optional()
+        }
+      },
+      async ({ agentName, delta, reason, topic, org, user, updateGlobal }: {
+        agentName: string;
+        delta: number;
+        reason?: string;
+        topic?: string;
+        org?: string;
+        user?: string;
+        updateGlobal?: boolean;
+      }) => {
+        const updates: Array<{ scope: "global" | "topic" | "org" | "user"; scopeKey?: string }> = [];
+        if (updateGlobal !== false) updates.push({ scope: "global", scopeKey: "global" });
+        if (topic && topic.trim().length > 0) updates.push({ scope: "topic", scopeKey: topic.trim() });
+        if (org && org.trim().length > 0) updates.push({ scope: "org", scopeKey: org.trim() });
+        if (user && user.trim().length > 0) updates.push({ scope: "user", scopeKey: user.trim() });
+
+        const recorded = [];
+        for (const update of updates) {
+          recorded.push(await updateAgentReputation({
+            agentName,
+            scope: update.scope,
+            scopeKey: update.scopeKey,
+            delta,
+            reason,
+            filePath: agentReputationFile
+          }));
+        }
+
+        const allRecords = await loadAgentReputationRecords(agentReputationFile);
+        const snapshot = buildAgentReputationSnapshot(allRecords, { agentName, topic, org, user });
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              updated: true,
+              agentName,
+              updateCount: recorded.length,
+              records: recorded,
+              snapshot,
+              filePath: agentReputationFile
+            }, null, 2)
+          }]
+        };
+      }
+    );
+
+    govTool(
+      "get_agent_reputation",
+      {
+        title: "Agent Reputation 取得",
+        description: "agent の global/topic/org/user reputation と effective score を返します。",
+        inputSchema: {
+          agentName: z.string().min(1),
+          topic: z.string().optional(),
+          org: z.string().optional(),
+          user: z.string().optional()
+        }
+      },
+      async ({ agentName, topic, org, user }: {
+        agentName: string;
+        topic?: string;
+        org?: string;
+        user?: string;
+      }) => {
+        const records = await loadAgentReputationRecords(agentReputationFile);
+        const snapshot = buildAgentReputationSnapshot(records, { agentName, topic, org, user });
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              agentName,
+              context: { topic: topic ?? null, org: org ?? null, user: user ?? null },
+              snapshot,
+              recordCount: records.filter((row) => row.agentName === agentName).length,
+              filePath: agentReputationFile
+            }, null, 2)
+          }]
+        };
+      }
+    );
+
+    govTool(
+      "rate_tool_execution",
+      {
+        title: "ツール実行評価",
+        description: "ツール実行結果に対する 1-5 の星評価を記録します。",
+        inputSchema: {
+          toolName: z.string().min(1),
+          stars: z.number().int().min(1).max(5),
+          sessionId: z.string().optional(),
+          comment: z.string().optional(),
+          tags: z.array(z.string()).optional()
+        }
+      },
+      async ({ toolName, stars, sessionId, comment, tags }: {
+        toolName: string;
+        stars: number;
+        sessionId?: string;
+        comment?: string;
+        tags?: string[];
+      }) => {
+        const feedback = await recordUserFeedback({
+          sessionId: sessionId ?? `tool:${toolName}`,
+          agentName: toolName,
+          rating: starToRating(stars),
+          comment,
+          qualityScore: Number(((stars - 1) / 4).toFixed(2)),
+          tags: ["tool-execution", `stars:${stars}`, ...(tags ?? [])]
+        });
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              feedbackId: feedback.feedbackId,
+              toolName,
+              stars,
+              normalizedRating: feedback.rating,
+              qualityScore: feedback.qualityScore,
+              timestamp: feedback.timestamp
+            }, null, 2)
+          }]
         };
       }
     );

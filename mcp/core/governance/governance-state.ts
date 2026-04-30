@@ -9,6 +9,7 @@ import { TemporaryFileManager } from "./temporary-file-manager.js";
 
 export type GovernedResourceType = "skills" | "tools" | "presets";
 export type GovernanceActionType = "create" | "delete" | "disable" | "enable";
+export type ResourceLifecycle = "experimental" | "stable" | "deprecated" | "disabled";
 
 export interface GovernanceConfig {
   maxCounts: {
@@ -45,6 +46,11 @@ export interface GovernanceConfig {
       };
     };
   };
+  approvalStages: {
+    enabled: boolean;
+    stages: string[];
+    requireCommentOnReject: boolean;
+  };
   /**
    * SLA 閾値設定
    * - default: すべての tool に適用されるデフォルト閾値
@@ -68,6 +74,7 @@ export interface GovernanceState {
   usage: Record<GovernedResourceType, Record<string, number>>;
   bugSignals: Record<GovernedResourceType, Record<string, number>>;
   disabled: Record<GovernedResourceType, string[]>;
+  lifecycle: Record<GovernedResourceType, Record<string, ResourceLifecycle>>;
   updatedAt: string;
 }
 
@@ -81,6 +88,12 @@ const governedDisabledSchema = z.object({
   skills: z.array(z.string()).optional(),
   tools: z.array(z.string()).optional(),
   presets: z.array(z.string()).optional()
+});
+const resourceLifecycleSchema = z.enum(["experimental", "stable", "deprecated", "disabled"]);
+const governedLifecycleMapSchema = z.object({
+  skills: z.record(z.string(), resourceLifecycleSchema).optional(),
+  tools: z.record(z.string(), resourceLifecycleSchema).optional(),
+  presets: z.record(z.string(), resourceLifecycleSchema).optional()
 });
 const governanceStateFileSchema = z.object({
   config: z.object({
@@ -118,6 +131,11 @@ const governanceStateFileSchema = z.object({
         }).optional()
       }).optional()
     }).optional(),
+    approvalStages: z.object({
+      enabled: z.boolean().optional(),
+      stages: z.array(z.string()).optional(),
+      requireCommentOnReject: z.boolean().optional()
+    }).optional(),
     sla: z.object({
       default: z.object({
         maxP95Ms: z.number().int().positive().optional(),
@@ -135,6 +153,7 @@ const governanceStateFileSchema = z.object({
   usage: governedResourceMapSchema.optional(),
   bugSignals: governedResourceMapSchema.optional(),
   disabled: governedDisabledSchema.optional(),
+  lifecycle: governedLifecycleMapSchema.optional(),
   updatedAt: z.string().optional()
 });
 
@@ -210,6 +229,11 @@ export function buildDefaultGovernanceState(defaultProtectedTools: string[]): Go
           governanceThresholdExceeded: { autoDisableRecommendedTools: false, maxToolsPerRun: 3 }
         }
       },
+      approvalStages: {
+        enabled: true,
+        stages: ["reviewer", "admin"],
+        requireCommentOnReject: true
+      },
       sla: {
         default: { maxP95Ms: 200, maxErrorRatePercent: 5 },
         tools: {}
@@ -218,7 +242,39 @@ export function buildDefaultGovernanceState(defaultProtectedTools: string[]): Go
     usage: { skills: {}, tools: {}, presets: {} },
     bugSignals: { skills: {}, tools: {}, presets: {} },
     disabled: { skills: [], tools: [], presets: [] },
+    lifecycle: { skills: {}, tools: {}, presets: {} },
     updatedAt: new Date().toISOString()
+  };
+}
+
+function syncLifecycleAndDisabled(state: GovernanceState): GovernanceState {
+  const normalizedDisabled = {
+    skills: normalizeDisabledEntries(state.disabled.skills ?? []),
+    tools: normalizeDisabledEntries(state.disabled.tools ?? []),
+    presets: normalizeDisabledEntries(state.disabled.presets ?? [])
+  };
+
+  const lifecycle: GovernanceState["lifecycle"] = {
+    skills: { ...(state.lifecycle.skills ?? {}) },
+    tools: { ...(state.lifecycle.tools ?? {}) },
+    presets: { ...(state.lifecycle.presets ?? {}) }
+  };
+
+  for (const resourceType of ["skills", "tools", "presets"] as const) {
+    for (const name of normalizedDisabled[resourceType]) {
+      lifecycle[resourceType][name] = "disabled";
+    }
+    for (const [name, stage] of Object.entries(lifecycle[resourceType])) {
+      if (stage === "disabled" && !normalizedDisabled[resourceType].includes(name)) {
+        normalizedDisabled[resourceType] = normalizeDisabledEntries([...normalizedDisabled[resourceType], name]);
+      }
+    }
+  }
+
+  return {
+    ...state,
+    disabled: normalizedDisabled,
+    lifecycle
   };
 }
 
@@ -253,7 +309,7 @@ export async function loadGovernanceState(
 
       const parsed = validated.data;
       const defaults = buildDefaultGovernanceState(defaultProtectedTools);
-      return {
+      return syncLifecycleAndDisabled({
         ...defaults,
         ...parsed,
         config: {
@@ -296,6 +352,15 @@ export async function loadGovernanceState(
               }
             }
           },
+          approvalStages: {
+            ...defaults.config.approvalStages,
+            ...parsed.config?.approvalStages,
+            stages:
+              Array.isArray(parsed.config?.approvalStages?.stages) &&
+              parsed.config?.approvalStages?.stages.length > 0
+                ? [...new Set(parsed.config.approvalStages.stages.map((s) => s.trim()).filter((s) => s.length > 0))]
+                : [...defaults.config.approvalStages.stages]
+          },
           sla: {
             default: {
               ...defaults.config.sla?.default,
@@ -309,8 +374,9 @@ export async function loadGovernanceState(
         },
         usage: { ...defaults.usage, ...parsed.usage },
         bugSignals: { ...defaults.bugSignals, ...parsed.bugSignals },
-        disabled: { ...defaults.disabled, ...parsed.disabled }
-      };
+        disabled: { ...defaults.disabled, ...parsed.disabled },
+        lifecycle: { ...defaults.lifecycle, ...parsed.lifecycle }
+      });
     } catch {
       const initial = buildDefaultGovernanceState(defaultProtectedTools);
       await writeGovernanceStateAtomic(governanceFile, initial);
@@ -324,7 +390,10 @@ export async function saveGovernanceState(
   state: GovernanceState
 ): Promise<void> {
   await withGovernanceStateLock(governanceFile, async () => {
-    state.updatedAt = new Date().toISOString();
-    await writeGovernanceStateAtomic(governanceFile, state);
+    const synced = syncLifecycleAndDisabled({
+      ...state,
+      updatedAt: new Date().toISOString()
+    });
+    await writeGovernanceStateAtomic(governanceFile, synced);
   });
 }

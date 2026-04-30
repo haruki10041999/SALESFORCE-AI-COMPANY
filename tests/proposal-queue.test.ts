@@ -11,6 +11,8 @@ import {
   getProposal,
   approveProposal,
   rejectProposal,
+  approveProposalStage,
+  rejectProposalStage,
   summarizeProposalQueue,
   resolveProposalQueuePaths
 } from "../mcp/core/resource/proposal/queue.js";
@@ -137,5 +139,43 @@ test("summarizeProposalQueue counts by status and resourceType", () => {
     assert.equal(s.byResourceType.skills.approved, 1);
     assert.equal(s.byResourceType.tools.rejected, 1);
     assert.equal(s.byResourceType.presets.pending, 1);
+  } finally { tmp.cleanup(); }
+});
+
+test("approveProposalStage advances reviewer to admin and keeps pending", () => {
+  const tmp = withTmp();
+  try {
+    const p = enqueueProposal(tmp.outputsDir, { resourceType: "skills", name: "multi", content: "c" });
+    const afterReviewer = approveProposalStage(tmp.outputsDir, p.id, {
+      stage: "reviewer",
+      actor: "alice",
+      comment: "looks good"
+    });
+    assert.equal(afterReviewer.status, "pending");
+    assert.equal(afterReviewer.approval?.currentStage, "admin");
+    assert.equal(afterReviewer.approval?.history.length, 1);
+
+    const finalized = approveProposalStage(tmp.outputsDir, p.id, {
+      stage: "admin",
+      actor: "bob"
+    });
+    assert.equal(finalized.status, "approved");
+    assert.ok(finalized.approval?.finalApprovedAt);
+    assert.equal(finalized.approval?.history.length, 2);
+  } finally { tmp.cleanup(); }
+});
+
+test("rejectProposalStage rejects from current stage with reason", () => {
+  const tmp = withTmp();
+  try {
+    const p = enqueueProposal(tmp.outputsDir, { resourceType: "tools", name: "multi-reject", content: "c" });
+    const rejected = rejectProposalStage(tmp.outputsDir, p.id, {
+      stage: "reviewer",
+      actor: "carol",
+      reason: "risk too high"
+    });
+    assert.equal(rejected.status, "rejected");
+    assert.equal(rejected.rejectReason, "risk too high");
+    assert.equal(rejected.approval?.history.at(-1)?.decision, "rejected");
   } finally { tmp.cleanup(); }
 });

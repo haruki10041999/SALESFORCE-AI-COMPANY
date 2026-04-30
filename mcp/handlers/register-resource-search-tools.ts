@@ -41,6 +41,99 @@ interface ConfidenceSnapshot {
   signalCount: number;
 }
 
+interface ResourceScoreExplanation {
+  matchedTokens: string[];
+  unmatchedTokens: string[];
+  matchedFields: string[];
+  fieldMatches: Array<{
+    field: string;
+    matchedTokens: string[];
+    hitCount: number;
+  }>;
+  coverage: {
+    matchedTokenCount: number;
+    totalTokenCount: number;
+    ratio: number;
+  };
+  scores: {
+    base: number;
+    final: number;
+    delta: number;
+    feedbackMultiplier?: number;
+    incrementalMultiplier?: number;
+  };
+  score: number;
+}
+
+function tokenizeQuery(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[^a-z0-9_\-\u3040-\u30ff\u4e00-\u9faf]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+}
+
+function buildScoreExplanation(
+  params: {
+    query: string;
+    baseScore: number;
+    finalScore: number;
+    fields: Record<string, string | undefined>;
+    feedbackMultiplier?: number;
+    incrementalMultiplier?: number;
+  }
+): ResourceScoreExplanation {
+  const { query, baseScore, finalScore, fields, feedbackMultiplier, incrementalMultiplier } = params;
+  const tokens = [...new Set(tokenizeQuery(query))];
+  const matchedTokenSet = new Set<string>();
+  const matchedFieldSet = new Set<string>();
+  const fieldMatches: Array<{ field: string; matchedTokens: string[]; hitCount: number }> = [];
+
+  for (const [fieldName, value] of Object.entries(fields)) {
+    if (!value) continue;
+    const normalized = value.toLowerCase();
+    const matchedTokens = tokens.filter((token) => normalized.includes(token));
+    if (matchedTokens.length === 0) continue;
+    fieldMatches.push({
+      field: fieldName,
+      matchedTokens,
+      hitCount: matchedTokens.length
+    });
+    matchedFieldSet.add(fieldName);
+    for (const token of matchedTokens) {
+      matchedTokenSet.add(token);
+    }
+  }
+
+  const matchedTokens = [...matchedTokenSet];
+  const unmatchedTokens = tokens.filter((token) => !matchedTokenSet.has(token));
+  const matchedTokenCount = matchedTokens.length;
+  const totalTokenCount = tokens.length;
+  const coverageRatio = totalTokenCount > 0 ? matchedTokenCount / totalTokenCount : 0;
+  const roundedBase = Number(baseScore.toFixed(3));
+  const roundedFinal = Number(finalScore.toFixed(3));
+
+  return {
+    matchedTokens,
+    unmatchedTokens,
+    matchedFields: [...matchedFieldSet],
+    fieldMatches,
+    coverage: {
+      matchedTokenCount,
+      totalTokenCount,
+      ratio: Number(coverageRatio.toFixed(3))
+    },
+    scores: {
+      base: roundedBase,
+      final: roundedFinal,
+      delta: Number((roundedFinal - roundedBase).toFixed(3)),
+      feedbackMultiplier: feedbackMultiplier === undefined ? undefined : Number(feedbackMultiplier.toFixed(3)),
+      incrementalMultiplier: incrementalMultiplier === undefined ? undefined : Number(incrementalMultiplier.toFixed(3))
+    },
+    score: roundedFinal
+  };
+}
+
 function buildConfidenceSnapshot(scores: number[]): ConfidenceSnapshot {
   const ranked = [...scores]
     .filter((score) => Number.isFinite(score) && score > 0)
@@ -295,17 +388,28 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
 
       const skillRows = types.includes("skills")
         ? listMdFiles("skills")
-          .map((s) => ({
-            name: s.name,
-            summary: s.summary,
-            score: applyQuerySkillIncrementalScore(
-              withFeedbackScore(scoreByQuery(query, s.name, s.summary), "skills", s.name, feedbackModel),
-              query,
-              s.name,
-              querySkillModel
-            ),
-            disabled: state.disabled.skills.includes(s.name)
-          }))
+          .map((s) => {
+            const baseScore = scoreByQuery(query, s.name, s.summary);
+            const feedbackScore = withFeedbackScore(baseScore, "skills", s.name, feedbackModel);
+            const finalScore = applyQuerySkillIncrementalScore(feedbackScore, query, s.name, querySkillModel);
+            return {
+              name: s.name,
+              summary: s.summary,
+              score: finalScore,
+              disabled: state.disabled.skills.includes(s.name),
+              explanation: buildScoreExplanation({
+                query,
+                baseScore,
+                finalScore,
+                feedbackMultiplier: baseScore > 0 ? feedbackScore / baseScore : undefined,
+                incrementalMultiplier: feedbackScore > 0 ? finalScore / feedbackScore : undefined,
+                fields: {
+                  name: s.name,
+                  summary: s.summary
+                }
+              })
+            };
+          })
           .filter((x) => x.score > 0 && (showDisabled || !x.disabled))
           .sort((a, b) => b.score - a.score)
           .slice(0, limit)
@@ -313,18 +417,29 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
 
       const toolRows = types.includes("tools")
         ? [...registeredToolMetadata.entries()]
-          .map(([name, meta]) => ({
-            name,
-            title: meta.title ?? name,
-            description: meta.description ?? "",
-            score: withFeedbackScore(
-              scoreByQuery(query, name, meta.title ?? "", meta.description ?? "", ...(meta.tags ?? [])),
-              "tools",
+          .map(([name, meta]) => {
+            const baseScore = scoreByQuery(query, name, meta.title ?? "", meta.description ?? "", ...(meta.tags ?? []));
+            const finalScore = withFeedbackScore(baseScore, "tools", name, feedbackModel);
+            return {
               name,
-              feedbackModel
-            ),
-            disabled: state.disabled.tools.includes(name)
-          }))
+              title: meta.title ?? name,
+              description: meta.description ?? "",
+              score: finalScore,
+              disabled: state.disabled.tools.includes(name),
+              explanation: buildScoreExplanation({
+                query,
+                baseScore,
+                finalScore,
+                feedbackMultiplier: baseScore > 0 ? finalScore / baseScore : undefined,
+                fields: {
+                  name,
+                  title: meta.title,
+                  description: meta.description,
+                  tags: (meta.tags ?? []).join(" ")
+                }
+              })
+            };
+          })
           .filter((x) => x.score > 0 && (showDisabled || !x.disabled))
           .sort((a, b) => b.score - a.score)
           .slice(0, limit)
@@ -332,19 +447,30 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
 
       const presetRows = types.includes("presets")
         ? (await listPresetsData())
-          .map((p) => ({
-            name: p.name,
-            description: p.description,
-            topic: p.topic,
-            agents: p.agents,
-            score: withFeedbackScore(
-              scoreByQuery(query, p.name, p.description, p.topic, p.agents.join(" ")),
-              "presets",
-              p.name,
-              feedbackModel
-            ),
-            disabled: state.disabled.presets.includes(p.name)
-          }))
+          .map((p) => {
+            const baseScore = scoreByQuery(query, p.name, p.description, p.topic, p.agents.join(" "));
+            const finalScore = withFeedbackScore(baseScore, "presets", p.name, feedbackModel);
+            return {
+              name: p.name,
+              description: p.description,
+              topic: p.topic,
+              agents: p.agents,
+              score: finalScore,
+              disabled: state.disabled.presets.includes(p.name),
+              explanation: buildScoreExplanation({
+                query,
+                baseScore,
+                finalScore,
+                feedbackMultiplier: baseScore > 0 ? finalScore / baseScore : undefined,
+                fields: {
+                  name: p.name,
+                  description: p.description,
+                  topic: p.topic,
+                  agents: p.agents.join(" ")
+                }
+              })
+            };
+          })
           .filter((x) => x.score > 0 && (showDisabled || !x.disabled))
           .sort((a, b) => b.score - a.score)
           .slice(0, limit)
@@ -403,50 +529,84 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
       const querySkillModel = await loadQuerySkillIncrementalModel(querySkillModelFile);
 
       const rankedSkills = listMdFiles("skills")
-        .map((s) => ({
-          name: s.name,
-          score: applyQuerySkillIncrementalScore(
-            withFeedbackScore(scoreByQuery(topic, s.name, s.summary), "skills", s.name, feedbackModel),
-            topic,
-            s.name,
-            querySkillModel
-          ),
-          disabled: state.disabled.skills.includes(s.name)
-        }))
+        .map((s) => {
+          const baseScore = scoreByQuery(topic, s.name, s.summary);
+          const feedbackScore = withFeedbackScore(baseScore, "skills", s.name, feedbackModel);
+          const finalScore = applyQuerySkillIncrementalScore(feedbackScore, topic, s.name, querySkillModel);
+          return {
+            name: s.name,
+            summary: s.summary,
+            score: finalScore,
+            disabled: state.disabled.skills.includes(s.name),
+            explanation: buildScoreExplanation({
+              query: topic,
+              baseScore,
+              finalScore,
+              feedbackMultiplier: baseScore > 0 ? feedbackScore / baseScore : undefined,
+              incrementalMultiplier: feedbackScore > 0 ? finalScore / feedbackScore : undefined,
+              fields: {
+                name: s.name,
+                summary: s.summary
+              }
+            })
+          };
+        })
         .filter((x) => x.score > 0 && !x.disabled)
         .sort((a, b) => b.score - a.score)
         .slice(0, limit);
 
       const rankedTools = [...registeredToolMetadata.entries()]
-        .map(([name, meta]) => ({
-          name,
-          title: meta.title ?? name,
-          score: withFeedbackScore(
-            scoreByQuery(topic, name, meta.title ?? "", meta.description ?? "", ...(meta.tags ?? [])),
-            "tools",
+        .map(([name, meta]) => {
+          const baseScore = scoreByQuery(topic, name, meta.title ?? "", meta.description ?? "", ...(meta.tags ?? []));
+          const finalScore = withFeedbackScore(baseScore, "tools", name, feedbackModel);
+          return {
             name,
-            feedbackModel
-          ),
-          disabled: state.disabled.tools.includes(name)
-        }))
+            title: meta.title ?? name,
+            score: finalScore,
+            disabled: state.disabled.tools.includes(name),
+            explanation: buildScoreExplanation({
+              query: topic,
+              baseScore,
+              finalScore,
+              feedbackMultiplier: baseScore > 0 ? finalScore / baseScore : undefined,
+              fields: {
+                name,
+                title: meta.title,
+                description: meta.description,
+                tags: (meta.tags ?? []).join(" ")
+              }
+            })
+          };
+        })
         .filter((x) => x.score > 0 && !x.disabled)
         .sort((a, b) => b.score - a.score)
         .slice(0, limit);
 
       const rankedPresets = (await listPresetsData())
-        .map((p) => ({
-          name: p.name,
-          topic: p.topic,
-          description: p.description,
-          agents: p.agents,
-          score: withFeedbackScore(
-            scoreByQuery(topic, p.name, p.topic, p.description, p.agents.join(" ")),
-            "presets",
-            p.name,
-            feedbackModel
-          ),
-          disabled: state.disabled.presets.includes(p.name)
-        }))
+        .map((p) => {
+          const baseScore = scoreByQuery(topic, p.name, p.topic, p.description, p.agents.join(" "));
+          const finalScore = withFeedbackScore(baseScore, "presets", p.name, feedbackModel);
+          return {
+            name: p.name,
+            topic: p.topic,
+            description: p.description,
+            agents: p.agents,
+            score: finalScore,
+            disabled: state.disabled.presets.includes(p.name),
+            explanation: buildScoreExplanation({
+              query: topic,
+              baseScore,
+              finalScore,
+              feedbackMultiplier: baseScore > 0 ? finalScore / baseScore : undefined,
+              fields: {
+                name: p.name,
+                topic: p.topic,
+                description: p.description,
+                agents: p.agents.join(" ")
+              }
+            })
+          };
+        })
         .filter((x) => x.score > 0 && !x.disabled)
         .sort((a, b) => b.score - a.score)
         .slice(0, limit);

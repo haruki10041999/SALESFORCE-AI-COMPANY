@@ -54,8 +54,11 @@ orchestrate_chat        ← セッション開始・初期キュー生成
 | フィールド | 型 | 説明 |
 |---|---|---|
 | `sessionId` | string | 生成されたセッション ID（例: `orch-2026-04-23T10-00-00-000Z`） |
+| `mode` | string | 実行モード（`pseudo-hook`） |
+| `orchestrationMode` | string | `linear` または `dag` |
+| `nextQueue` | string[] | 初期エージェントキュー |
+| `queueProgress` | object | `total` / `executed` / `remaining` / `currentAgent` |
 | `prompt` | string | 最初のプロンプト |
-| `queue` | string[] | 初期エージェントキュー |
 
 ### 入力例
 
@@ -103,9 +106,10 @@ orchestrate_chat:
 
 | フィールド | 型 | 説明 |
 |---|---|---|
-| `triggered` | string[] | 新たにキューに追加されたエージェント名 |
+| `nextAgents` | string[] | 新たにキューに追加されたエージェント名 |
 | `reasons` | string[] | 各トリガーの理由 |
-| `queue` | string[] | 更新後のエージェントキュー |
+| `queueLength` | number \| null | 更新後キューの長さ |
+| `usedRoundRobinFallback` | boolean | ラウンドロビン補完を使ったか |
 | `trustScoring` | object | 信頼スコア、閾値、エスカレーション結果 |
 
 ### 入力例
@@ -127,7 +131,9 @@ evaluate_triggers:
 
 ### 概要
 
-エージェントキューの先頭から次の担当エージェントを取り出し、その会話プロンプトを生成します。
+エージェントキューの先頭から次の担当エージェントを取り出します。
+学習済みの agent 遷移データがある場合は、`graphRecommendation` を返し、
+候補キューを推奨順に並べ替えてから取り出します。
 
 ### 入力パラメータ
 
@@ -140,10 +146,11 @@ evaluate_triggers:
 
 | フィールド | 型 | 説明 |
 |---|---|---|
-| `agents` | string[] | 取り出されたエージェント名 |
-| `prompt` | string | 次のエージェントのプロンプト |
+| `sessionId` | string | 対象セッション ID |
+| `dequeued` | string[] | 取り出されたエージェント名 |
 | `remainingQueue` | string[] | 残りのキュー |
-| `done` | boolean | キューが空になった場合 `true` |
+| `graphRecommendation` | object \| null | graph 学習から得た推奨（`fromAgent`, `recommendedAgent`, `probability`） |
+| `queueProgress` | object | `total` / `executed` / `remaining` / `currentAgent` / `nextAgent` |
 
 ### 入力例
 
@@ -171,14 +178,13 @@ dequeue_next_agent:
 
 | フィールド | 型 | 説明 |
 |---|---|---|
-| `sessionId` | string | セッション ID |
+| `id` | string | セッション ID |
 | `topic` | string | セッションテーマ |
 | `agents` | string[] | 参加エージェント |
 | `queue` | string[] | 現在のキュー |
-| `history` | array | 発言履歴 |
 | `triggerRules` | array | 定義されたトリガールール |
-| `firedRules` | string[] | 発火済みルールキー |
-| `turn` | number | 現在のターン数 |
+| `historyCount` | number | 発言履歴件数 |
+| `firedRuleCount` | number | 発火済みルール数 |
 
 ### 入力例
 
@@ -234,9 +240,9 @@ get_orchestration_session:
 
 2. ループ：
    a. dequeue_next_agent（次エージェントのプロンプトを取得）
-   b. LLM にプロンプトを投げて発言を得る
+  b. dequeued されたエージェントに対する発言を生成する
    c. evaluate_triggers（トリガー評価・キュー更新）
-   d. done: true になるまで繰り返す
+  d. remainingQueue が空になるまで繰り返す
 
 3. save_orchestration_session（中断/完了時に保存）
 

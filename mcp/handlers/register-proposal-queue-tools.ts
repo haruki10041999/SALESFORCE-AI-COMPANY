@@ -1,14 +1,18 @@
 import { z } from "zod";
 import { resolve } from "node:path";
+import { promises as fsPromises } from "node:fs";
 import {
   enqueueProposal,
   listProposals,
   getProposal,
   approveProposal,
   rejectProposal,
+  approveProposalStage,
+  rejectProposalStage,
   summarizeProposalQueue,
   type ProposalResourceType,
-  type ProposalStatus
+  type ProposalStatus,
+  type ApprovalStage
 } from "../core/resource/proposal/queue.js";
 import { applyProposal } from "../core/resource/proposal/applier.js";
 import {
@@ -35,6 +39,20 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
     ? resolve(process.env.SF_AI_OUTPUTS_DIR)
     : resolve("outputs"));
   const repoRoot = deps.repoRoot ?? resolve(".");
+  const approvalAuditFile = resolve(outputsDir, "audit", "proposal-approvals.jsonl");
+
+  async function appendApprovalAudit(event: Record<string, unknown>): Promise<void> {
+    try {
+      await fsPromises.mkdir(resolve(outputsDir, "audit"), { recursive: true });
+      await fsPromises.appendFile(
+        approvalAuditFile,
+        `${JSON.stringify({ recordedAt: new Date().toISOString(), ...event })}\n`,
+        "utf-8"
+      );
+    } catch {
+      // Audit logging failures must not break tool execution.
+    }
+  }
 
   govTool(
     "enqueue_proposal",
@@ -93,6 +111,79 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
     async ({ id }: { id: string }) => {
       const record = getProposal(outputsDir, id);
       return { content: [{ type: "text", text: JSON.stringify({ found: record !== null, record }, null, 2) }] };
+    }
+  );
+
+  govTool(
+    "approve_proposal_stage",
+    {
+      title: "提案ステージ承認",
+      description: "pending proposal を reviewer/admin の段階承認で進めます。最終ステージ承認時に approved へ遷移します。",
+      inputSchema: {
+        id: z.string().min(1).max(128),
+        stage: z.enum(["reviewer", "admin"]),
+        actor: z.string().min(1).max(128),
+        comment: z.string().max(1000).optional()
+      }
+    },
+    async ({ id, stage, actor, comment }: { id: string; stage: ApprovalStage; actor: string; comment?: string }) => {
+      const record = approveProposalStage(outputsDir, id, { stage, actor, comment });
+      await appendApprovalAudit({
+        event: "proposal_stage_approved",
+        proposalId: id,
+        stage,
+        actor,
+        status: record.status
+      });
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            approved: true,
+            stage,
+            actor,
+            record,
+            auditFile: approvalAuditFile
+          }, null, 2)
+        }]
+      };
+    }
+  );
+
+  govTool(
+    "reject_proposal_stage",
+    {
+      title: "提案ステージ却下",
+      description: "pending proposal を reviewer/admin の任意ステージで却下し、rejected へ遷移します。",
+      inputSchema: {
+        id: z.string().min(1).max(128),
+        stage: z.enum(["reviewer", "admin"]),
+        actor: z.string().min(1).max(128),
+        reason: z.string().min(1).max(1000)
+      }
+    },
+    async ({ id, stage, actor, reason }: { id: string; stage: ApprovalStage; actor: string; reason: string }) => {
+      const record = rejectProposalStage(outputsDir, id, { stage, actor, reason });
+      await appendApprovalAudit({
+        event: "proposal_stage_rejected",
+        proposalId: id,
+        stage,
+        actor,
+        status: record.status,
+        reason
+      });
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            rejected: true,
+            stage,
+            actor,
+            record,
+            auditFile: approvalAuditFile
+          }, null, 2)
+        }]
+      };
     }
   );
 

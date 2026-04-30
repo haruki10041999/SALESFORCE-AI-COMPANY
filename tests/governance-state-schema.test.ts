@@ -6,7 +6,8 @@ import { join } from "node:path";
 
 import {
   buildDefaultGovernanceState,
-  loadGovernanceState
+  loadGovernanceState,
+  saveGovernanceState
 } from "../mcp/core/governance/governance-state.js";
 import { simulateGovernanceChange } from "../mcp/tools/simulate-governance-change.js";
 import {
@@ -88,8 +89,40 @@ test("loadGovernanceState preserves valid persisted values after schema validati
 
   assert.equal(state.config.thresholds.minUsageToKeep, 4);
   assert.equal(state.config.toolExecution.retryEnabled, false);
+  assert.deepEqual(state.config.approvalStages.stages, ["reviewer", "admin"]);
   assert.equal(state.usage.skills.apex, 3);
   assert.deepEqual(state.disabled.tools, ["old_tool"]);
+});
+
+test("loadGovernanceState merges approvalStages config", async () => {
+  const root = await mkdtemp(join(tmpdir(), "sf-ai-governance-approval-stage-"));
+  const governanceFile = join(root, "resource-governance.json");
+
+  await writeFile(
+    governanceFile,
+    JSON.stringify({
+      config: {
+        approvalStages: {
+          enabled: true,
+          stages: ["reviewer", "admin", "admin"],
+          requireCommentOnReject: false
+        }
+      }
+    }),
+    "utf-8"
+  );
+
+  const state = await loadGovernanceState(
+    governanceFile,
+    async (dir) => {
+      await mkdir(dir, { recursive: true });
+    },
+    ["apply_resource_actions"]
+  );
+
+  assert.equal(state.config.approvalStages.enabled, true);
+  assert.deepEqual(state.config.approvalStages.stages, ["reviewer", "admin"]);
+  assert.equal(state.config.approvalStages.requireCommentOnReject, false);
 });
 
 test("loadGovernanceState preserves persisted SLA thresholds and merges with defaults", async () => {
@@ -132,6 +165,60 @@ test("loadGovernanceState preserves persisted SLA thresholds and merges with def
   assert.ok(defaults.config.sla);
   assert.equal(defaults.config.sla?.default?.maxP95Ms, 200);
   assert.equal(defaults.config.sla?.default?.maxErrorRatePercent, 5);
+});
+
+test("loadGovernanceState merges lifecycle and disabled states", async () => {
+  const root = await mkdtemp(join(tmpdir(), "sf-ai-governance-lifecycle-"));
+  const governanceFile = join(root, "resource-governance.json");
+
+  await writeFile(
+    governanceFile,
+    JSON.stringify({
+      disabled: {
+        tools: ["legacy_tool"]
+      },
+      lifecycle: {
+        tools: {
+          "preview_tool": "experimental",
+          "sunset_tool": "deprecated"
+        }
+      }
+    }),
+    "utf-8"
+  );
+
+  const state = await loadGovernanceState(
+    governanceFile,
+    async (dir) => {
+      await mkdir(dir, { recursive: true });
+    },
+    ["apply_resource_actions"]
+  );
+
+  assert.equal(state.lifecycle.tools.preview_tool, "experimental");
+  assert.equal(state.lifecycle.tools.sunset_tool, "deprecated");
+  assert.equal(state.lifecycle.tools.legacy_tool, "disabled");
+  assert.ok(state.disabled.tools.includes("legacy_tool"));
+});
+
+test("saveGovernanceState syncs disabled lifecycle entries", async () => {
+  const root = await mkdtemp(join(tmpdir(), "sf-ai-governance-lifecycle-save-"));
+  const governanceFile = join(root, "resource-governance.json");
+
+  const state = buildDefaultGovernanceState(["apply_resource_actions"]);
+  state.lifecycle.tools.preview_tool = "disabled";
+  await saveGovernanceState(governanceFile, state);
+
+  const reloaded = await loadGovernanceState(
+    governanceFile,
+    async (dir) => {
+      await mkdir(dir, { recursive: true });
+    },
+    ["apply_resource_actions"]
+  );
+
+  assert.ok(reloaded.disabled.tools.includes("preview_tool"));
+  assert.equal(reloaded.lifecycle.tools.preview_tool, "disabled");
 });
 
 test("tool-error helpers normalize messages and retryability consistently", () => {

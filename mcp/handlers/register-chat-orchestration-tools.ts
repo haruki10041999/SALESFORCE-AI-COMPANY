@@ -12,6 +12,13 @@ import {
   getAgentTrustThreshold
 } from "../core/config/runtime-config.js";
 import { endTrace, failTrace, startTrace, withPhase } from "../core/trace/trace-context.js";
+import { buildDagExecutionLayers, type DagNode } from "../core/orchestration/dag-engine.js";
+import {
+  buildAgentTransitionModel,
+  loadAgentGraphRecords,
+  recommendNextAgents,
+  recordAgentSequence
+} from "../core/learning/agent-graph-learner.js";
 
 interface RegisterChatOrchestrationToolsDeps extends RegisterGovToolDeps {
   chatInputSchema: Record<string, unknown>;
@@ -73,6 +80,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     readDir,
     readFile
   } = deps;
+  const agentGraphFile = join(sessionsDir, "..", "agent-graph.jsonl");
 
   async function getSessionOrRestore(sessionId: string): Promise<OrchestrationSession | undefined> {
     const inMemory = orchestrationSessions.get(sessionId);
@@ -113,6 +121,12 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
         topic: z.string(),
         filePaths: z.array(z.string()).optional(),
         agents: z.array(z.string()).optional(),
+        dagNodes: z.array(
+          z.object({
+            id: z.string().min(1),
+            dependsOn: z.array(z.string().min(1)).optional()
+          })
+        ).optional(),
         persona: z.string().optional(),
         skills: z.array(z.string()).optional(),
         turns: z.number().int().min(1).max(30).optional(),
@@ -121,10 +135,11 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
         appendInstruction: z.string().optional()
       }
     },
-    async ({ topic, filePaths, agents, persona, skills, turns, triggerRules, maxContextChars, appendInstruction }: {
+    async ({ topic, filePaths, agents, dagNodes, persona, skills, turns, triggerRules, maxContextChars, appendInstruction }: {
       topic: string;
       filePaths?: string[];
       agents?: string[];
+      dagNodes?: DagNode[];
       persona?: string;
       skills?: string[];
       turns?: number;
@@ -132,7 +147,13 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
       maxContextChars?: number;
       appendInstruction?: string;
     }) => {
-      const selectedAgents = agents ?? ["product-manager", "architect", "qa-engineer"];
+      const selectedAgents = dagNodes && dagNodes.length > 0
+        ? [...new Set(dagNodes.map((node) => node.id))]
+        : (agents ?? ["product-manager", "architect", "qa-engineer"]);
+      const dagLayers = dagNodes && dagNodes.length > 0
+        ? buildDagExecutionLayers(dagNodes)
+        : [];
+      const initialQueue = dagLayers.length > 0 ? dagLayers.flat() : [...selectedAgents];
       const sessionId = generateSessionId();
       // TASK-038: orchestrate_chat の phase 分解
       const traceId = startTrace("orchestrate_chat", {
@@ -183,9 +204,16 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
             filePaths: filePaths ?? [],
             turns: turns ?? 6,
             triggerRules: triggerRules ?? [],
-            queue: [...selectedAgents],
+            queue: initialQueue,
             history: [],
             firedRules: [],
+            dag: dagLayers.length > 0
+              ? {
+                enabled: true,
+                nodes: dagNodes ?? [],
+                layers: dagLayers
+              }
+              : undefined,
             agentTrust: {}
           };
           orchestrationSessions.set(sessionId, session);
@@ -198,14 +226,16 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
                   {
                     sessionId,
                     mode: "pseudo-hook",
+                    orchestrationMode: dagLayers.length > 0 ? "dag" : "linear",
                     nextQueue: session.queue,
                     queueProgress: {
-                      total: session.agents.length,
+                      total: session.queue.length,
                       executed: 0,
                       remaining: session.queue.length,
                       currentAgent: session.queue[0] ?? null
                     },
                     triggerRuleCount: session.triggerRules.length,
+                    dagLayers: dagLayers.length > 0 ? dagLayers : undefined,
                     disabledSkills,
                     prompt
                   },
@@ -441,6 +471,42 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
         };
       }
 
+      let graphRecommendation: {
+        fromAgent: string;
+        recommendedAgent: string;
+        probability: number;
+      } | null = null;
+
+      const lastAgentInHistory = session.history.at(-1)?.agent;
+      const executedApprox = Math.max(0, session.agents.length - session.queue.length);
+      const fallbackFromAgent = executedApprox > 0
+        ? session.agents[Math.min(session.agents.length - 1, executedApprox - 1)]
+        : undefined;
+      const fromAgent = lastAgentInHistory ?? fallbackFromAgent;
+      if (fromAgent && session.queue.length > 0) {
+        const graphRecords = await loadAgentGraphRecords(agentGraphFile);
+        const graphModel = buildAgentTransitionModel(graphRecords);
+        const recommendations = recommendNextAgents({
+          model: graphModel,
+          fromAgent,
+          candidates: session.queue,
+          limit: 1
+        });
+        const top = recommendations[0];
+        if (top) {
+          const idx = session.queue.findIndex((agent) => agent === top.to);
+          if (idx > 0) {
+            const [selected] = session.queue.splice(idx, 1);
+            session.queue.unshift(selected);
+          }
+          graphRecommendation = {
+            fromAgent: top.from,
+            recommendedAgent: top.to,
+            probability: top.probability
+          };
+        }
+      }
+
       const take = limit ?? 1;
       const nextAgents: string[] = [];
       for (let i = 0; i < take; i++) {
@@ -452,6 +518,11 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
       }
 
       if (session.queue.length === 0) {
+        const learned = await recordAgentSequence(agentGraphFile, {
+          sessionId,
+          sequence: session.history.map((item) => item.agent),
+          success: true
+        });
         const savedSession = await saveOrchestrationSession(sessionId);
         const savedHistoryId = session.history.length > 0
           ? await saveSessionHistory(session.topic, session.history)
@@ -463,6 +534,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
           reason: "queue-empty",
           historyCount: session.history.length,
           firedRuleCount: session.firedRules.length,
+          graphLearned: learned !== null,
           autoSavedSessionPath: savedSession?.filePath ?? null,
           autoSavedHistoryId: savedHistoryId
         });
@@ -477,6 +549,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
                 sessionId,
                 dequeued: nextAgents,
                 remainingQueue: session.queue,
+                graphRecommendation,
                 queueProgress: {
                   total: session.agents.length,
                   executed: session.agents.length - session.queue.length,

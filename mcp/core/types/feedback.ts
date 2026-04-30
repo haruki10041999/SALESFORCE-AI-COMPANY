@@ -25,6 +25,14 @@ export interface UserFeedback {
   userId?: string;
 }
 
+export interface StarRatingFeedback {
+  sessionId: string;
+  toolName: string;
+  stars: 1 | 2 | 3 | 4 | 5;
+  comment?: string;
+  tags?: string[];
+}
+
 export interface FeedbackMetrics {
   totalFeedback: number;
   thumbsUpCount: number;

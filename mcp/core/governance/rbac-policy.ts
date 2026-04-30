@@ -35,7 +35,15 @@ const DEFAULT_POLICY: RbacPolicy = {
         "evaluate_cost_sla",
         "estimate_prompt_cost"
       ],
-      deny: ["update_event_automation_config"]
+      deny: [
+        "update_event_automation_config",
+        "apply_resource_actions",
+        "approve_proposal",
+        "apply_proposal",
+        "auto_apply_pending_proposals",
+        "approve_proposal_stage",
+        "reject_proposal_stage"
+      ]
     },
     viewer: {
       allow: [
@@ -44,6 +52,17 @@ const DEFAULT_POLICY: RbacPolicy = {
         "get_handlers_dashboard",
         "analyze_ab_test_history"
       ]
+    },
+    reviewer: {
+      allow: [
+        "list_proposals",
+        "get_proposal",
+        "approve_proposal_stage",
+        "reject_proposal_stage",
+        "health_check",
+        "get_system_events"
+      ],
+      deny: ["apply_proposal", "apply_resource_actions", "auto_apply_pending_proposals"]
     }
   }
 };

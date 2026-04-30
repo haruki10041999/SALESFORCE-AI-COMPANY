@@ -22,6 +22,8 @@
 - 学習の仕組み: [learning-guide.md](./learning-guide.md)
 - 指標評価: [metrics-evaluation.md](./metrics-evaluation.md)
 - 検証手順: [verification-guide.md](./verification-guide.md)
+- 改修・拡張仕様書: [mcp-server-improvement-spec.md](./mcp-server-improvement-spec.md)
+- タスク別修正方針・影響範囲: [task-impact-map.md](./task-impact-map.md)
 - リソース一覧: [resource-inventory.md](./resource-inventory.md)
 - OpenCode セットアップ: [opencode-setup.md](./opencode-setup.md)
 - Ollama セットアップ: [ollama-setup.md](./ollama-setup.md)

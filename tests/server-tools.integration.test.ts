@@ -52,6 +52,9 @@ test("server exposes expected core tool registrations", () => {
     "compare_permission_sets",
     "compare_org_metadata",
     "recommend_permission_sets",
+    "register_org",
+    "record_org_event",
+    "get_org_timeline",
     "metrics_summary",
     "deployment_plan_generate",
     "benchmark_suite",
@@ -64,6 +67,7 @@ test("server exposes expected core tool registrations", () => {
     "coverage_estimate",
     "analyze_test_coverage_gap",
     "metadata_dependency_graph",
+    "simulate_dependency_impact",
     "save_orchestration_session",
     "restore_orchestration_session",
     "list_orchestration_sessions",
@@ -77,6 +81,14 @@ test("server exposes expected core tool registrations", () => {
     "search_memory",
     "list_memory",
     "clear_memory",
+    "approve_proposal_stage",
+    "reject_proposal_stage",
+    "record_failure",
+    "search_failures",
+    "list_failures",
+    "rate_tool_execution",
+    "update_agent_reputation",
+    "get_agent_reputation",
     "record_skill_rating",
     "get_skill_rating_report",
     "agent_ab_test",
@@ -862,6 +874,36 @@ test("list_agents returns JSON array with name and summary", async () => {
   assert.equal(typeof payload[0]?.summary, "string");
 });
 
+test("org timeline tools record and retrieve events", async () => {
+  const alias = `timeline-${Date.now().toString(36)}`;
+
+  await callTool("register_org", {
+    alias,
+    instanceUrl: "https://example.my.salesforce.com",
+    type: "sandbox"
+  });
+
+  await callTool("record_org_event", {
+    alias,
+    type: "metadata-sync",
+    summary: "Synced object definitions",
+    metadata: { changed: 3 }
+  });
+
+  const timeline = parseFirstJson<{
+    alias: string;
+    count: number;
+    events: Array<{ type: string; summary: string }>;
+  }>(await callTool("get_org_timeline", {
+    alias,
+    limit: 10
+  }));
+
+  assert.equal(timeline.alias, alias);
+  assert.ok(timeline.count >= 1);
+  assert.ok(timeline.events.some((event) => event.type === "metadata-sync"));
+});
+
 test("recommend_first_steps returns picks and 3-step guidance", async () => {
   const result = await callTool("recommend_first_steps", {
     goal: "Apex trigger review",
@@ -964,6 +1006,188 @@ test("health_check returns operational summary", async () => {
   assert.ok(Array.isArray(payload.metrics?.topTools));
 });
 
+test("failure memory tools record and search incident patterns", async () => {
+  const recorded = parseFirstJson<{
+    recorded: {
+      pattern: string;
+      reason: string;
+      preventiveAction: string;
+      tags: string[];
+      recordedAt: string;
+    };
+  }>(await callTool("record_failure", {
+    pattern: "unsafe deploy without permission diff",
+    reason: "missing permission dependency validation",
+    preventiveAction: "run recommend_permission_sets before deploy",
+    tags: ["deploy", "permission"]
+  }));
+
+  assert.equal(recorded.recorded.pattern, "unsafe deploy without permission diff");
+  assert.equal(recorded.recorded.tags.includes("deploy"), true);
+
+  const searched = parseFirstJson<{
+    query: string;
+    count: number;
+    results: Array<{ pattern: string }>;
+  }>(await callTool("search_failures", {
+    query: "permission diff"
+  }));
+
+  assert.equal(searched.query, "permission diff");
+  assert.ok(searched.count >= 1);
+  assert.ok(searched.results.some((item) => item.pattern.includes("unsafe deploy")));
+
+  const listed = parseFirstJson<{
+    count: number;
+    items: Array<{ preventiveAction: string }>;
+  }>(await callTool("list_failures", {
+    limit: 5
+  }));
+
+  assert.ok(listed.count >= 1);
+  assert.ok(listed.items.some((item) => item.preventiveAction.includes("recommend_permission_sets")));
+});
+
+test("rate_tool_execution records star feedback with normalized score", async () => {
+  const payload = parseFirstJson<{
+    success: boolean;
+    toolName: string;
+    stars: number;
+    normalizedRating: "thumbs-up" | "thumbs-down" | "neutral";
+    qualityScore: number;
+  }>(await callTool("rate_tool_execution", {
+    toolName: "deploy_org",
+    stars: 5,
+    comment: "quick and clear",
+    tags: ["ui", "speed"]
+  }));
+
+  assert.equal(payload.success, true);
+  assert.equal(payload.toolName, "deploy_org");
+  assert.equal(payload.stars, 5);
+  assert.equal(payload.normalizedRating, "thumbs-up");
+  assert.equal(payload.qualityScore, 1);
+});
+
+test("agent reputation tools update and fetch contextual scores", async () => {
+  const agentName = "architect";
+
+  const updated = parseFirstJson<{
+    updated: boolean;
+    updateCount: number;
+    snapshot: { global: number; topic?: { key: string; score: number }; effective: number };
+  }>(await callTool("update_agent_reputation", {
+    agentName,
+    delta: 0.2,
+    topic: "security",
+    org: "OrgA",
+    user: "user-1"
+  }));
+
+  assert.equal(updated.updated, true);
+  assert.ok(updated.updateCount >= 1);
+  assert.equal(typeof updated.snapshot.global, "number");
+
+  const fetched = parseFirstJson<{
+    agentName: string;
+    snapshot: {
+      global: number;
+      topic?: { key: string; score: number };
+      org?: { key: string; score: number };
+      user?: { key: string; score: number };
+      effective: number;
+    };
+    recordCount: number;
+  }>(await callTool("get_agent_reputation", {
+    agentName,
+    topic: "security",
+    org: "OrgA",
+    user: "user-1"
+  }));
+
+  assert.equal(fetched.agentName, agentName);
+  assert.equal(typeof fetched.snapshot.effective, "number");
+  assert.ok(fetched.snapshot.global >= 0);
+  assert.ok(fetched.snapshot.global <= 1);
+  assert.ok(fetched.recordCount >= 1);
+});
+
+test("search_resources includes explanation details", async () => {
+  type DetailedExplanation = {
+    matchedTokens: string[];
+    unmatchedTokens: string[];
+    matchedFields: string[];
+    fieldMatches: Array<{ field: string; matchedTokens: string[]; hitCount: number }>;
+    coverage: { matchedTokenCount: number; totalTokenCount: number; ratio: number };
+    scores: { base: number; final: number; delta: number; feedbackMultiplier?: number; incrementalMultiplier?: number };
+    score: number;
+  };
+
+  const payload = parseFirstJson<{
+    query: string;
+    skills?: Array<{ name: string; explanation?: DetailedExplanation }>;
+    tools?: Array<{ name: string; explanation?: DetailedExplanation }>;
+  }>(await callTool("search_resources", {
+    query: "apex review",
+    resourceTypes: ["skills", "tools"],
+    limitPerType: 3
+  }));
+
+  assert.equal(payload.query, "apex review");
+  const firstSkill = payload.skills?.[0];
+  if (firstSkill) {
+    assert.ok(Array.isArray(firstSkill.explanation?.matchedTokens));
+    assert.ok(Array.isArray(firstSkill.explanation?.unmatchedTokens));
+    assert.ok(Array.isArray(firstSkill.explanation?.matchedFields));
+    assert.ok(Array.isArray(firstSkill.explanation?.fieldMatches));
+    assert.equal(typeof firstSkill.explanation?.coverage?.ratio, "number");
+    assert.equal(typeof firstSkill.explanation?.scores?.base, "number");
+    assert.equal(typeof firstSkill.explanation?.scores?.final, "number");
+    assert.equal(typeof firstSkill.explanation?.score, "number");
+  }
+});
+
+test("auto_select_resources includes explanation details", async () => {
+  type DetailedExplanation = {
+    matchedTokens: string[];
+    unmatchedTokens: string[];
+    matchedFields: string[];
+    fieldMatches: Array<{ field: string; matchedTokens: string[]; hitCount: number }>;
+    coverage: { matchedTokenCount: number; totalTokenCount: number; ratio: number };
+    scores: { base: number; final: number; delta: number; feedbackMultiplier?: number; incrementalMultiplier?: number };
+    score: number;
+  };
+
+  const payload = parseFirstJson<{
+    topic: string;
+    detail: {
+      skills: Array<{ name: string; explanation?: DetailedExplanation }>;
+      tools: Array<{ name: string; explanation?: DetailedExplanation }>;
+      presets: Array<{ name: string; explanation?: DetailedExplanation }>;
+    };
+  }>(await callTool("auto_select_resources", {
+    topic: "Apex security review",
+    limitPerType: 2
+  }));
+
+  assert.equal(payload.topic, "Apex security review");
+  const candidates = [
+    ...payload.detail.skills,
+    ...payload.detail.tools,
+    ...payload.detail.presets
+  ];
+  if (candidates.length > 0) {
+    assert.ok(Array.isArray(candidates[0].explanation?.matchedTokens));
+    assert.ok(Array.isArray(candidates[0].explanation?.unmatchedTokens));
+    assert.ok(Array.isArray(candidates[0].explanation?.matchedFields));
+    assert.ok(Array.isArray(candidates[0].explanation?.fieldMatches));
+    assert.equal(typeof candidates[0].explanation?.coverage?.ratio, "number");
+    assert.equal(typeof candidates[0].explanation?.scores?.base, "number");
+    assert.equal(typeof candidates[0].explanation?.scores?.final, "number");
+    assert.equal(typeof candidates[0].explanation?.score, "number");
+  }
+});
+
 test("chat returns prompt skeleton containing topic section", async () => {
   const result = await callTool("chat", {
     topic: "Apexトリガー改善",
@@ -1044,6 +1268,39 @@ test("orchestration tools execute end-to-end session flow", async () => {
   assert.ok(session.queue.length >= 2);
   assert.equal(session.historyCount, 1);
   assert.equal(session.firedRuleCount, 1);
+});
+
+test("orchestrate_chat supports dagNodes and builds layered queue", async () => {
+  const orchestrated = parseFirstJson<{
+    sessionId: string;
+    orchestrationMode: "linear" | "dag";
+    dagLayers?: string[][];
+    nextQueue: string[];
+  }>(await callTool("orchestrate_chat", {
+    topic: "DAG orchestration test",
+    dagNodes: [
+      { id: "architect" },
+      { id: "security-engineer", dependsOn: ["architect"] },
+      { id: "qa-engineer", dependsOn: ["architect"] }
+    ],
+    turns: 3
+  }));
+
+  assert.equal(orchestrated.orchestrationMode, "dag");
+  assert.deepEqual(orchestrated.dagLayers, [["architect"], ["qa-engineer", "security-engineer"]]);
+  assert.deepEqual(orchestrated.nextQueue, ["architect", "qa-engineer", "security-engineer"]);
+});
+
+test("orchestrate_chat rejects invalid dagNodes", async () => {
+  await assert.rejects(
+    () => callTool("orchestrate_chat", {
+      topic: "invalid DAG test",
+      dagNodes: [
+        { id: "architect", dependsOn: ["missing"] }
+      ]
+    }),
+    /invalid dag/
+  );
 });
 
 test("orchestration evaluate_triggers honors once rules and uses round-robin fallback", async () => {
@@ -1410,6 +1667,41 @@ test("error aggregate event auto-disables an unprotected failing tool", async ()
   }
 });
 
+test("execution policy blocks configured tool and writes audit log", async () => {
+  const previousRole = process.env.SF_AI_ROLE;
+  process.env.SF_AI_ROLE = "admin";
+  const policyFile = join(serverTestOutputsDir, "execution-policy.json");
+
+  try {
+    await fsPromises.writeFile(policyFile, JSON.stringify({
+      version: "1.0",
+      blockedTools: ["health_check"],
+      dangerousActions: { denyForNonAdmin: true, resourceActions: ["delete", "disable"] }
+    }, null, 2), "utf-8");
+
+    const result = await callTool("health_check", {});
+
+    const text = result.content[0]?.text ?? "";
+    assert.ok(text.includes("Execution policy denied"));
+
+    const auditFile = join(serverTestOutputsDir, "audit", "tool-executions.jsonl");
+    assert.equal(existsSync(auditFile), true);
+    const auditLines = readFileSync(auditFile, "utf-8")
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0);
+    assert.ok(auditLines.some((line) => line.includes("blocked-execution-policy") && line.includes("health_check")));
+  } finally {
+    if (existsSync(policyFile)) {
+      await fsPromises.unlink(policyFile);
+    }
+    if (previousRole === undefined) {
+      delete process.env.SF_AI_ROLE;
+    } else {
+      process.env.SF_AI_ROLE = previousRole;
+    }
+  }
+});
+
 test("simulate_governance_change evaluates delta without mutating governance state", async () => {
   const before = parseFirstJson<{
     config: {
@@ -1452,6 +1744,184 @@ test("simulate_governance_change evaluates delta without mutating governance sta
   assert.deepEqual(after.config.maxCounts, before.config.maxCounts);
   assert.deepEqual(after.config.thresholds, before.config.thresholds);
   assert.deepEqual(after.disabled.tools, before.disabled.tools);
+});
+
+test("resource lifecycle tools update and list lifecycle states", async () => {
+  const targetTool = "get_agent";
+
+  const updated = parseFirstJson<{
+    updated: boolean;
+    resourceType: string;
+    name: string;
+    lifecycle: string;
+    disabled: boolean;
+  }>(await callTool("update_resource_lifecycle", {
+    resourceType: "tools",
+    name: targetTool,
+    lifecycle: "deprecated"
+  }));
+
+  assert.equal(updated.updated, true);
+  assert.equal(updated.resourceType, "tools");
+  assert.equal(updated.name, targetTool);
+  assert.equal(updated.lifecycle, "deprecated");
+  assert.equal(updated.disabled, false);
+
+  const listed = parseFirstJson<{
+    count: number;
+    items: Array<{ resourceType: string; name: string; lifecycle: string; disabled: boolean }>;
+  }>(await callTool("list_resource_lifecycle", {
+    resourceType: "tools",
+    lifecycle: "deprecated",
+    limit: 200
+  }));
+
+  assert.ok(listed.count >= 1);
+  assert.ok(listed.items.some((item) => item.resourceType === "tools" && item.name === targetTool && item.lifecycle === "deprecated"));
+
+  const governance = parseFirstJson<{
+    lifecycle: { tools: Record<string, string> };
+  }>(await callTool("get_resource_governance", {}));
+  assert.equal(governance.lifecycle.tools[targetTool], "deprecated");
+
+  await callTool("update_resource_lifecycle", {
+    resourceType: "tools",
+    name: targetTool,
+    lifecycle: "stable"
+  });
+});
+
+test("auto_refactor_suggest creates proposals for declined skills", async () => {
+  const skillName = `auto-refactor-skill-${Date.now().toString(36)}`;
+
+  await callTool("record_skill_rating", {
+    ratings: [
+      { skill: skillName, rating: 5, recordedAt: "2026-04-01T00:00:00.000Z" },
+      { skill: skillName, rating: 4, recordedAt: "2026-04-02T00:00:00.000Z" },
+      { skill: skillName, rating: 1, recordedAt: "2026-04-16T00:00:00.000Z" },
+      { skill: skillName, rating: 1, recordedAt: "2026-04-17T00:00:00.000Z" }
+    ]
+  });
+
+  const payload = parseFirstJson<{
+    executed: boolean;
+    declinedSkillCount: number;
+    proposals: Array<{ skill: string; proposalId: string; suggestionCount: number }>;
+  }>(await callTool("auto_refactor_suggest", {
+    declineThreshold: 0.2,
+    days: 14,
+    limit: 20,
+    respectSchedule: false,
+    at: "2026-04-20T00:00:00.000Z"
+  }));
+
+  assert.equal(payload.executed, true);
+  assert.ok(payload.declinedSkillCount >= 1);
+  const matched = payload.proposals.find((row) => row.skill === skillName);
+  assert.ok(matched);
+  assert.equal(typeof matched?.proposalId, "string");
+});
+
+test("proposal stage approval workflow supports reviewer->admin and writes audit", async () => {
+  const enqueued = parseFirstJson<{
+    enqueued: { id: string; status: string };
+  }>(await callTool("enqueue_proposal", {
+    resourceType: "skills",
+    name: `stage-approval-skill-${Date.now().toString(36)}`,
+    content: "# staged skill\ncontent"
+  }));
+
+  const proposalId = enqueued.enqueued.id;
+  const reviewer = parseFirstJson<{
+    approved: boolean;
+    stage: string;
+    record: { status: string; approval?: { currentStage?: string } };
+    auditFile: string;
+  }>(await callTool("approve_proposal_stage", {
+    id: proposalId,
+    stage: "reviewer",
+    actor: "reviewer-user",
+    comment: "review passed"
+  }));
+
+  assert.equal(reviewer.approved, true);
+  assert.equal(reviewer.stage, "reviewer");
+  assert.equal(reviewer.record.status, "pending");
+  assert.equal(reviewer.record.approval?.currentStage, "admin");
+
+  const admin = parseFirstJson<{
+    approved: boolean;
+    stage: string;
+    record: { status: string; approval?: { finalApprovedAt?: string } };
+  }>(await callTool("approve_proposal_stage", {
+    id: proposalId,
+    stage: "admin",
+    actor: "admin-user"
+  }));
+
+  assert.equal(admin.approved, true);
+  assert.equal(admin.stage, "admin");
+  assert.equal(admin.record.status, "approved");
+  assert.equal(typeof admin.record.approval?.finalApprovedAt, "string");
+
+  assert.equal(existsSync(reviewer.auditFile), true);
+});
+
+test("dequeue_next_agent uses learned graph recommendation", async () => {
+  const graphFile = join(serverTestOutputsDir, "agent-graph.jsonl");
+  await fsPromises.writeFile(
+    graphFile,
+    `${JSON.stringify({
+      recordedAt: "2026-04-30T00:00:00.000Z",
+      sessionId: "seed",
+      sequence: ["architect", "qa-engineer", "debug-specialist"],
+      success: true
+    })}\n`,
+    "utf-8"
+  );
+
+  const orchestrated = parseFirstJson<{
+    sessionId: string;
+  }>(await callTool("orchestrate_chat", {
+    topic: "graph recommendation test",
+    agents: ["architect", "debug-specialist", "qa-engineer"],
+    turns: 4
+  }));
+
+  await callTool("dequeue_next_agent", {
+    sessionId: orchestrated.sessionId,
+    limit: 1
+  });
+
+  await callTool("evaluate_triggers", {
+    sessionId: orchestrated.sessionId,
+    lastAgent: "architect",
+    lastMessage: "次の担当を選択",
+    fallbackRoundRobin: false,
+    enableTrustScoring: false
+  });
+
+  const dequeued = parseFirstJson<{
+    dequeued: string[];
+    graphRecommendation?: {
+      fromAgent: string;
+      recommendedAgent: string;
+      probability: number;
+    } | null;
+  }>(await callTool("dequeue_next_agent", {
+    sessionId: orchestrated.sessionId,
+    limit: 1
+  }));
+
+  assert.equal(Array.isArray(dequeued.dequeued), true);
+  assert.equal(dequeued.dequeued.length >= 1, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(dequeued, "graphRecommendation"), true);
+
+  if (dequeued.graphRecommendation) {
+    assert.equal(dequeued.graphRecommendation.fromAgent, "architect");
+    assert.equal(dequeued.graphRecommendation.recommendedAgent, "qa-engineer");
+    assert.equal(dequeued.dequeued[0], "qa-engineer");
+  }
 });
 
 test("analyze_test_coverage_gap returns CI-gate compatible result", async () => {

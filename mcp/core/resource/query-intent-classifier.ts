@@ -32,6 +32,10 @@ export interface QueryIntentResult {
   intent: QueryIntent;
   confidence: number; // 0..1
   scores: Record<QueryIntent, number>;
+  topIntents: Array<{
+    intent: Exclude<QueryIntent, "unknown">;
+    score: number;
+  }>;
 }
 
 /**
@@ -117,10 +121,20 @@ export function classifyQueryIntent(query: string): QueryIntentResult {
   const total = Object.values(scores).reduce((a, b) => a + b, 0);
   const confidence = total === 0 ? 0 : Number((bestScore / total).toFixed(3));
 
+  const rankedIntents = (Object.entries(scores) as Array<[QueryIntent, number]>)
+    .filter(([intent, score]) => intent !== "unknown" && score > 0)
+    .sort((a, b) => b[1] - a[1]);
+
+  const topIntents = rankedIntents.slice(0, 3).map(([intent, score]) => ({
+    intent: intent as Exclude<QueryIntent, "unknown">,
+    score: total === 0 ? 0 : Number((score / total).toFixed(3))
+  }));
+
   return {
     intent: bestIntent,
     confidence,
-    scores
+    scores,
+    topIntents
   };
 }
 
@@ -183,6 +197,71 @@ export function applyIntentScoringOverride(
   return { ...base, ...override };
 }
 
+type NumericScoringKey =
+  | "exactNameMatchWeight"
+  | "nameContainWeight"
+  | "tokenMatchWeight"
+  | "tagMatchWeight"
+  | "descriptionMatchWeight"
+  | "usageWeight"
+  | "bugPenaltyWeight"
+  | "recencyBonusWeight"
+  | "dayWindow"
+  | "gapThreshold";
+
+const NUMERIC_SCORING_KEYS: NumericScoringKey[] = [
+  "exactNameMatchWeight",
+  "nameContainWeight",
+  "tokenMatchWeight",
+  "tagMatchWeight",
+  "descriptionMatchWeight",
+  "usageWeight",
+  "bugPenaltyWeight",
+  "recencyBonusWeight",
+  "dayWindow",
+  "gapThreshold"
+];
+
+/**
+ * 上位 intent の重み付き平均でスコアリング設定を合成する。
+ */
+export function applyMultiIntentScoringOverride(
+  base: ScoringConfig,
+  topIntents: Array<{ intent: Exclude<QueryIntent, "unknown">; score: number }>
+): ScoringConfig {
+  if (topIntents.length === 0) {
+    return base;
+  }
+
+  const total = topIntents.reduce((sum, item) => sum + Math.max(0, item.score), 0);
+  if (total <= 0) {
+    return base;
+  }
+
+  const merged: ScoringConfig = { ...base };
+  for (const key of NUMERIC_SCORING_KEYS) {
+    const baseValue = base[key];
+    let value = baseValue;
+    for (const item of topIntents) {
+      const weight = Math.max(0, item.score) / total;
+      const override = INTENT_SCORING_OVERRIDES[item.intent][key];
+      if (typeof override === "number") {
+        value += weight * (override - baseValue);
+      }
+    }
+    merged[key] = value;
+  }
+
+  if (base.embeddingMode !== undefined) {
+    merged.embeddingMode = base.embeddingMode;
+  }
+  if (base.embeddingAlpha !== undefined) {
+    merged.embeddingAlpha = base.embeddingAlpha;
+  }
+
+  return merged;
+}
+
 /**
  * 与えられたクエリから intent を分類し、調整済み ScoringConfig を返すヘルパー。
  */
@@ -191,6 +270,8 @@ export function getScoringConfigForQuery(
   base: ScoringConfig = DEFAULT_SCORING_CONFIG
 ): { intent: QueryIntentResult; config: ScoringConfig } {
   const intent = classifyQueryIntent(query);
-  const config = applyIntentScoringOverride(base, intent.intent);
+  const config = intent.topIntents.length > 1
+    ? applyMultiIntentScoringOverride(base, intent.topIntents)
+    : applyIntentScoringOverride(base, intent.intent);
   return { intent, config };
 }

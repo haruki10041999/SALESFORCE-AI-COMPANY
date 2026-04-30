@@ -161,6 +161,14 @@ npm run ai -- outputs:version -- wipe --keep-backups
 - 既定では wipe 前に snapshot が 1 つ追加で作られる
 - どのリポジトリ起点の実行だったかは `outputs/execution-origins.jsonl` を見る
 
+4. オーケストレーション学習ログの確認（F14）
+
+確認ポイント:
+
+- `outputs/agent-graph.jsonl` が増加していること（セッション完了時に追記）
+- `outputs/audit/tool-executions.jsonl` に実行監査が出ていること
+- `dequeue_next_agent` 実行結果に `graphRecommendation` が含まれることがある（学習データ依存）
+
 4. SQLite 履歴モードを使う場合の整合チェック
 
 前提チェック（`SF_AI_HISTORY_SQLITE=true` で運用する場合）:
@@ -226,6 +234,8 @@ npm run ai -- doctor
 - 出力全体の意味: `outputs-structure.md`
 - 設定値: `configuration.md`
 - 実行 provenance: `../outputs/execution-origins.jsonl`
+- Agent graph 学習ログ: `../outputs/agent-graph.jsonl`
+- ツール実行監査ログ: `../outputs/audit/tool-executions.jsonl`
 - 変更履歴: `CHANGELOG.md`
 
 ## 補足: 統一CLIでの代表コマンド

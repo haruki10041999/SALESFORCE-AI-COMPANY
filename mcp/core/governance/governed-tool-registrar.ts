@@ -7,6 +7,9 @@ import { addRecord as addVectorRecord } from "../../../memory/vector-store.js";
 import { buildProgressBanner } from "../progress/progress-formatter.js";
 import { appendExecutionOrigin, buildExecutionOriginRecord } from "./outputs-origin.js";
 import { checkToolAccess } from "./rbac-policy.js";
+import { evaluateExecutionPolicy, loadExecutionPolicy } from "./execution-policy.js";
+import { promises as fsPromises } from "node:fs";
+import { resolve } from "node:path";
 
 const PROGRESS_BANNER_SKIP_TOOLS = new Set([
   // 進捗表示の意味が薄い軽量ツール (応答が JSON のみで構造化されているもの含む)
@@ -119,6 +122,20 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
     }
   }
 
+  async function appendToolAudit(entry: Record<string, unknown>): Promise<void> {
+    const auditFile = resolve(outputsDir, "audit", "tool-executions.jsonl");
+    try {
+      await fsPromises.mkdir(resolve(outputsDir, "audit"), { recursive: true });
+      await fsPromises.appendFile(
+        auditFile,
+        `${JSON.stringify({ recordedAt: new Date().toISOString(), ...entry })}\n`,
+        "utf-8"
+      );
+    } catch {
+      // audit logging failures should not block tool execution
+    }
+  }
+
   function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
@@ -155,11 +172,63 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
           durationMs: Date.now() - startedAt.getTime(),
           status: "error"
         });
+        await appendToolAudit({
+          toolName: name,
+          traceId,
+          status: "blocked-rbac",
+          role: access.role,
+          reason: access.reason ?? "rbac denied",
+          input: summarizeValue(input)
+        });
         return {
           content: [
             {
               type: "text",
               text: `RBAC denied: tool='${name}', role='${access.role}', reason='${access.reason ?? "not allowed"}'`
+            }
+          ]
+        };
+      }
+
+      const policy = await loadExecutionPolicy(outputsDir);
+      const policyDecision = evaluateExecutionPolicy({
+        policy,
+        toolName: normalizeResourceName(name),
+        role: access.role,
+        input
+      });
+      if (!policyDecision.allowed) {
+        await emitSystemEvent("tool_after_execute", {
+          toolName: name,
+          traceId,
+          success: false,
+          blockedByExecutionPolicy: true,
+          role: access.role,
+          rule: policyDecision.rule,
+          reason: policyDecision.reason
+        });
+        endTrace(traceId, { blockedByExecutionPolicy: true, role: access.role, rule: policyDecision.rule });
+        recordMetric({
+          toolName: name,
+          traceId,
+          startedAt: startedAt.toISOString(),
+          durationMs: Date.now() - startedAt.getTime(),
+          status: "error"
+        });
+        await appendToolAudit({
+          toolName: name,
+          traceId,
+          status: "blocked-execution-policy",
+          role: access.role,
+          rule: policyDecision.rule,
+          reason: policyDecision.reason,
+          input: summarizeValue(input)
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Execution policy denied: tool='${name}', role='${access.role}', reason='${policyDecision.reason ?? "policy denied"}'`
             }
           ]
         };
@@ -183,6 +252,12 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
           startedAt: startedAt.toISOString(),
           durationMs: Date.now() - startedAt.getTime(),
           status: "error"
+        });
+        await appendToolAudit({
+          toolName: name,
+          traceId,
+          status: "blocked-disabled",
+          input: summarizeValue(input)
         });
         return {
           content: [
@@ -234,6 +309,14 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
             "success"
           );
           recordExecutionOrigin(name, input, "success");
+          await appendToolAudit({
+            toolName: name,
+            traceId,
+            status: "success",
+            attempts: attempt + 1,
+            input: summarizeValue(input),
+            output: summarizeValue(result)
+          });
           return attachProgressBanner(name, traceId, result);
         } catch (error) {
           const retryable = retryConfig.retryEnabled && (
@@ -268,6 +351,14 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
               "error"
             );
             recordExecutionOrigin(name, input, "error");
+            await appendToolAudit({
+              toolName: name,
+              traceId,
+              status: "error",
+              attempts: attempt + 1,
+              input: summarizeValue(input),
+              error: summarizeValue(error, 500)
+            });
             throw error;
           }
 

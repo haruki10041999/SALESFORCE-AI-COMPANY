@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 /**
  * TASK-F6: weighted context budget allocator.
  *
@@ -30,14 +33,70 @@ export interface CategoryWeights {
   framework: number;
 }
 
-export const DEFAULT_CATEGORY_WEIGHTS: CategoryWeights = Object.freeze({
+const FALLBACK_CATEGORY_WEIGHTS: CategoryWeights = {
   agent: 0.30,
   skill: 0.25,
   code: 0.15,
   context: 0.20,
   persona: 0.05,
   framework: 0.05
-});
+};
+
+function isFiniteNonNegative(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function isCategoryWeights(value: unknown): value is CategoryWeights {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    isFiniteNonNegative(candidate.agent) &&
+    isFiniteNonNegative(candidate.skill) &&
+    isFiniteNonNegative(candidate.code) &&
+    isFiniteNonNegative(candidate.context) &&
+    isFiniteNonNegative(candidate.persona) &&
+    isFiniteNonNegative(candidate.framework)
+  );
+}
+
+export function loadCategoryWeightsFromFile(filePath?: string): CategoryWeights | undefined {
+  const resolvedPath = filePath
+    ? resolve(filePath)
+    : resolve(process.cwd(), "context", "context-budget.json");
+
+  if (!existsSync(resolvedPath)) {
+    return undefined;
+  }
+
+  try {
+    const raw = JSON.parse(readFileSync(resolvedPath, "utf-8")) as unknown;
+    if (!isCategoryWeights(raw)) {
+      return undefined;
+    }
+
+    const sum = Object.values(raw).reduce((acc, cur) => acc + cur, 0);
+    if (!Number.isFinite(sum) || sum <= 0) {
+      return undefined;
+    }
+
+    return {
+      agent: raw.agent,
+      skill: raw.skill,
+      code: raw.code,
+      context: raw.context,
+      persona: raw.persona,
+      framework: raw.framework
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export const DEFAULT_CATEGORY_WEIGHTS: CategoryWeights = Object.freeze(
+  loadCategoryWeightsFromFile(process.env.SF_AI_CONTEXT_BUDGET_FILE) ?? FALLBACK_CATEGORY_WEIGHTS
+);
 
 export interface CategoryItemCounts {
   agent: number;

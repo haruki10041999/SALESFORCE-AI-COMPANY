@@ -6,10 +6,45 @@ interface RegisterMemoryToolsDeps extends RegisterGovToolDeps {
   searchMemory: (query: string) => string[];
   listMemory: () => string[];
   clearMemory: () => void;
+  recordFailureMemory: (input: {
+    pattern: string;
+    reason: string;
+    preventiveAction: string;
+    tags?: string[];
+  }) => {
+    pattern: string;
+    reason: string;
+    preventiveAction: string;
+    tags: string[];
+    recordedAt: string;
+  };
+  searchFailureMemory: (query: string, limit?: number) => Array<{
+    pattern: string;
+    reason: string;
+    preventiveAction: string;
+    tags: string[];
+    recordedAt: string;
+  }>;
+  listFailureMemory: (limit?: number) => Array<{
+    pattern: string;
+    reason: string;
+    preventiveAction: string;
+    tags: string[];
+    recordedAt: string;
+  }>;
 }
 
 export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
-  const { govTool, addMemory, searchMemory, listMemory, clearMemory } = deps;
+  const {
+    govTool,
+    addMemory,
+    searchMemory,
+    listMemory,
+    clearMemory,
+    recordFailureMemory,
+    searchFailureMemory,
+    listFailureMemory
+  } = deps;
 
   govTool(
     "add_memory",
@@ -81,6 +116,86 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
       clearMemory();
       return {
         content: [{ type: "text", text: "Memory cleared." }]
+      };
+    }
+  );
+
+  govTool(
+    "record_failure",
+    {
+      title: "失敗メモリ記録",
+      description: "失敗パターンと再発防止策を記録します。",
+      inputSchema: {
+        pattern: z.string().min(1),
+        reason: z.string().min(1),
+        preventiveAction: z.string().min(1),
+        tags: z.array(z.string().min(1)).optional()
+      }
+    },
+    async ({ pattern, reason, preventiveAction, tags }: {
+      pattern: string;
+      reason: string;
+      preventiveAction: string;
+      tags?: string[];
+    }) => {
+      const recorded = recordFailureMemory({
+        pattern,
+        reason,
+        preventiveAction,
+        tags
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ recorded }, null, 2)
+          }
+        ]
+      };
+    }
+  );
+
+  govTool(
+    "search_failures",
+    {
+      title: "失敗メモリ検索",
+      description: "失敗パターン専用メモリを検索します。",
+      inputSchema: {
+        query: z.string().min(1),
+        limit: z.number().int().min(1).max(100).optional()
+      }
+    },
+    async ({ query, limit }: { query: string; limit?: number }) => {
+      const results = searchFailureMemory(query, limit ?? 10);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ query, count: results.length, results }, null, 2)
+          }
+        ]
+      };
+    }
+  );
+
+  govTool(
+    "list_failures",
+    {
+      title: "失敗メモリ一覧",
+      description: "記録済み失敗パターンを一覧表示します。",
+      inputSchema: {
+        limit: z.number().int().min(1).max(200).optional()
+      }
+    },
+    async ({ limit }: { limit?: number }) => {
+      const items = listFailureMemory(limit ?? 50);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ count: items.length, items }, null, 2)
+          }
+        ]
       };
     }
   );

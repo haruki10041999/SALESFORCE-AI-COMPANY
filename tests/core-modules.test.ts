@@ -35,6 +35,7 @@ import {
 import {
   classifyQueryIntent,
   applyIntentScoringOverride,
+  applyMultiIntentScoringOverride,
   getScoringConfigForQuery,
   type QueryIntent
 } from "../mcp/core/resource/query-intent-classifier.js";
@@ -79,7 +80,8 @@ import {
   updateCleanupSchedule,
   deleteCleanupSchedule,
   setCleanupScheduleStatus,
-  getDueSchedules
+  getDueSchedules,
+  getDueAutoRefactorSchedules
 } from "../mcp/core/resource/cleanup-scheduler.js";
 
 // Embedding Ranker Tests (TASK-042)
@@ -133,7 +135,9 @@ import {
   selectArms,
   toBanditSnapshot,
   fromBanditSnapshot,
-  tracesToFeedbacks
+  tracesToFeedbacks,
+  saveBanditState,
+  loadBanditState
 } from "../mcp/core/learning/rl-feedback.js";
 
 // Quality Checker Tests
@@ -375,6 +379,19 @@ test("Resource Selector - per-resourceType default scoring configs differ", () =
     "presets should reward exact name matches more strongly than baseline");
 });
 
+test("Resource Selector - default embedding mode is hybrid", () => {
+  assert.equal(
+    DEFAULT_SCORING_CONFIG.embeddingMode,
+    "hybrid",
+    "default embedding mode should be hybrid"
+  );
+  assert.equal(
+    DEFAULT_SCORING_CONFIG_BY_TYPE.skills.embeddingMode,
+    "hybrid",
+    "skills config should inherit hybrid embedding mode"
+  );
+});
+
 test("Resource Selector - selectResourcesByType uses type-specific config when omitted", () => {
   const candidate: ResourceCandidate = {
     name: "release-readiness",
@@ -469,6 +486,29 @@ test("Query Intent Classifier - applies intent-specific scoring overrides", () =
   const unknownConfig = applyIntentScoringOverride(DEFAULT_SCORING_CONFIG, "unknown");
   assert.deepEqual(unknownConfig, DEFAULT_SCORING_CONFIG,
     "unknown intent should not modify config");
+});
+
+test("Query Intent Classifier - extracts topIntents for multi-intent query", () => {
+  const result = classifyQueryIntent("設計レビューをお願いします");
+  assert.equal(result.intent, "design");
+  assert.ok(result.topIntents.length >= 2);
+
+  const intents = result.topIntents.map((item) => item.intent);
+  assert.ok(intents.includes("design"));
+  assert.ok(intents.includes("review"));
+});
+
+test("Query Intent Classifier - weighted multi-intent override blends configs", () => {
+  const config = applyMultiIntentScoringOverride(DEFAULT_SCORING_CONFIG, [
+    { intent: "design", score: 0.5 },
+    { intent: "review", score: 0.5 }
+  ]);
+
+  // design(9) と review(8) の中間より高く、base(6)より上になる。
+  assert.ok(config.descriptionMatchWeight > DEFAULT_SCORING_CONFIG.descriptionMatchWeight);
+  assert.ok(config.descriptionMatchWeight < 9.1);
+  // review(26) の影響で base(30) より下がる。
+  assert.ok(config.exactNameMatchWeight < DEFAULT_SCORING_CONFIG.exactNameMatchWeight);
 });
 
 test("Query Intent Classifier - getScoringConfigForQuery returns intent + adjusted config", () => {
@@ -796,6 +836,17 @@ test("Cleanup Scheduler - getDueSchedules filters by active + cron", () => {
   const due2 = getDueSchedules(file, at1000);
   assert.equal(due2.length, 1);
   assert.equal(due2[0].name, "b");
+});
+
+test("Cleanup Scheduler - getDueAutoRefactorSchedules returns only refactor-tagged schedules", () => {
+  let file = { version: 1, updatedAt: new Date().toISOString(), schedules: [] as any[] } as any;
+  file = createCleanupSchedule(file, { name: "weekly refactor", cron: "0 10 * * *" }).file;
+  file = createCleanupSchedule(file, { name: "weekly cleanup", cron: "0 10 * * *" }).file;
+
+  const at1000 = new Date(2025, 0, 6, 10, 0, 0);
+  const due = getDueAutoRefactorSchedules(file, at1000);
+  assert.equal(due.length, 1);
+  assert.equal(due[0].name, "weekly refactor");
 });
 
 test("Cleanup Scheduler - load/save round-trip", async () => {
@@ -1408,4 +1459,54 @@ test("RL Bandit - tracesToFeedbacks normalizes trace status", () => {
   assert.equal(fb.length, 2);
   assert.equal(fb[0].reward, true);
   assert.equal(fb[1].reward, false);
+});
+
+test("RL Bandit - save/load state round trip with JSONL", async () => {
+  const root = mkdtempSync(pathJoin(tmpdir(), "bandit-state-"));
+  const file = pathJoin(root, "bandit-state.jsonl");
+  try {
+    const state = createBanditState();
+    recordFeedbacks(state, [
+      { name: "apex", reward: true },
+      { name: "apex", reward: false },
+      { name: "flow", reward: true, weight: 0.5 }
+    ]);
+
+    await saveBanditState(state, file);
+    const restored = await loadBanditState(file);
+
+    assert.equal(restored.arms.size, 2);
+    assert.equal(restored.arms.get("apex")?.alpha, 2);
+    assert.equal(restored.arms.get("apex")?.beta, 2);
+    assert.equal(restored.arms.get("flow")?.alpha, 1.5);
+    assert.equal(restored.arms.get("flow")?.beta, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("RL Bandit - loadBanditState skips malformed lines", async () => {
+  const root = mkdtempSync(pathJoin(tmpdir(), "bandit-state-malformed-"));
+  const file = pathJoin(root, "bandit-state.jsonl");
+  try {
+    writeFileSync(
+      file,
+      [
+        "not-json",
+        JSON.stringify({ name: "valid", alpha: 3, beta: 2 }),
+        JSON.stringify({ name: "broken", alpha: -1, beta: 0 })
+      ].join("\n") + "\n",
+      "utf-8"
+    );
+
+    const restored = await loadBanditState(file);
+    assert.equal(restored.arms.size, 2);
+    assert.equal(restored.arms.get("valid")?.alpha, 3);
+    assert.equal(restored.arms.get("valid")?.beta, 2);
+    // invalid numeric values are clamped to prior defaults.
+    assert.equal(restored.arms.get("broken")?.alpha, 1);
+    assert.equal(restored.arms.get("broken")?.beta, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

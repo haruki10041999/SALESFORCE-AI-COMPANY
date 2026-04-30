@@ -96,12 +96,14 @@ export function computeSynergyBonuses(
     priorMean?: number;
     epsilon?: number;
     maxBonus?: number;
+    reputationByAgent?: Record<string, number>;
   } = {}
 ): AgentSynergyBonus[] {
   const m = options.priorStrength ?? 5;
   const mu = options.priorMean ?? 0.5;
   const epsilon = options.epsilon ?? 0.1;
   const maxBonus = options.maxBonus ?? 0.15;
+  const reputationByAgent = options.reputationByAgent ?? {};
 
   type PairAccum = { sumQ: number; count: number };
   const pairMap = new Map<string, PairAccum>();
@@ -127,14 +129,25 @@ export function computeSynergyBonuses(
     // ε-greedy: with probability ε return a random bonus to encourage exploration
     const isExplore = Math.random() < epsilon;
     const rawBonus = isExplore ? Math.random() * maxBonus : bayesAvg * maxBonus;
+    const repA = clamp01(reputationByAgent[agentA] ?? 0.5);
+    const repB = clamp01(reputationByAgent[agentB] ?? 0.5);
+    const reputationMultiplier = (repA + repB) / 2;
+    const adjustedBonus = rawBonus * (0.5 + reputationMultiplier * 0.5);
     bonuses.push({
       agentA,
       agentB,
-      bonus: Math.min(maxBonus, Math.max(0, rawBonus))
+      bonus: Math.min(maxBonus, Math.max(0, adjustedBonus))
     });
   }
 
   return bonuses.sort((a, b) => b.bonus - a.bonus);
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0.5;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
 }
 
 /**

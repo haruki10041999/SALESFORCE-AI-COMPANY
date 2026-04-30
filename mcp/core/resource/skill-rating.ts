@@ -35,6 +35,16 @@ export type SkillRatingModel = {
   skills: SkillRatingStats[];
 };
 
+export type DeclinedSkill = {
+  skill: string;
+  previousAcceptRate: number;
+  currentAcceptRate: number;
+  delta: number;
+  previousCount: number;
+  currentCount: number;
+  latestRecordedAt: string | null;
+};
+
 function average(values: number[]): number {
   if (values.length === 0) {
     return 0;
@@ -46,6 +56,73 @@ function average(values: number[]): number {
 function safeDate(input: string): number {
   const parsed = Date.parse(input);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function acceptedFromRating(rating: number): boolean {
+  return rating >= 4;
+}
+
+function acceptRate(entries: SkillRatingEntry[]): number {
+  if (entries.length === 0) return 0;
+  const accepted = entries.reduce((acc, entry) => acc + (acceptedFromRating(entry.rating) ? 1 : 0), 0);
+  return Number((accepted / entries.length).toFixed(3));
+}
+
+export function getDeclinedSkills(
+  entries: SkillRatingEntry[],
+  threshold: number,
+  days: number,
+  now: Date = new Date()
+): DeclinedSkill[] {
+  const effectiveThreshold = Math.max(0, Math.min(1, Number(threshold)));
+  const effectiveDays = Math.max(1, Math.min(180, Math.floor(days)));
+  const dayMs = 24 * 60 * 60 * 1000;
+  const currentStart = now.getTime() - effectiveDays * dayMs;
+  const previousStart = currentStart - effectiveDays * dayMs;
+
+  const bySkill = new Map<string, SkillRatingEntry[]>();
+  for (const entry of entries) {
+    const rows = bySkill.get(entry.skill) ?? [];
+    rows.push(entry);
+    bySkill.set(entry.skill, rows);
+  }
+
+  const declined: DeclinedSkill[] = [];
+  for (const [skill, rows] of bySkill.entries()) {
+    const currentRows = rows.filter((entry) => {
+      const ts = safeDate(entry.recordedAt);
+      return ts >= currentStart && ts <= now.getTime();
+    });
+    const previousRows = rows.filter((entry) => {
+      const ts = safeDate(entry.recordedAt);
+      return ts >= previousStart && ts < currentStart;
+    });
+
+    if (currentRows.length === 0 || previousRows.length === 0) {
+      continue;
+    }
+
+    const currentAcceptRate = acceptRate(currentRows);
+    const previousAcceptRate = acceptRate(previousRows);
+    const delta = Number((currentAcceptRate - previousAcceptRate).toFixed(3));
+
+    if (delta <= -effectiveThreshold) {
+      const latestRecordedAt = [...rows]
+        .sort((a, b) => safeDate(a.recordedAt) - safeDate(b.recordedAt))
+        .at(-1)?.recordedAt ?? null;
+      declined.push({
+        skill,
+        previousAcceptRate,
+        currentAcceptRate,
+        delta,
+        previousCount: previousRows.length,
+        currentCount: currentRows.length,
+        latestRecordedAt
+      });
+    }
+  }
+
+  return declined.sort((a, b) => a.delta - b.delta);
 }
 
 export async function appendSkillRatings(logFilePath: string, entries: SkillRatingEntry[]): Promise<void> {

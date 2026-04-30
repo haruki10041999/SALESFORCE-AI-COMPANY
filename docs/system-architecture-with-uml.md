@@ -128,6 +128,7 @@ sequenceDiagram
     participant Server as MCP Server
     participant Session as OrchestrationSession (Memory)
     participant FS as outputs/sessions/
+    participant Graph as outputs/agent-graph.jsonl
 
     User->>Server: orchestrate_chat(topic, agents, triggerRules)
     Server->>Server: buildChatPrompt()
@@ -136,8 +137,9 @@ sequenceDiagram
 
     loop 会話ループ（クライアント側）
         User->>Server: dequeue_next_agent(sessionId)
-        Server->>Session: queue.shift()
-        Server-->>User: { dequeued: ["apex-developer"], remainingQueue }
+        Server->>Graph: 過去シーケンスをロード
+        Server->>Session: 推奨順へ並べ替え 후 queue.shift()
+        Server-->>User: { dequeued: ["apex-developer"], remainingQueue, graphRecommendation }
 
         Note over User: LLM に発言させる
 
@@ -153,6 +155,7 @@ sequenceDiagram
         Server-->>User: { nextAgents, reasons }
 
         alt キューが空
+            Server->>Graph: 完了シーケンスを追記学習
             Server->>Server: session_end イベント発火
         end
     end
@@ -449,9 +452,9 @@ salesforce-ai-company/
 
 | ツール名 | 概要 |
 |---|---|
-| `orchestrate_chat` | triggerRules 付きセッション開始 |
+| `orchestrate_chat` | triggerRules 付きセッション開始（`dagNodes` 指定時は DAG モード） |
 | `evaluate_triggers` | 発言に対してルール評価し次エージェントを返す |
-| `dequeue_next_agent` | キューから次エージェントを取り出す |
+| `dequeue_next_agent` | キューから次エージェントを取り出す（学習済み遷移があれば `graphRecommendation` を返却） |
 | `get_orchestration_session` | セッション状態確認 |
 | `save_orchestration_session` | セッションをファイルに保存 |
 | `restore_orchestration_session` | 保存済みセッションを復元 |

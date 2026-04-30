@@ -17,6 +17,8 @@
 | `outputs/events/` | システムイベントとメトリクス | エラーや遅延を調べるとき |
 | `outputs/backups/` | 世代バックアップ | 復元したいとき |
 | `outputs/audit/` | 操作の監査ログ | 誰が何をしたか確認するとき |
+| `outputs/agent-graph.jsonl` | agent 遷移学習ログ | `dequeue_next_agent` の推奨根拠を確認するとき |
+| `outputs/audit/tool-executions.jsonl` | ツール実行監査ログ | 実行拒否やポリシー判定を追跡するとき |
 | `outputs/tool-proposals/` | 提案学習ログ | 推薦精度の分析をするとき |
 | `outputs/tool-proposals/pending/` | リソース作成提案 (保留中) | `list_proposals` / `approve_proposal` (既定で即時適用) / `apply_proposal` / `auto_apply_pending_proposals` の対象 |
 | `outputs/tool-proposals/approved/` | リソース作成提案 (承認済 audit) | 承認履歴の追跡 |
@@ -124,9 +126,10 @@ npm run ai -- observability:dashboard -- --trace-limit 200 --event-limit 1000
 | `outputs/events/metrics-samples.jsonl` | 各ツール終了時 | メトリクス sample を flush |
 | `outputs/history/YYYY-MM-DD/<id>.json` | `record_agent_message` / `parse_and_record_chat` 実行時 | 履歴記録系ツールの実行で自動保存 |
 | `outputs/sessions/<sessionId>.json` | `orchestrate_chat` 開始時や session 更新時 | evaluate / dequeue でも更新 |
+| `outputs/agent-graph.jsonl` | `dequeue_next_agent` でキューが空になり、履歴長が 2 以上の時 | agent シーケンスを継続学習として追記 |
 | `outputs/resource-governance.json` | governance state が変わった時 | apply_resource_actions 等 |
 | `outputs/operations-log.jsonl` | governance 変更操作時 | 監査寄りの操作ログ |
-| `outputs/audit/*.jsonl` | `apply_resource_actions` 実行時 | リソース変更の監査ログ |
+| `outputs/audit/*.jsonl` | `apply_resource_actions` やツール実行時 | リソース変更・実行拒否を含む監査ログ |
 | `outputs/custom-tools/*.json` | custom tool 作成時 | `apply_resource_actions` または `apply_proposal` / `auto_apply_pending_proposals` で生成。起動時に Declarative tool loader が動的登録する (`mcp/core/declarative/loader.ts`) |
 
 条件付きで自動保存されるもの:
@@ -171,6 +174,7 @@ npm run ai -- observability:dashboard -- --trace-limit 200 --event-limit 1000
 | `outputs/vector-store.jsonl` | JSONL (追記/再書き) | `add_vector_record` / `query_vector_store` の LRU 更新時。または `SF_AI_AUTO_MEMORY=1` 設定時は全ツール実行ごとに `tool:<name>` タグ付きレコードを自動追加 | `memory/vector-store.ts`, `mcp/core/governance/governed-tool-registrar.ts` |
 | `outputs/resource-governance.json` | JSON (上書き) | `apply_resource_actions` で governance state が変わった時 | `mcp/server.ts` |
 | `outputs/operations-log.jsonl` | JSONL (追記) | governance 変更操作のたびに 1 行追加 | `mcp/core/governance/operation-log.ts` |
+| `outputs/agent-graph.jsonl` | JSONL (追記) | `dequeue_next_agent` で queue が空になった時に、完了 session の agent 履歴を学習用に追記 | `mcp/core/learning/agent-graph-learner.ts`, `mcp/handlers/register-chat-orchestration-tools.ts` |
 | `outputs/execution-origins.jsonl` | JSONL (追記) | 各ツール実行の成功/失敗ごとに 1 行追加。`repoPath` / `rootDir` / `filePath(s)` から repo 候補を抽出し、server 側の repo root とあわせて記録 | `mcp/core/governance/governed-tool-registrar.ts` |
 | `outputs/events/system-events.jsonl` | JSONL (追記) | `emitSystemEvent` 経由 (chat / orchestrate / governance / cleanup 等の節目) | `mcp/core/event/system-event-manager.ts` |
 | `outputs/events/system-events.<stamp>.<nonce>.jsonl` | JSONL (ローテ後) | size/age 上限超過で rotate された時 | 同上 |
@@ -180,7 +184,7 @@ npm run ai -- observability:dashboard -- --trace-limit 200 --event-limit 1000
 | `outputs/history/archive/YYYY-MM-DD.json` | JSON | `npm run history:archive` または `archive_history` ツール実行時 | `scripts/archive-history.ts` |
 | `outputs/sessions/<sessionId>.json` | JSON | `orchestrate_chat` 開始時 + `evaluate_triggers` / `dequeue_next_agent` で更新 | `mcp/core/context/orchestration-session-store.ts` |
 | `outputs/presets/<name>/v<n>.json`, `latest.json` | JSON | `create_preset` / `update_preset` 実行時 | `mcp/core/context/preset-store.ts` |
-| `outputs/audit/*.jsonl` | JSONL (追記) | `apply_resource_actions` の監査ログ書き込み時 | `mcp/handlers/register-resource-action-tools.ts` |
+| `outputs/audit/*.jsonl` | JSONL (追記) | `apply_resource_actions` とツール実行ガバナンス判定時の監査ログ書き込み | `mcp/handlers/register-resource-action-tools.ts`, `mcp/core/governance/governed-tool-registrar.ts` |
 | `outputs/tool-proposals/proposal-feedback.jsonl` / `proposal-feedback-model.json` | JSONL + JSON | `proposal_feedback_learn` 実行時 | `mcp/core/resource/proposal-feedback.ts` |
 | `outputs/reports/skill-rating.jsonl` / `skill-rating.json` / `skill-rating.md` | JSONL + JSON + Markdown | `record_skill_rating` / `get_skill_rating_report` 実行時 | `mcp/core/resource/skill-rating.ts`, `mcp/handlers/register-resource-search-tools.ts` |
 | `outputs/tool-proposals/query-skill-feedback.jsonl` / `query-skill-model.json` | JSONL + JSON | `proposal_feedback_learn` 実行時。skills 提案の `topic` を query として漸進学習 | `mcp/core/resource/query-skill-incremental.ts`, `mcp/handlers/register-resource-governance-tools.ts` |

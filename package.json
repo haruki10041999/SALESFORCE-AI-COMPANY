@@ -19,7 +19,8 @@
     "archive:history": "tsx scripts/archive-history.ts",
     "report:metrics": "node scripts/metrics-report.js",
     "lint:outputs": "tsx scripts/lint-outputs.ts",
-    "docs:build": "tsx scripts/generate-tools-doc.ts",
+    "docs:error-codes": "tsx scripts/generate-error-codes-doc.ts",
+    "docs:build": "tsx scripts/generate-tools-doc.ts && npm run docs:error-codes",
     "ai": "tsx scripts/ai.ts",
     "typecheck": "tsc --noEmit",
     "audit:deps": "npm audit --audit-level=moderate"

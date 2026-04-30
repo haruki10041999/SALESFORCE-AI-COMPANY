@@ -52,6 +52,11 @@ import {
 // Memory / Prompt-Engine / Statistics
 // ============================================================
 import { addMemory, searchMemory, listMemory, clearMemory } from "../memory/project-memory.js";
+import {
+  recordFailureMemory,
+  searchFailureMemory,
+  listFailureMemory
+} from "../memory/failure-memory.js";
 import { addRecord, searchByKeyword, searchByKeywordAsync } from "../memory/vector-store.js";
 import { buildPrompt } from "../prompt-engine/prompt-builder.js";
 import { evaluatePromptMetrics } from "../prompt-engine/prompt-evaluator.js";
@@ -75,7 +80,6 @@ import {
 } from "./core/governance/governance-state.js";
 import { createPresetStore } from "./core/context/preset-store.js";
 import type { ChatPreset as StoredChatPreset } from "./core/context/preset-store.js";
-import { createCatalogHelpers } from "./core/context/catalog-helpers.js";
 import { createHistoryStore } from "./core/context/history-store.js";
 import { createOrchestrationSessionStore } from "./core/context/orchestration-session-store.js";
 import { createPromptRenderer } from "./core/context/prompt-rendering.js";
@@ -90,13 +94,24 @@ import type { SystemEventType } from "./core/event/event-dispatcher.js";
 import { createLogger } from "./core/logging/logger.js";
 import { getLowRelevanceScoreThreshold } from "./core/config/runtime-config.js";
 import { startObservabilityRuntime } from "./core/observability/runtime.js";
+import {
+  createBanditState,
+  loadBanditState,
+  saveBanditState
+} from "./core/learning/rl-feedback.js";
+import { createServerResourceDeps } from "./server-resource-deps.js";
 
 // Resolve project root from this file location so cross-repo clients can share one server.
 const ROOT = resolveProjectRootFromFile(import.meta.url);
 const OUTPUTS_DIR = process.env.SF_AI_OUTPUTS_DIR
   ? resolve(process.env.SF_AI_OUTPUTS_DIR)
   : join(ROOT, "outputs");
+const STATE_DB_PATH = process.env.SF_AI_STATE_DB_PATH
+  ? resolve(process.env.SF_AI_STATE_DB_PATH)
+  : join(OUTPUTS_DIR, DEFAULT_SQLITE_STATE_FILE);
+const BANDIT_STATE_FILE = join(OUTPUTS_DIR, "bandit-state.jsonl");
 const logger = createLogger("Server");
+let banditState = createBanditState();
 
 function listMdFiles(dir: string): { name: string; summary: string }[] {
   return listMdFilesFromCatalog(ROOT, dir);
@@ -159,12 +174,14 @@ const DEFAULT_PROTECTED_TOOLS = [
   "update_event_automation_config"
 ];
 const GOVERNANCE_FILE = join(OUTPUTS_DIR, "resource-governance.json");
+const GOVERNANCE_STORAGE_PATH = STATE_DB_PATH;
 const TOOL_PROPOSALS_DIR = join(OUTPUTS_DIR, "tool-proposals");
 const CUSTOM_TOOLS_DIR = join(OUTPUTS_DIR, "custom-tools");
 const governanceStateManager = createGovernanceStateManager({
   defaultProtectedTools: DEFAULT_PROTECTED_TOOLS,
   governanceFile: GOVERNANCE_FILE,
-  ensureDir
+  ensureDir,
+  sqliteDbPath: STATE_DB_PATH
 });
 const buildDefaultGovernanceState = () => governanceStateManager.buildDefaultGovernanceState();
 const loadGovernanceState = () => governanceStateManager.loadGovernanceState();
@@ -235,7 +252,7 @@ export { clearOrchestrationSessionsForTest };
 // ============================================================
 
 const disabledToolsCache = createDisabledToolsCacheManager({
-  governanceFilePath: join(OUTPUTS_DIR, "resource-governance.json"),
+  governanceFilePath: GOVERNANCE_STORAGE_PATH,
   logger,
   loadGovernanceState,
   normalizeResourceName
@@ -295,9 +312,6 @@ const runChatTool = createChatToolRunner({
 });
 
 const HISTORY_DIR = join(OUTPUTS_DIR, "history");
-const STATE_DB_PATH = process.env.SF_AI_STATE_DB_PATH
-  ? resolve(process.env.SF_AI_STATE_DB_PATH)
-  : join(OUTPUTS_DIR, DEFAULT_SQLITE_STATE_FILE);
 const USE_SQLITE_HISTORY = (process.env.SF_AI_HISTORY_SQLITE ?? "false").toLowerCase() === "true";
 const PRESETS_DIR = join(OUTPUTS_DIR, "presets");
 const SESSIONS_DIR = join(OUTPUTS_DIR, "sessions");
@@ -342,93 +356,19 @@ const { loadedCustomToolNames, registerCustomTool, unregisterCustomTool, loadCus
   buildChatPrompt: buildChatPromptCompat
 });
 
-const BUILTIN_TOOL_CATALOG = [
-  "repo_analyze",
-  "apex_analyze",
-  "lwc_analyze",
-  "deploy_org",
-  "run_tests",
-  "run_deployment_verification",
-  "compare_org_metadata",
-  "flow_condition_simulate",
-  "suggest_flow_test_cases",
-  "permission_set_diff",
-  "recommend_permission_sets",
-  "apex_dependency_graph",
-  "branch_diff_summary",
-  "branch_diff_to_prompt",
-  "pr_readiness_check",
-  "security_delta_scan",
-  "deployment_impact_summary",
-  "changed_tests_suggest",
-  "list_agents",
-  "get_agent",
-  "list_skills",
-  "get_skill",
-  "list_personas",
-  "chat",
-  "simulate_chat",
-  "orchestrate_chat",
-  "evaluate_triggers",
-  "dequeue_next_agent",
-  "get_orchestration_session",
-  "save_orchestration_session",
-  "restore_orchestration_session",
-  "list_orchestration_sessions",
-  "record_agent_message",
-  "record_reasoning_step",
-  "get_trace_reasoning",
-  "get_agent_log",
-  "parse_and_record_chat",
-  "get_system_events",
-  "get_event_automation_config",
-  "update_event_automation_config",
-  "save_chat_history",
-  "load_chat_history",
-  "restore_chat_history",
-  "create_preset",
-  "list_presets",
-  "run_preset",
-  "search_resources",
-  "auto_select_resources",
-  "record_skill_rating",
-  "get_skill_rating_report",
-  "agent_ab_test",
-  "analyze_ab_test_history",
-  "tune_trigger_rules",
-  "evaluate_cost_sla",
-  "record_user_feedback",
-  "get_feedback_metrics",
-  "get_session_feedback",
-  "estimate_prompt_cost",
-  "proposal_feedback_learn",
-  "smart_chat",
-  "analyze_chat_trends",
-  "health_check",
-  "get_tool_execution_statistics",
-  "get_handlers_dashboard",
-  "export_handlers_statistics",
-  "export_to_markdown",
-  "batch_chat",
-  "add_memory",
-  "search_memory",
-  "list_memory",
-  "clear_memory",
-  "add_vector_record",
-  "search_vector",
-  "build_prompt",
-  "evaluate_prompt_metrics",
-  "evaluate_quality_rubric",
-  "get_context"
-];
-
-const { listSkillsCatalog, listPresetsCatalog, listToolsCatalog, resourceScore, getCatalogCounts } = createCatalogHelpers({
-  skillsDir: join(ROOT, "skills"),
+const {
+  listSkillsCatalog,
+  listPresetsCatalog,
+  listToolsCatalog,
+  resourceScore,
+  validateAndCreateSkillWithQuality,
+  validateAndCreatePresetWithQuality,
+  validateAndCreateToolWithQuality
+} = createServerResourceDeps({
+  root: ROOT,
   findMdFilesRecursive,
   toPosixPath,
-  relative,
   listPresetsData,
-  builtinToolCatalog: BUILTIN_TOOL_CATALOG,
   loadedCustomToolNames
 });
 
@@ -449,62 +389,6 @@ async function setToolDisabledState(toolName: string, disabled: boolean): Promis
 
 async function applyEventAutomation(event: SystemEventName, payload: Record<string, unknown>): Promise<void> {
   await governanceEventAutomation.applyEventAutomation(event, payload);
-}
-
-/**
- * リソース作成時の検証関数
- * 品質チェック、重複排除、ガバナンス確認を統合
- */
-async function validateAndCreateSkillWithQuality(
-  skillName: string,
-  skillContent: string,
-  state: GovernanceState
-): Promise<{
-  success: boolean;
-  message: string;
-  qualityScore?: number;
-  duplicateFound?: boolean;
-}> {
-  const existingSkills = await listSkillsCatalog();
-  return validateSkillCreation(skillName, skillContent, existingSkills);
-}
-
-/**
- * プリセット作成時の検証関数
- */
-async function validateAndCreatePresetWithQuality(
-  presetName: string,
-  presetData: {
-    description: string;
-    agents: string[];
-    topic: string;
-  },
-  state: GovernanceState
-): Promise<{
-  success: boolean;
-  message: string;
-  qualityScore?: number;
-  duplicateFound?: boolean;
-}> {
-  const existingPresets = await listPresetsCatalog();
-  return validatePresetCreation(presetName, presetData, existingPresets);
-}
-
-/**
- * ツール作成時の検証関数
- */
-async function validateAndCreateToolWithQuality(
-  toolName: string,
-  toolDescription: string,
-  state: GovernanceState
-): Promise<{
-  success: boolean;
-  message: string;
-  qualityScore?: number;
-  duplicateFound?: boolean;
-}> {
-  const existingTools = listToolsCatalog(state);
-  return validateToolCreation(toolName, toolDescription, existingTools);
 }
 
 registerServerTools({
@@ -550,6 +434,9 @@ registerServerTools({
     searchMemory,
     listMemory,
     clearMemory,
+    recordFailureMemory,
+    searchFailureMemory,
+    listFailureMemory,
     findMdFilesRecursive,
     toPosixPath,
     addRecord,
@@ -578,6 +465,9 @@ registerServerTools({
   });
 
 async function main(): Promise<void> {
+  banditState = await loadBanditState(BANDIT_STATE_FILE);
+  logger.info(`Bandit state loaded (${banditState.arms.size} arms)`);
+
   const observabilityRuntime = await startObservabilityRuntime(logger);
 
   await initializeServerRuntimeModule({
@@ -594,6 +484,8 @@ async function main(): Promise<void> {
   try {
     await startMcpTransport(server, logger);
   } finally {
+    await saveBanditState(banditState, BANDIT_STATE_FILE);
+    logger.info(`Bandit state saved (${banditState.arms.size} arms)`);
     await observabilityRuntime.stop();
   }
 }

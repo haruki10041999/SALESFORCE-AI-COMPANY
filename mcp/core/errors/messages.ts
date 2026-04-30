@@ -12,22 +12,25 @@
 
 import { getLocale, type Locale } from "../i18n/locale.js";
 
-export type ErrorCode =
-  | "INVALID_PATH"
-  | "PATH_TRAVERSAL"
-  | "DIRECTORY_NOT_FOUND"
-  | "FILE_NOT_FOUND"
-  | "AMBIGUOUS_NAME"
-  | "TOOL_NOT_FOUND"
-  | "INVALID_INPUT"
-  | "MISSING_REQUIRED_FIELD"
-  | "DUPLICATE_VERSION"
-  | "UNKNOWN_MODEL"
-  | "GIT_COMMAND_FAILED"
-  | "INVALID_GIT_REF"
-  | "NOT_A_GIT_REPO"
-  | "RESOURCE_LIMIT_EXCEEDED"
-  | "INTERNAL_ERROR";
+export const ERROR_CODES = [
+  "INVALID_PATH",
+  "PATH_TRAVERSAL",
+  "DIRECTORY_NOT_FOUND",
+  "FILE_NOT_FOUND",
+  "AMBIGUOUS_NAME",
+  "TOOL_NOT_FOUND",
+  "INVALID_INPUT",
+  "MISSING_REQUIRED_FIELD",
+  "DUPLICATE_VERSION",
+  "UNKNOWN_MODEL",
+  "GIT_COMMAND_FAILED",
+  "INVALID_GIT_REF",
+  "NOT_A_GIT_REPO",
+  "RESOURCE_LIMIT_EXCEEDED",
+  "INTERNAL_ERROR"
+] as const;
+
+export type ErrorCode = (typeof ERROR_CODES)[number];
 
 type MessageTemplate = (params: Record<string, unknown>) => string;
 

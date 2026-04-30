@@ -91,7 +91,7 @@ export interface ScoringConfig {
   gapThreshold: number; // topScore < この値で gap判定
 
   // ===== TASK-042: Embedding hybrid =====
-  /** "off" | "hybrid" の切替。デフォルトは "off" で既存挙動互換 */
+  /** "off" | "hybrid" の切替。デフォルトは "hybrid" */
   embeddingMode?: "off" | "hybrid";
   /** hybrid 時の token weight (0..1)。1=token-only / 0=embedding-only。デフォルト 0.6 */
   embeddingAlpha?: number;
@@ -110,7 +110,8 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
   bugPenaltyWeight: 3,
   recencyBonusWeight: 5,
   dayWindow: 7,
-  gapThreshold: 5
+  gapThreshold: 5,
+  embeddingMode: "hybrid"
 };
 
 /**

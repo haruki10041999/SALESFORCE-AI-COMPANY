@@ -139,6 +139,19 @@ npm test -- tests/property-based.test.ts
 - query-skill の漸進モデルが更新される
 - trust / learning の不変条件が壊れていない
 
+### Agent Graph Learning (F14) を変更した場合
+
+```bash
+node scripts/test.mjs tests/agent-graph-learning.test.ts tests/server-tools.integration.test.ts
+```
+
+見るポイント:
+
+- `tests/agent-graph-learning.test.ts` が pass する
+- `tests/server-tools.integration.test.ts` の `dequeue_next_agent` ケースが pass する
+- `dequeue_next_agent` のレスポンスに `graphRecommendation` フィールドが含まれる
+- セッション完了時に `outputs/agent-graph.jsonl` へ学習データが追記される
+
 ### 登録系（handler/server catalog）を変更した場合
 
 - `npm run build` 成功
@@ -187,6 +200,7 @@ node --import tsx --test tests/new-tools.test.ts
 - `npm run ai -- doctor` で ERROR 0
 - `CHANGELOG.md` 更新済み
 - 必要なドキュメント更新済み（設定・運用・機能仕様）
+- オーケストレーション変更時は `dequeue_next_agent` の `graphRecommendation` 契約を確認済み
 - 全機能の動作確認は [full-feature-verification.md](./full-feature-verification.md) を参照
 
 ## 追加検証カテゴリ (2026-04 Phase 2-4)

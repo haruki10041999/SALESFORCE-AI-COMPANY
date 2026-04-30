@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### Added (2026-04-30 Phase 3 — F14 Agent Graph Learning)
+
+- [`mcp/core/learning/agent-graph-learner.ts`](../mcp/core/learning/agent-graph-learner.ts) を追加し、agent シーケンス学習 (`recordAgentSequence`)、遷移モデル構築 (`buildAgentTransitionModel`)、次候補推薦 (`recommendNextAgents`) を実装。学習データは `outputs/agent-graph.jsonl` に JSONL 追記。
+- [`mcp/handlers/register-chat-orchestration-tools.ts`](../mcp/handlers/register-chat-orchestration-tools.ts) の `dequeue_next_agent` に graph 推薦を統合。候補キューの先頭並べ替えと `graphRecommendation` レスポンスを追加。
+- セッションキュー枯渇時に agent 履歴を学習データへ保存し、次セッションで再利用する継続学習フローを追加。
+- [`tests/agent-graph-learning.test.ts`](../tests/agent-graph-learning.test.ts) を追加し、記録→学習→推薦の単体挙動を検証。
+- [`tests/server-tools.integration.test.ts`](../tests/server-tools.integration.test.ts) に統合ケースを追加し、`dequeue_next_agent` の `graphRecommendation` 返却契約を回帰保護。
+
 ### Added (2026-04-27 Phase 2 — SQL.js 永続化 / 移行検証 / UoW 拡張)
 
 - **SQLite 実装を sql.js へ置換**

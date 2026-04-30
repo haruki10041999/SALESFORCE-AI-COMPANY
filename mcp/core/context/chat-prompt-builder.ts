@@ -356,10 +356,12 @@ export async function buildChatPromptFromContext(
     ? findMdFilesRecursive(contextDir)
     : [];
 
-  // TASK-F6: weight context budget by category importance instead of dividing
-  // maxContextChars equally across every item. Frameworks (discussion /
-  // review) consume the same per-item slot through `framework`.
-  const categoryBudgets = allocateCategoryBudgets(maxContextChars, {
+  // TASK-F6: convert the public char budget into token budget first, then
+  // allocate per-category tokens by importance weights.
+  const maxContextTokens = maxContextChars != null
+    ? Math.max(1, Math.ceil(maxContextChars / 4))
+    : undefined;
+  const categoryBudgets = allocateCategoryBudgets(maxContextTokens, {
     agent: selectedAgents.length,
     skill: skillNames.length,
     code: filePaths.length,

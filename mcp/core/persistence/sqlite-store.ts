@@ -38,6 +38,11 @@ export interface JsonlRecordRow {
   importedAt: string;
 }
 
+export interface GovernanceStateRow {
+  stateJson: string;
+  updatedAt: string;
+}
+
 export interface SQLiteStateStoreOptions {
   dbPath: string;
 }
@@ -118,8 +123,39 @@ export class SQLiteStateStore {
         "  imported_at TEXT NOT NULL",
         ");",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_jsonl_source_line ON jsonl_records(stream, source_path, line_number);",
-        "CREATE INDEX IF NOT EXISTS idx_jsonl_stream_id ON jsonl_records(stream, id);"
+        "CREATE INDEX IF NOT EXISTS idx_jsonl_stream_id ON jsonl_records(stream, id);",
+        "CREATE TABLE IF NOT EXISTS governance_state (",
+        "  id INTEGER PRIMARY KEY CHECK (id = 1),",
+        "  state_json TEXT NOT NULL,",
+        "  updated_at TEXT NOT NULL",
+        ");"
       ].join("\n")
+    );
+  }
+
+  public getGovernanceStateRow(): GovernanceStateRow | null {
+    const row = this.selectFirstRow(
+      "SELECT state_json, updated_at FROM governance_state WHERE id = 1"
+    );
+    if (!row) {
+      return null;
+    }
+    return {
+      stateJson: asString(row.state_json),
+      updatedAt: asString(row.updated_at)
+    };
+  }
+
+  public upsertGovernanceStateRow(stateJson: string, updatedAt: string): void {
+    this.executeRun(
+      [
+        "INSERT INTO governance_state(id, state_json, updated_at)",
+        "VALUES (1, ?, ?)",
+        "ON CONFLICT(id) DO UPDATE SET",
+        "  state_json=excluded.state_json,",
+        "  updated_at=excluded.updated_at"
+      ].join("\n"),
+      [stateJson, updatedAt]
     );
   }
 

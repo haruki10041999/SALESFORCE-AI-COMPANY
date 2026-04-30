@@ -1,0 +1,8 @@
+{
+  "agent": 0.30,
+  "skill": 0.25,
+  "code": 0.15,
+  "context": 0.20,
+  "persona": 0.05,
+  "framework": 0.05
+}

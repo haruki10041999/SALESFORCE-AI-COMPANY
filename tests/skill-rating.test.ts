@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   buildSkillRatingModel,
+  getDeclinedSkills,
   renderSkillRatingMarkdown,
   type SkillRatingEntry
 } from "../mcp/core/resource/skill-rating.js";
@@ -29,4 +30,23 @@ test("renderSkillRatingMarkdown includes table header", () => {
   const model = buildSkillRatingModel([], 5, 3, 0.5);
   const markdown = renderSkillRatingMarkdown(model);
   assert.ok(markdown.includes("# Skill Rating Report"));
+});
+
+test("getDeclinedSkills detects accept-rate drop by window", () => {
+  const entries: SkillRatingEntry[] = [
+    { skill: "apex/review", rating: 5, recordedAt: "2026-04-01T00:00:00.000Z" },
+    { skill: "apex/review", rating: 4, recordedAt: "2026-04-02T00:00:00.000Z" },
+    { skill: "apex/review", rating: 5, recordedAt: "2026-04-03T00:00:00.000Z" },
+    { skill: "apex/review", rating: 2, recordedAt: "2026-04-16T00:00:00.000Z" },
+    { skill: "apex/review", rating: 1, recordedAt: "2026-04-17T00:00:00.000Z" },
+    { skill: "lwc/form", rating: 5, recordedAt: "2026-04-16T00:00:00.000Z" }
+  ];
+
+  const declined = getDeclinedSkills(entries, 0.3, 14, new Date("2026-04-20T00:00:00.000Z"));
+
+  assert.equal(declined.length, 1);
+  assert.equal(declined[0].skill, "apex/review");
+  assert.ok(declined[0].delta <= -0.3);
+  assert.equal(declined[0].previousAcceptRate, 1);
+  assert.equal(declined[0].currentAcceptRate, 0);
 });

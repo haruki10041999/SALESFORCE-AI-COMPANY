@@ -328,3 +328,14 @@ export function getDueSchedules(
     (s) => s.status === "active" && cronMatches(s.cron, when)
   );
 }
+
+/**
+ * auto-refactor 用に意味づけされた due スケジュールを返す。
+ * 既存フォーマット互換のため、name に "refactor" を含む schedule を対象とする。
+ */
+export function getDueAutoRefactorSchedules(
+  current: CleanupSchedulesFile,
+  when: Date
+): CleanupSchedule[] {
+  return getDueSchedules(current, when).filter((schedule) => /refactor/i.test(schedule.name));
+}

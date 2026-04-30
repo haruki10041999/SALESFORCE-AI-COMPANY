@@ -1,7 +1,11 @@
 ﻿import { z } from "zod";
 import { join, resolve } from "node:path";
 import { promises as fsPromises } from "node:fs";
-import type { GovernanceState, GovernedResourceType } from "../core/governance/governance-state.js";
+import type {
+  GovernanceState,
+  GovernedResourceType,
+  ResourceLifecycle
+} from "../core/governance/governance-state.js";
 import { simulateGovernanceChange } from "../tools/simulate-governance-change.js";
 import { renderGovernanceUi } from "../core/governance/governance-ui.js";
 import {
@@ -23,9 +27,28 @@ import {
   validateHandlerScheduleRule,
   type HandlerScheduleRule
 } from "../core/governance/handler-schedule.js";
+import { suggestRefactors } from "../tools/refactor-suggest.js";
+import { enqueueProposal } from "../core/resource/proposal/queue.js";
+import {
+  getDefaultSchedulesFilePath,
+  getDueAutoRefactorSchedules,
+  loadCleanupSchedules
+} from "../core/resource/cleanup-scheduler.js";
+import { getDeclinedSkills, loadSkillRatings } from "../core/resource/skill-rating.js";
 import type { RegisterGovToolDeps } from "./types.js";
 
 type GovernanceActionType = "create" | "delete" | "disable" | "enable";
+
+function getEffectiveLifecycle(
+  state: GovernanceState,
+  resourceType: GovernedResourceType,
+  name: string
+): ResourceLifecycle {
+  if (state.disabled[resourceType].includes(name)) {
+    return "disabled";
+  }
+  return state.lifecycle?.[resourceType]?.[name] ?? "stable";
+}
 
 interface RegisterResourceGovernanceToolsDeps extends RegisterGovToolDeps {
   loadGovernanceState: () => Promise<GovernanceState>;
@@ -58,6 +81,154 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
   const proposalFeedbackModel = join(outputsDir, "tool-proposals", "proposal-feedback-model.json");
   const querySkillFeedbackLog = join(outputsDir, "tool-proposals", "query-skill-feedback.jsonl");
   const querySkillModel = join(outputsDir, "tool-proposals", "query-skill-model.json");
+  const skillRatingLogFile = join(outputsDir, "reports", "skill-rating.jsonl");
+
+  govTool(
+    "auto_refactor_suggest",
+    {
+      title: "自動リファクタリング提案",
+      description: "accept rate が低下したスキルを検出し、refactor_suggest を自動実行して proposal queue に保存します。",
+      inputSchema: {
+        declineThreshold: z.number().min(0).max(1).optional(),
+        days: z.number().int().min(1).max(90).optional(),
+        limit: z.number().int().min(1).max(50).optional(),
+        respectSchedule: z.boolean().optional(),
+        at: z.string().optional()
+      }
+    },
+    async ({ declineThreshold, days, limit, respectSchedule, at }: {
+      declineThreshold?: number;
+      days?: number;
+      limit?: number;
+      respectSchedule?: boolean;
+      at?: string;
+    }) => {
+      const now = at ? new Date(at) : new Date();
+      const useSchedule = respectSchedule !== false;
+      const schedulePath = getDefaultSchedulesFilePath(resolve("."));
+      const schedules = await loadCleanupSchedules(schedulePath);
+      const dueRefactorSchedules = getDueAutoRefactorSchedules(schedules, now);
+
+      if (useSchedule && dueRefactorSchedules.length === 0) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              executed: false,
+              reason: "no due auto-refactor schedule",
+              evaluatedAt: now.toISOString(),
+              schedulePath,
+              dueCount: 0
+            }, null, 2)
+          }]
+        };
+      }
+
+      const entries = await loadSkillRatings(skillRatingLogFile);
+      const threshold = declineThreshold ?? 0.15;
+      const windowDays = days ?? 14;
+      const maxItems = limit ?? 10;
+      const declined = getDeclinedSkills(entries, threshold, windowDays, now).slice(0, maxItems);
+
+      const results: Array<{
+        skill: string;
+        proposalId: string;
+        confidence: number;
+        delta: number;
+        suggestionCount: number;
+      }> = [];
+
+      for (const row of declined) {
+        const skillPathCandidates = [
+          resolve("skills", `${row.skill}.md`),
+          resolve("skills", row.skill)
+        ];
+
+        let source = "";
+        let filePath: string | undefined;
+        for (const candidate of skillPathCandidates) {
+          try {
+            source = await fsPromises.readFile(candidate, "utf-8");
+            filePath = candidate;
+            break;
+          } catch {
+            // ignore and try next
+          }
+        }
+
+        if (source.length === 0) {
+          source = `// skill: ${row.skill}\n// No local source file was found.\n`;
+        }
+
+        const refactor = suggestRefactors({
+          source,
+          filePath
+        });
+
+        const confidence = Math.max(0, Math.min(1, Number((Math.abs(row.delta)).toFixed(3))));
+        const content = [
+          `# Auto Refactor Suggestion: ${row.skill}`,
+          "",
+          `- previousAcceptRate: ${row.previousAcceptRate}`,
+          `- currentAcceptRate: ${row.currentAcceptRate}`,
+          `- delta: ${row.delta}`,
+          `- previousCount: ${row.previousCount}`,
+          `- currentCount: ${row.currentCount}`,
+          `- analyzedAt: ${now.toISOString()}`,
+          "",
+          "## refactor_suggest result",
+          "```json",
+          JSON.stringify(refactor, null, 2),
+          "```"
+        ].join("\n");
+
+        const record = enqueueProposal(outputsDir, {
+          resourceType: "skills",
+          name: row.skill,
+          content,
+          confidence,
+          sourceEvent: "skill_accept_rate_declined",
+          origin: "auto-refactor"
+        });
+
+        results.push({
+          skill: row.skill,
+          proposalId: record.id,
+          confidence,
+          delta: row.delta,
+          suggestionCount: refactor.totalSuggestions
+        });
+      }
+
+      if (results.length > 0) {
+        await emitSystemEvent("auto_refactor_suggested", {
+          source: "auto_refactor_suggest",
+          evaluatedAt: now.toISOString(),
+          declineThreshold: threshold,
+          windowDays,
+          proposalCount: results.length,
+          proposals: results
+        });
+      }
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            executed: true,
+            evaluatedAt: now.toISOString(),
+            declineThreshold: threshold,
+            days: windowDays,
+            respectedSchedule: useSchedule,
+            dueScheduleCount: dueRefactorSchedules.length,
+            scannedRatings: entries.length,
+            declinedSkillCount: declined.length,
+            proposals: results
+          }, null, 2)
+        }]
+      };
+    }
+  );
 
   govTool(
     "proposal_feedback_learn",
@@ -306,8 +477,119 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
               eventAutomation: state.config.eventAutomation,
               counts,
               disabled: state.disabled,
+              lifecycle: state.lifecycle,
               usage: state.usage,
               bugSignals: state.bugSignals
+            }, null, 2)
+          }
+        ]
+      };
+    }
+  );
+
+  govTool(
+    "update_resource_lifecycle",
+    {
+      title: "リソースライフサイクル更新",
+      description: "リソースの lifecycle を更新します。disabled は disabled 配列にも同期されます。",
+      inputSchema: {
+        resourceType: z.enum(["skills", "tools", "presets"]),
+        name: z.string(),
+        lifecycle: z.enum(["experimental", "stable", "deprecated", "disabled"])
+      }
+    },
+    async ({ resourceType, name, lifecycle }: {
+      resourceType: GovernedResourceType;
+      name: string;
+      lifecycle: ResourceLifecycle;
+    }) => {
+      const state = await loadGovernanceState();
+      state.lifecycle[resourceType] = state.lifecycle[resourceType] ?? {};
+
+      const before = getEffectiveLifecycle(state, resourceType, name);
+
+      if (lifecycle === "stable") {
+        delete state.lifecycle[resourceType][name];
+        state.disabled[resourceType] = state.disabled[resourceType].filter((n) => n !== name);
+      } else if (lifecycle === "disabled") {
+        state.lifecycle[resourceType][name] = "disabled";
+        if (!state.disabled[resourceType].includes(name)) {
+          state.disabled[resourceType].push(name);
+        }
+      } else {
+        state.lifecycle[resourceType][name] = lifecycle;
+        state.disabled[resourceType] = state.disabled[resourceType].filter((n) => n !== name);
+      }
+
+      await saveGovernanceState(state);
+
+      const afterState = await loadGovernanceState();
+      const after = getEffectiveLifecycle(afterState, resourceType, name);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              updated: true,
+              resourceType,
+              name,
+              before,
+              lifecycle: after,
+              disabled: afterState.disabled[resourceType].includes(name)
+            }, null, 2)
+          }
+        ]
+      };
+    }
+  );
+
+  govTool(
+    "list_resource_lifecycle",
+    {
+      title: "リソースライフサイクル一覧",
+      description: "catalog からリソース lifecycle 一覧を返します。",
+      inputSchema: {
+        resourceType: z.enum(["skills", "tools", "presets"]).optional(),
+        lifecycle: z.enum(["experimental", "stable", "deprecated", "disabled"]).optional(),
+        limit: z.number().int().min(1).max(500).optional()
+      }
+    },
+    async ({ resourceType, lifecycle, limit }: {
+      resourceType?: GovernedResourceType;
+      lifecycle?: ResourceLifecycle;
+      limit?: number;
+    }) => {
+      const state = await loadGovernanceState();
+      const limitPerType = limit ?? 200;
+      const types = resourceType ? [resourceType] : (["skills", "tools", "presets"] as const);
+
+      const catalogs: Record<GovernedResourceType, string[]> = {
+        skills: await listSkillsCatalog(),
+        tools: listToolsCatalog(state),
+        presets: await listPresetsCatalog()
+      };
+
+      const rows = types.flatMap((type) => catalogs[type].map((name) => {
+        const stage = getEffectiveLifecycle(state, type, name);
+        return {
+          resourceType: type,
+          name,
+          lifecycle: stage,
+          disabled: state.disabled[type].includes(name)
+        };
+      }))
+        .filter((row) => (lifecycle ? row.lifecycle === lifecycle : true))
+        .slice(0, limitPerType);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              resourceType: resourceType ?? "all",
+              lifecycle: lifecycle ?? "all",
+              count: rows.length,
+              items: rows
             }, null, 2)
           }
         ]

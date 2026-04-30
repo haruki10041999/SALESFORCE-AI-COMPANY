@@ -94,6 +94,32 @@ interface RegisterAllToolsDeps {
   searchMemory: (query: string) => string[];
   listMemory: () => string[];
   clearMemory: () => void;
+  recordFailureMemory: (input: {
+    pattern: string;
+    reason: string;
+    preventiveAction: string;
+    tags?: string[];
+  }) => {
+    pattern: string;
+    reason: string;
+    preventiveAction: string;
+    tags: string[];
+    recordedAt: string;
+  };
+  searchFailureMemory: (query: string, limit?: number) => Array<{
+    pattern: string;
+    reason: string;
+    preventiveAction: string;
+    tags: string[];
+    recordedAt: string;
+  }>;
+  listFailureMemory: (limit?: number) => Array<{
+    pattern: string;
+    reason: string;
+    preventiveAction: string;
+    tags: string[];
+    recordedAt: string;
+  }>;
   findMdFilesRecursive: (dir: string) => string[];
   toPosixPath: (pathValue: string) => string;
   addRecord: (record: { id: string; text: string; tags: string[] }) => void;

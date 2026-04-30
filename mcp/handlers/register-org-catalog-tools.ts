@@ -10,6 +10,7 @@ import {
   type OrgListFilter
 } from "../core/org/org-catalog.js";
 import { loadOrgCatalog, saveOrgCatalog } from "../core/org/org-catalog-store.js";
+import { getOrgTimelineEvents, recordOrgTimelineEvent } from "../core/org/org-timeline-store.js";
 import type { GovTool } from "../tool-types.js";
 
 export interface RegisterOrgCatalogToolsDeps {
@@ -25,6 +26,7 @@ export function registerOrgCatalogTools(deps: RegisterOrgCatalogToolsDeps): void
     ? resolve(process.env.SF_AI_OUTPUTS_DIR)
     : resolve("outputs"));
   const catalogFile = join(outputsDir, "orgs", "catalog.json");
+  const timelineDir = join(outputsDir, "org-timeline");
 
   govTool(
     "register_org",
@@ -117,6 +119,56 @@ export function registerOrgCatalogTools(deps: RegisterOrgCatalogToolsDeps): void
       const entry = getOrg(catalog, alias);
       return {
         content: [{ type: "text", text: JSON.stringify({ found: entry !== null, entry }, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "record_org_event",
+    {
+      title: "Org タイムライン記録",
+      description: "指定 Org のタイムラインにイベントを記録します。",
+      inputSchema: {
+        alias: z.string().min(1).max(64),
+        type: z.string().min(1).max(64),
+        summary: z.string().min(1).max(2000),
+        metadata: z.record(z.unknown()).optional(),
+        recordedAt: z.string().datetime().optional()
+      }
+    },
+    async ({ alias, type, summary, metadata, recordedAt }: {
+      alias: string;
+      type: string;
+      summary: string;
+      metadata?: Record<string, unknown>;
+      recordedAt?: string;
+    }) => {
+      const event = await recordOrgTimelineEvent(timelineDir, alias, {
+        type,
+        summary,
+        metadata,
+        recordedAt
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify({ alias, event }, null, 2) }]
+      };
+    }
+  );
+
+  govTool(
+    "get_org_timeline",
+    {
+      title: "Org タイムライン取得",
+      description: "指定 Org のタイムラインイベントを新しい順で取得します。",
+      inputSchema: {
+        alias: z.string().min(1).max(64),
+        limit: z.number().int().min(1).max(500).optional()
+      }
+    },
+    async ({ alias, limit }: { alias: string; limit?: number }) => {
+      const events = await getOrgTimelineEvents(timelineDir, alias, limit ?? 100);
+      return {
+        content: [{ type: "text", text: JSON.stringify({ alias, count: events.length, events }, null, 2) }]
       };
     }
   );

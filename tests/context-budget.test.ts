@@ -1,9 +1,15 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   allocateCategoryBudgets,
-  DEFAULT_CATEGORY_WEIGHTS
+  DEFAULT_CATEGORY_WEIGHTS,
+  loadCategoryWeightsFromFile
 } from "../mcp/core/context/context-budget.js";
+import { truncateContent } from "../mcp/core/context/markdown-catalog.js";
+import { countTokens } from "../mcp/core/prompt/token-counter.js";
 
 test("F6: returns undefined for every category when maxContextChars is unset", () => {
   const b = allocateCategoryBudgets(undefined, {
@@ -45,4 +51,54 @@ test("F6: per-item budget shrinks linearly when item count grows", () => {
 test("F6: weights add up to 1.0", () => {
   const sum = Object.values(DEFAULT_CATEGORY_WEIGHTS).reduce((a, b) => a + b, 0);
   assert.ok(Math.abs(sum - 1) < 1e-6, `weights sum should be 1.0, got ${sum}`);
+});
+
+test("F6: loadCategoryWeightsFromFile returns parsed config", () => {
+  const root = mkdtempSync(join(tmpdir(), "ctx-budget-"));
+  const filePath = join(root, "context-budget.json");
+  try {
+    writeFileSync(filePath, JSON.stringify({
+      agent: 0.4,
+      skill: 0.2,
+      code: 0.1,
+      context: 0.2,
+      persona: 0.05,
+      framework: 0.05
+    }), "utf-8");
+
+    const loaded = loadCategoryWeightsFromFile(filePath);
+    assert.equal(loaded?.agent, 0.4);
+    assert.equal(loaded?.skill, 0.2);
+    assert.equal(loaded?.framework, 0.05);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("F6: loadCategoryWeightsFromFile returns undefined for invalid file", () => {
+  const root = mkdtempSync(join(tmpdir(), "ctx-budget-invalid-"));
+  const filePath = join(root, "context-budget.json");
+  try {
+    writeFileSync(filePath, JSON.stringify({ agent: -1 }), "utf-8");
+    const loaded = loadCategoryWeightsFromFile(filePath);
+    assert.equal(loaded, undefined);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("F6: truncateContent keeps original text when within token budget", () => {
+  const text = "short text for token budget";
+  const budget = countTokens(text).tokens + 5;
+  const out = truncateContent(text, budget, "sample");
+  assert.equal(out, text);
+});
+
+test("F6: truncateContent enforces token budget", () => {
+  const text = Array.from({ length: 300 }, (_, i) => `token-${i}`).join(" ");
+  const out = truncateContent(text, 40, "sample");
+
+  const tokenCount = countTokens(out).tokens;
+  assert.ok(tokenCount <= 40, `token count should be <= 40, got ${tokenCount}`);
+  assert.notEqual(out, text);
 });

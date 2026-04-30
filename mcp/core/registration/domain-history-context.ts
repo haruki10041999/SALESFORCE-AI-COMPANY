@@ -28,6 +28,9 @@ export function registerHistoryContextDomain(deps: Deps): void {
     searchMemory,
     listMemory,
     clearMemory,
+    recordFailureMemory,
+    searchFailureMemory,
+    listFailureMemory,
     root,
     findMdFilesRecursive,
     toPosixPath
@@ -66,7 +69,10 @@ export function registerHistoryContextDomain(deps: Deps): void {
     addMemory,
     searchMemory,
     listMemory,
-    clearMemory
+    clearMemory,
+    recordFailureMemory,
+    searchFailureMemory,
+    listFailureMemory
   });
 
   registerContextTools({

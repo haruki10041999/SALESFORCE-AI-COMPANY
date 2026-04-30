@@ -2,6 +2,7 @@ import { existsSync, promises as fsPromises, readFileSync, readdirSync, realpath
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { shouldSkipScanDir } from "../quality/scan-exclusions.js";
+import { countTokens } from "../prompt/token-counter.js";
 
 export function resolveProjectRootFromFile(fileUrl: string): string {
   const thisFile = fileURLToPath(fileUrl);
@@ -79,12 +80,56 @@ function assertSafeLookupName(name: string): void {
   }
 }
 
-export function truncateContent(text: string, maxChars: number, label: string): string {
-  if (text.length <= maxChars) return text;
-  return (
-    text.slice(0, maxChars) +
-    `\n\n...(${label}: ${text.length.toLocaleString()}文字 → ${maxChars.toLocaleString()}文字に削減)`
-  );
+export function truncateContent(text: string, maxTokens: number, label: string): string {
+  if (maxTokens <= 0) return "";
+
+  const originalTokenCount = countTokens(text).tokens;
+  if (originalTokenCount <= maxTokens) {
+    return text;
+  }
+
+  const fullSuffix = `\n\n...(${label}: ${originalTokenCount.toLocaleString()} tokens -> ${maxTokens.toLocaleString()} tokens)`;
+  const compactSuffix = "\n\n...(truncated)";
+
+  const withFullSuffix = binarySearchPrefixByTokenBudget(text, fullSuffix, maxTokens);
+  if (withFullSuffix !== null) {
+    return withFullSuffix;
+  }
+
+  const withCompactSuffix = binarySearchPrefixByTokenBudget(text, compactSuffix, maxTokens);
+  if (withCompactSuffix !== null) {
+    return withCompactSuffix;
+  }
+
+  // Even suffix-only doesn't fit the budget; return bare prefix constrained by token budget.
+  return binarySearchPrefixByTokenBudget(text, "", maxTokens) ?? "";
+}
+
+function binarySearchPrefixByTokenBudget(text: string, suffix: string, maxTokens: number): string | null {
+  if (countTokens(suffix).tokens > maxTokens) {
+    return null;
+  }
+
+  let lo = 0;
+  let hi = text.length;
+  let best = -1;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const candidate = `${text.slice(0, mid)}${suffix}`;
+    const tokenCount = countTokens(candidate).tokens;
+    if (tokenCount <= maxTokens) {
+      best = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+
+  if (best < 0) {
+    return null;
+  }
+
+  return `${text.slice(0, best)}${suffix}`;
 }
 
 export function listMdFiles(root: string, dir: string): { name: string; summary: string }[] {

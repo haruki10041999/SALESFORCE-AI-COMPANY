@@ -27,7 +27,13 @@ export const triggerRuleSchema = z.object({
   once: z.boolean().optional()
 });
 
+export const dagNodeSchema = z.object({
+  id: z.string().min(1),
+  dependsOn: z.array(z.string().min(1)).optional()
+});
+
 /**
  * Inferred type from triggerRuleSchema for TypeScript type checking
  */
 export type TriggerRule = z.infer<typeof triggerRuleSchema>;
+export type DagNodeInput = z.infer<typeof dagNodeSchema>;

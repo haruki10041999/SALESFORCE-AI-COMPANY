@@ -1,3 +1,6 @@
+import { promises as fsPromises } from "node:fs";
+import { dirname } from "node:path";
+
 /**
  * Reinforcement Learning Feedback (TASK-047)
  *
@@ -218,6 +221,58 @@ export function fromBanditSnapshot(snapshot: { arms: BanditArm[] }): BanditState
     });
   }
   return state;
+}
+
+/**
+ * JSONL 形式で bandit state を保存する。
+ * 1行 = 1 arm なので将来の差分追記や部分読み込みにも対応しやすい。
+ */
+export async function saveBanditState(state: BanditState, filePath: string): Promise<void> {
+  const lines = [...state.arms.values()]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((arm) => JSON.stringify({
+      name: arm.name,
+      alpha: arm.alpha,
+      beta: arm.beta
+    }));
+
+  await fsPromises.mkdir(dirname(filePath), { recursive: true });
+  const content = lines.length > 0 ? `${lines.join("\n")}\n` : "";
+  await fsPromises.writeFile(filePath, content, "utf-8");
+}
+
+/**
+ * JSONL 形式の bandit state を復元する。存在しない場合は空 state を返す。
+ */
+export async function loadBanditState(filePath: string): Promise<BanditState> {
+  try {
+    const content = await fsPromises.readFile(filePath, "utf-8");
+    const state = createBanditState();
+    const lines = content.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line) as Partial<BanditArm>;
+        if (typeof parsed.name !== "string" || parsed.name.length === 0) {
+          continue;
+        }
+        state.arms.set(parsed.name, {
+          name: parsed.name,
+          alpha: typeof parsed.alpha === "number" && parsed.alpha > 0 ? parsed.alpha : 1,
+          beta: typeof parsed.beta === "number" && parsed.beta > 0 ? parsed.beta : 1
+        });
+      } catch {
+        // 壊れた行は読み飛ばして復旧を優先する。
+      }
+    }
+
+    return state;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return createBanditState();
+    }
+    throw error;
+  }
 }
 
 /**
