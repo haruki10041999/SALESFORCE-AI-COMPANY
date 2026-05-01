@@ -44,6 +44,12 @@ export type AnalyzeTestCoverageGapResult = {
     pass: boolean;
     suggestedExitCode: number;
   };
+  /** Debug info for output directory resolution */
+  debugInfo?: {
+    envSF_AI_OUTPUTS_DIR: string | undefined;
+    resolvedOutputsDir: string;
+    processWorkingDir: string;
+  };
 };
 
 function renderMarkdown(result: AnalyzeTestCoverageGapResult): string {
@@ -106,6 +112,11 @@ function getDefaultOutputsDir(): string {
 }
 
 export async function analyzeTestCoverageGap(input: AnalyzeTestCoverageGapInput): Promise<AnalyzeTestCoverageGapResult> {
+  // Debug: log environment variable resolution
+  const envOutputsDir = process.env.SF_AI_OUTPUTS_DIR;
+  const resolvedDir = getDefaultOutputsDir();
+  const cwd = process.cwd();
+  
   const estimate = estimateChangedCoverage(input);
   const generatedAt = new Date().toISOString();
   const maxItems = Number.isFinite(input.maxItems)
@@ -177,6 +188,11 @@ export async function analyzeTestCoverageGap(input: AnalyzeTestCoverageGapInput)
     reportJsonPath,
     reportMarkdownPath,
     summary,
+    debugInfo: {
+      envSF_AI_OUTPUTS_DIR: envOutputsDir,
+      resolvedOutputsDir: resolvedDir,
+      processWorkingDir: cwd
+    },
     ciGate: {
       pass: !hasCoverageGap,
       suggestedExitCode: hasCoverageGap ? 1 : 0

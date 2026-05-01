@@ -1,4 +1,6 @@
 ﻿import type { GovTool, GovToolConfig, GovToolHandler, RegisterToolFn } from "@mcp/tool-types.js";
+import type { BanditState } from "../learning/rl-feedback.js";
+import { saveBanditState } from "../learning/rl-feedback.js";
 import { isRetryableByCode, isRetryableError } from "../errors/tool-error.js";
 import { startTrace, endTrace, failTrace } from "../trace/trace-context.js";
 import { recordMetric } from "../../tools/metrics.js";
@@ -99,6 +101,8 @@ interface CreateGovernedToolRegistrarDeps {
     retryablePatterns: string[];
     retryableCodes: string[];
   }>;
+  getBanditState: () => BanditState;
+  banditStateFile: string;
 }
 
 export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDeps) {
@@ -111,7 +115,9 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
     emitSystemEvent,
     summarizeValue,
     registerToolFailure,
-    getRetryConfig
+    getRetryConfig,
+    getBanditState,
+    banditStateFile
   } = deps;
 
   function recordExecutionOrigin(toolName: string, input: unknown, status: "success" | "error"): void {
@@ -317,6 +323,17 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
             input: summarizeValue(input),
             output: summarizeValue(result)
           });
+          // Save bandit state after successful tool execution
+          try {
+            await saveBanditState(getBanditState(), banditStateFile);
+          } catch (saveError) {
+            // Bandit state save failure should not block tool execution
+            void emitSystemEvent("bandit_state_save_failed", {
+              toolName: name,
+              traceId,
+              error: summarizeValue(saveError, 200)
+            }).catch(() => {});
+          }
           return attachProgressBanner(name, traceId, result);
         } catch (error) {
           const retryable = retryConfig.retryEnabled && (

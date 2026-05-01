@@ -111,6 +111,12 @@ const STATE_DB_PATH = process.env.SF_AI_STATE_DB_PATH
   : join(OUTPUTS_DIR, DEFAULT_SQLITE_STATE_FILE);
 const BANDIT_STATE_FILE = join(OUTPUTS_DIR, "bandit-state.jsonl");
 const logger = createLogger("Server");
+
+// Log environment variables for debugging output directory configuration
+logger.debug(`SF_AI_OUTPUTS_DIR env: ${process.env.SF_AI_OUTPUTS_DIR || "(not set)"}`);
+logger.debug(`Resolved OUTPUTS_DIR: ${OUTPUTS_DIR}`);
+logger.debug(`process.cwd(): ${process.cwd()}`);
+
 let banditState = createBanditState();
 
 function listMdFiles(dir: string): { name: string; summary: string }[] {
@@ -275,6 +281,8 @@ const { govTool } = createGovernedToolRegistrar({
   emitSystemEvent: emitSystemEventCompat,
   summarizeValue,
   registerToolFailure,
+  getBanditState: () => banditState,
+  banditStateFile: BANDIT_STATE_FILE,
   getRetryConfig: async () => {
     const state = await loadGovernanceState();
     return state.config.toolExecution;

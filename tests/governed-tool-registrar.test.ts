@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createGovernedToolRegistrar } from "../mcp/core/governance/governed-tool-registrar.js";
+import { createBanditState } from "../mcp/core/learning/rl-feedback.js";
 
 type ToolHandler = (input: unknown) => Promise<{ content: Array<{ type: string; text: string }> }>;
 
@@ -23,6 +24,8 @@ test("governed tool registrar retries retryable failures with backoff", async ()
   let failuresRecorded = 0;
   let attempts = 0;
   const paths = makeTempPaths();
+  const banditState = createBanditState();
+  const banditStateFile = join(paths.outputsDir, "bandit-state.jsonl");
 
   const { govTool } = createGovernedToolRegistrar({
     registerTool: (name, _config, handler) => {
@@ -39,6 +42,8 @@ test("governed tool registrar retries retryable failures with backoff", async ()
     registerToolFailure: async () => {
       failuresRecorded += 1;
     },
+    getBanditState: () => banditState,
+    banditStateFile,
     getRetryConfig: async () => ({
       retryEnabled: true,
       maxRetries: 2,
@@ -80,6 +85,8 @@ test("governed tool registrar does not retry non-retryable failures", async () =
   let failuresRecorded = 0;
   let attempts = 0;
   const paths = makeTempPaths();
+  const banditState = createBanditState();
+  const banditStateFile = join(paths.outputsDir, "bandit-state.jsonl");
 
   const { govTool } = createGovernedToolRegistrar({
     registerTool: (name, _config, handler) => {
@@ -94,6 +101,8 @@ test("governed tool registrar does not retry non-retryable failures", async () =
     registerToolFailure: async () => {
       failuresRecorded += 1;
     },
+    getBanditState: () => banditState,
+    banditStateFile,
     getRetryConfig: async () => ({
       retryEnabled: true,
       maxRetries: 3,
@@ -125,6 +134,8 @@ test("governed tool registrar retries when error code matches", async () => {
   const handlers = new Map<string, ToolHandler>();
   let attempts = 0;
   const paths = makeTempPaths();
+  const banditState = createBanditState();
+  const banditStateFile = join(paths.outputsDir, "bandit-state.jsonl");
 
   const { govTool } = createGovernedToolRegistrar({
     registerTool: (name, _config, handler) => {
@@ -137,6 +148,8 @@ test("governed tool registrar retries when error code matches", async () => {
     emitSystemEvent: async () => {},
     summarizeValue: (value) => (value instanceof Error ? value.message : String(value)),
     registerToolFailure: async () => {},
+    getBanditState: () => banditState,
+    banditStateFile,
     getRetryConfig: async () => ({
       retryEnabled: true,
       maxRetries: 2,
