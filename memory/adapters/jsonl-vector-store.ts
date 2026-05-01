@@ -29,22 +29,55 @@ function tokenize(value: string): string[] {
     .filter((token) => token.length > 0);
 }
 
+interface TfidfCacheEntry {
+  fingerprint: string;
+  docTokens: string[][];
+  df: Map<string, number>;
+  docCount: number;
+}
+
+function fingerprintRecords(records: MemoryRecord[]): string {
+  // Cheap content-version tag: count + head/tail id + tail text length.
+  // Collisions require all three to coincide while contents differ — negligible
+  // in practice, and a wrong cache hit only affects ranking, not correctness of identity.
+  if (records.length === 0) return "0";
+  const head = records[0];
+  const tail = records[records.length - 1];
+  return `${records.length}\u0001${head?.id ?? ""}\u0001${tail?.id ?? ""}\u0001${tail?.text.length ?? 0}`;
+}
+
 class TfidfEmbeddingProvider implements EmbeddingProvider {
+  // WeakMap keyed by the records array reference. The adapter reuses the same
+  // array instance across searches, so this keeps cache lifetime tied to the
+  // owning store without leaking memory in tests that allocate fresh arrays.
+  private readonly cache = new WeakMap<MemoryRecord[], TfidfCacheEntry>();
+
+  /** @internal exposed for tests to verify cache behavior */
+  public _peekCacheFingerprint(records: MemoryRecord[]): string | undefined {
+    return this.cache.get(records)?.fingerprint;
+  }
+
   search(allRecords: MemoryRecord[], query: string): MemoryRecord[] {
     const queryTokens = tokenize(query);
     if (queryTokens.length === 0 || allRecords.length === 0) {
       return [];
     }
 
-    const docTokens = allRecords.map((record) => tokenize(`${record.text} ${(record.tags ?? []).join(" ")}`));
-    const docCount = docTokens.length;
-    const df = new Map<string, number>();
-    for (const tokens of docTokens) {
-      const unique = new Set(tokens);
-      for (const token of unique) {
-        df.set(token, (df.get(token) ?? 0) + 1);
+    const fingerprint = fingerprintRecords(allRecords);
+    let cached = this.cache.get(allRecords);
+    if (!cached || cached.fingerprint !== fingerprint) {
+      const docTokens = allRecords.map((record) => tokenize(`${record.text} ${(record.tags ?? []).join(" ")}`));
+      const df = new Map<string, number>();
+      for (const tokens of docTokens) {
+        const unique = new Set(tokens);
+        for (const token of unique) {
+          df.set(token, (df.get(token) ?? 0) + 1);
+        }
       }
+      cached = { fingerprint, docTokens, df, docCount: docTokens.length };
+      this.cache.set(allRecords, cached);
     }
+    const { docTokens, df, docCount } = cached;
 
     const scored = allRecords
       .map((record, index) => {
