@@ -184,11 +184,11 @@ export async function runDeploymentVerification(
   }
 
   const generatedAt = new Date().toISOString();
-  const reportDir = resolve(input.reportOutputDir ?? join("outputs", "reports"));
+  const reportDir = resolve(input.reportOutputDir ?? join("outputs", "reports", "deployment-verification"));
   await fsPromises.mkdir(reportDir, { recursive: true });
-  const stamp = generatedAt.replace(/[:.]/g, "-");
-  const reportJsonPath = join(reportDir, `deployment-verification-${stamp}.json`);
-  const reportMarkdownPath = join(reportDir, `deployment-verification-${stamp}.md`);
+  const runsJsonlPath = join(reportDir, "runs.jsonl");
+  const reportJsonPath = join(reportDir, "latest.json");
+  const reportMarkdownPath = join(reportDir, "latest.md");
 
   const result: RunDeploymentVerificationResult = {
     mode: dryRun ? "dry-run" : "live",
@@ -222,6 +222,7 @@ export async function runDeploymentVerification(
     ].join("\n")
   };
 
+  await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
   await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
   await fsPromises.writeFile(reportMarkdownPath, renderMarkdown(result), "utf-8");
 

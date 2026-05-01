@@ -228,8 +228,9 @@ historian, gardener, samurai, jedi, inventor, speed-demon, captain, archivist
 
 ```bash
 npm test
-npm run metrics:report -- --top 10
-npm run metrics:dashboard
+npm run report:metrics
+npm run metrics:update
+npm run metrics:update:drift
 ```
 
 詳細: [docs/metrics-evaluation.md](docs/metrics-evaluation.md)

@@ -174,6 +174,49 @@ benchmark_suite:
 
 ---
 
+## 学習メトリクス自動更新（Task 8）
+
+`metrics_summary` / `benchmark_suite` が「直近トレースの観測」に主眼を置くのに対し、
+Task 8 のランナーは「学習系の集計スナップショット更新」を担当します。
+
+### 実行コマンド
+
+```bash
+# 学習ダッシュボード更新のみ
+npm run metrics:update
+
+# drift / regression 検知を同時実行
+npm run metrics:update:drift
+```
+
+補足:
+
+- `metrics:update:drift` は `--with-drift` フラグで実行されます。
+- `cross-env` 依存は不要で、Windows / Unix のどちらでも同じコマンドで実行できます。
+
+### 主な出力
+
+| 出力 | 既定パス | 説明 |
+|---|---|---|
+| Learning dashboard | `outputs/dashboards/learning-progress.json` | 報酬・提案・reputation などの学習進捗スナップショット |
+| Drift report (JSONL) | `outputs/reports/drift-regression.jsonl` | reward drift / agent regression 検知結果の追記ログ |
+
+### 関連環境変数（Task 8）
+
+| 変数名 | デフォルト | 説明 |
+|---|---|---|
+| `SF_AI_METRICS_REPORTING_HOURS` | `24` | 学習ダッシュボード更新時の集計ウィンドウ（時間） |
+| `SF_AI_METRICS_WITH_DRIFT` | `false` | メトリクス更新時に drift / regression 検知を同時実行するか |
+| `SF_AI_DRIFT_BASELINE_HOURS` | `168` | drift 比較の baseline ウィンドウ（時間） |
+| `SF_AI_DRIFT_RECENT_HOURS` | `24` | drift 比較の recent ウィンドウ（時間） |
+| `SF_AI_DRIFT_MIN_REWARD_SAMPLES` | `20` | drift 判定に必要な recent reward の最小件数 |
+| `SF_AI_DRIFT_MIN_REPUTATION_SAMPLES` | `3` | regression 判定に必要な reputation の最小件数（各窓） |
+| `SF_AI_DRIFT_THRESHOLD` | `0.15` | reward drift 判定しきい値 |
+| `SF_AI_REGRESSION_THRESHOLD` | `0.1` | agent regression 判定しきい値 |
+| `SF_AI_DRIFT_REPORT_PATH` | `outputs/reports/drift-regression.jsonl` | drift レポート JSONL の保存先 |
+
+---
+
 ## 推奨ワークフロー
 
 ### パフォーマンス監視フロー

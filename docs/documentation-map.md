@@ -20,6 +20,10 @@
 
 - 出力構成: [outputs-structure.md](./outputs-structure.md)
 - 学習の仕組み: [learning-guide.md](./learning-guide.md)
+- 学習メトリクス自動更新 / ドリフト検知 (Task 8):
+   - 運用手順: [operations-guide.md](./operations-guide.md)
+   - 機能仕様: [features/11-metrics-benchmarks.md](./features/11-metrics-benchmarks.md)
+   - 学習観点の説明: [learning-guide.md](./learning-guide.md)
 - 指標評価: [metrics-evaluation.md](./metrics-evaluation.md)
 - 検証手順: [verification-guide.md](./verification-guide.md)
 - 改修・拡張仕様書: [mcp-server-improvement-spec.md](./mcp-server-improvement-spec.md)

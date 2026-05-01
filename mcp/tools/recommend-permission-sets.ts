@@ -317,11 +317,11 @@ export async function recommendPermissionSets(input: RecommendPermissionSetsInpu
   const selected = recommendations.slice(0, limit);
 
   const generatedAt = new Date().toISOString();
-  const reportDir = resolve(input.reportOutputDir ?? join("outputs", "reports"));
+  const reportDir = resolve(input.reportOutputDir ?? join("outputs", "reports", "permission-set-recommendations"));
   await fsPromises.mkdir(reportDir, { recursive: true });
-  const stamp = generatedAt.replace(/[:.]/g, "-");
-  const reportJsonPath = join(reportDir, `permission-set-recommendations-${stamp}.json`);
-  const reportMarkdownPath = join(reportDir, `permission-set-recommendations-${stamp}.md`);
+  const runsJsonlPath = join(reportDir, "runs.jsonl");
+  const reportJsonPath = join(reportDir, "latest.json");
+  const reportMarkdownPath = join(reportDir, "latest.md");
 
   const result: RecommendPermissionSetsResult = {
     generatedAt,
@@ -351,6 +351,7 @@ export async function recommendPermissionSets(input: RecommendPermissionSetsInpu
     ].join("\n")
   };
 
+  await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
   await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
   await fsPromises.writeFile(reportMarkdownPath, buildMarkdown(result), "utf-8");
 

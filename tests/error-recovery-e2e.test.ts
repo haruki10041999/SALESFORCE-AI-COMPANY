@@ -60,6 +60,7 @@ test("error_aggregate_detected: triggers auto-disable of problematic tool", asyn
 
     // Simulate recovery: enable tool
     updated.disabled.tools = updated.disabled.tools.filter((t) => t !== "apex_analyzer");
+    delete updated.lifecycle.tools.apex_analyzer;
     await saveGovernanceState(governanceFile, updated);
 
     // Verify tool is enabled

@@ -272,8 +272,8 @@ run_deployment_verification:
     "shouldRollback": false,
     "reason": "smoke tests have partial failures (5.00%), below rollback threshold"
   },
-  "reportJsonPath": "D:/Projects/mult-agent-ai/salesforce-ai-company/outputs/reports/deployment-verification-2026-04-24T11-00-00-000Z.json",
-  "reportMarkdownPath": "D:/Projects/mult-agent-ai/salesforce-ai-company/outputs/reports/deployment-verification-2026-04-24T11-00-00-000Z.md"
+  "reportJsonPath": "D:/Projects/mult-agent-ai/salesforce-ai-company/outputs/reports/deployment-verification/latest.json",
+  "reportMarkdownPath": "D:/Projects/mult-agent-ai/salesforce-ai-company/outputs/reports/deployment-verification/latest.md"
 }
 ```
 

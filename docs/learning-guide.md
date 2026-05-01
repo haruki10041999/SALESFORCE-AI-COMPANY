@@ -201,3 +201,39 @@
 - フィードバックが少ない間は補正が弱く、誤学習の影響も限定されるように上限がかかっています
 - `SF_AI_OUTPUTS_DIR` を共通化すると、複数リポジトリをまたいだ学習ログを 1 箇所で管理できます
 - リポジトリごとに学習を分けたい場合は、outputs を分離した方が安全です
+
+## 10. 学習ダッシュボード自動更新とドリフト検知（Task 8）
+
+学習状態を定期確認するために、Task 8 ではランナーを使って
+`learning-progress.json` と `drift-regression.jsonl` を更新できます。
+
+実行コマンド:
+
+```bash
+# 学習ダッシュボード更新
+npm run metrics:update
+
+# drift / regression 検知も同時実行
+npm run metrics:update:drift
+```
+
+出力先:
+
+- `outputs/dashboards/learning-progress.json`
+- `outputs/reports/drift-regression.jsonl`
+
+主な設定:
+
+- `SF_AI_METRICS_REPORTING_HOURS`
+- `SF_AI_METRICS_WITH_DRIFT`
+- `SF_AI_DRIFT_BASELINE_HOURS`
+- `SF_AI_DRIFT_RECENT_HOURS`
+- `SF_AI_DRIFT_MIN_REWARD_SAMPLES`
+- `SF_AI_DRIFT_MIN_REPUTATION_SAMPLES`
+- `SF_AI_DRIFT_THRESHOLD`
+- `SF_AI_REGRESSION_THRESHOLD`
+- `SF_AI_DRIFT_REPORT_PATH`
+
+補足:
+
+- `metrics:update:drift` は `--with-drift` フラグ方式で実行されるため、Windows でも追加依存なしで実行できます。

@@ -22,6 +22,8 @@ npm run ai -- dev
 ```bash
 npm run typecheck
 npm test
+npm run metrics:update
+npm run metrics:update:drift
 npm run ai -- doctor
 ```
 

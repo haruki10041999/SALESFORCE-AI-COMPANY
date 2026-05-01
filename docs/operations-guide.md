@@ -124,6 +124,25 @@ npm test -- tests/runtime-config-agent-trust.test.ts
 npm run ai -- metrics:report -- --top 10
 ```
 
+学習メトリクスの自動更新（Task 8）:
+
+```bash
+# 学習ダッシュボード更新のみ
+npm run metrics:update
+
+# drift / regression 検知も同時実行
+npm run metrics:update:drift
+```
+
+補足:
+
+- `metrics:update:drift` は `--with-drift` フラグで実行され、`cross-env` は不要です（Windows/Unix 共通）。
+
+見るポイント:
+
+- `outputs/dashboards/learning-progress.json` が更新されること
+- drift 同時実行時は `outputs/reports/drift-regression.jsonl` が追記されること
+
 運用向けダッシュボード再生成:
 
 ```bash

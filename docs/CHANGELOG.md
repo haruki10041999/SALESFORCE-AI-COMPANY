@@ -5,6 +5,25 @@
 
 ## [Unreleased]
 
+### Changed (2026-05-01 — Reports Retention / Pre-commit Lint Stability)
+
+- レポート出力の保存方式を `agent_ab_test` と同じ集約型へ統一。
+  - [`mcp/tools/analyze-test-coverage-gap.ts`](../mcp/tools/analyze-test-coverage-gap.ts)
+  - [`mcp/tools/recommend-permission-sets.ts`](../mcp/tools/recommend-permission-sets.ts)
+  - [`mcp/tools/run-deployment-verification.ts`](../mcp/tools/run-deployment-verification.ts)
+  - [`mcp/tools/suggest-flow-test-cases.ts`](../mcp/tools/suggest-flow-test-cases.ts)
+  - [`mcp/handlers/register-resource-action-tools.ts`](../mcp/handlers/register-resource-action-tools.ts)
+  それぞれ `runs.jsonl` へ追記しつつ `latest.{json,md}` を上書きする方式に変更。
+- [`package.json`](../package.json) の `lint:outputs` を `tsx ...` 直実行から `node --import tsx ...` へ変更し、Windows の pre-commit で `tsx` 解決に失敗するケースを回避。
+- [`scripts/lint-outputs.ts`](../scripts/lint-outputs.ts) を更新し、`outputs/.schema.json` が無い初期状態でも warning を出してトップレベル検証をスキップする挙動に変更。
+- 関連ドキュメントを更新: [`docs/outputs-structure.md`](./outputs-structure.md), [`docs/features/04-deployment.md`](./features/04-deployment.md), [`docs/features/09-resource-governance.md`](./features/09-resource-governance.md)。
+
+### Changed (2026-05-01 — Metrics Drift Script / Docs Sync)
+
+- [`package.json`](../package.json) の `metrics:update:drift` を `cross-env` 依存から `tsx mcp/core/learning/metrics-auto-update.ts --with-drift` へ変更し、Windows 環境でも追加依存なしで実行できるように更新。
+- [`mcp/core/learning/metrics-auto-update.ts`](../mcp/core/learning/metrics-auto-update.ts) で `--with-drift` / `--drift` フラグによる drift 検知有効化を追加。
+- ドキュメント整合性を更新: [`README.md`](../README.md)、[`docs/operations-guide.md`](./operations-guide.md)、[`docs/developer-guide.md`](./developer-guide.md)。
+
 ### Added (2026-04-30 Phase 3 — F14 Agent Graph Learning)
 
 - [`mcp/core/learning/agent-graph-learner.ts`](../mcp/core/learning/agent-graph-learner.ts) を追加し、agent シーケンス学習 (`recordAgentSequence`)、遷移モデル構築 (`buildAgentTransitionModel`)、次候補推薦 (`recommendNextAgents`) を実装。学習データは `outputs/agent-graph.jsonl` に JSONL 追記。

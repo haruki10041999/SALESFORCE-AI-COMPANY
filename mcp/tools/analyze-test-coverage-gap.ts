@@ -144,12 +144,12 @@ export async function analyzeTestCoverageGap(input: AnalyzeTestCoverageGapInput)
   );
 
   const hasCoverageGap = gaps.length > 0;
-  const reportDir = resolve(input.reportOutputDir ?? join("outputs", "reports"));
+  const reportDir = resolve(input.reportOutputDir ?? join("outputs", "reports", "coverage-gap"));
   await fsPromises.mkdir(reportDir, { recursive: true });
 
-  const stamp = generatedAt.replace(/[:.]/g, "-");
-  const reportJsonPath = join(reportDir, `coverage-gap-${stamp}.json`);
-  const reportMarkdownPath = join(reportDir, `coverage-gap-${stamp}.md`);
+  const runsJsonlPath = join(reportDir, "runs.jsonl");
+  const reportJsonPath = join(reportDir, "latest.json");
+  const reportMarkdownPath = join(reportDir, "latest.md");
 
   const summary = [
     `comparison: ${estimate.comparison}`,
@@ -176,6 +176,7 @@ export async function analyzeTestCoverageGap(input: AnalyzeTestCoverageGapInput)
     }
   };
 
+  await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
   await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
   await fsPromises.writeFile(reportMarkdownPath, renderMarkdown(result), "utf-8");
 

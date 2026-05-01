@@ -12,6 +12,8 @@
 | `SF_AI_OUTPUTS_DIR` | 実行ログや履歴の保存場所 | `outputs/` |
 | `SF_AI_HISTORY_SQLITE` | 履歴ストアを SQLite へ切り替える（`true`/`false`） | `false` |
 | `SF_AI_STATE_DB_PATH` | SQLite DB ファイルの保存先（`SF_AI_HISTORY_SQLITE=true` 時） | `outputs/state.sqlite` |
+| `SF_AI_METRICS_REPORTING_HOURS` | 学習ダッシュボード更新時の集計ウィンドウ（時間） | `24` |
+| `SF_AI_METRICS_WITH_DRIFT` | メトリクス更新時に drift / regression 検知を同時実行（`true`/`false`） | `false` |
 | `LOG_LEVEL` | ログの詳しさ（`error` / `warn` / `info` / `debug`） | `info` |
 | `SF_AI_LOCALE` | エラーメッセージ等のローカライズ言語（`ja` / `en`） | `ja` |
 | `AI_LOW_RELEVANCE_THRESHOLD` | 低関連度判定のしきい値（高いほど厳格） | `6` |
@@ -102,6 +104,15 @@ Copy-Item .env.operations.sample .env
 | `SF_AI_VECTOR_MAX_RECORDS` | メモリ/ディスク上に保持するベクターレコードの最大件数（LRU） | `5000` |
 | `SF_AI_TRACE_FILE` | トレース履歴の永続化先 JSONL ファイルパス | `outputs/events/trace-log.jsonl` |
 | `SF_AI_METRICS_FILE` | メトリクスサンプルの永続化先 JSONL ファイルパス | `outputs/events/metrics-samples.jsonl` |
+| `SF_AI_METRICS_REPORTING_HOURS` | 学習ダッシュボード更新時の集計ウィンドウ（時間） | `24` |
+| `SF_AI_METRICS_WITH_DRIFT` | `metrics:update` 実行時に drift / regression 検知を同時実行するか | `false` |
+| `SF_AI_DRIFT_BASELINE_HOURS` | drift 比較の baseline ウィンドウ（時間） | `168` |
+| `SF_AI_DRIFT_RECENT_HOURS` | drift 比較の recent ウィンドウ（時間） | `24` |
+| `SF_AI_DRIFT_MIN_REWARD_SAMPLES` | drift 判定に必要な recent reward の最小件数 | `20` |
+| `SF_AI_DRIFT_MIN_REPUTATION_SAMPLES` | regression 判定に必要な agent reputation の最小件数（各窓） | `3` |
+| `SF_AI_DRIFT_THRESHOLD` | reward drift 判定しきい値（平均シフト/スコア） | `0.15` |
+| `SF_AI_REGRESSION_THRESHOLD` | agent regression 判定しきい値 | `0.1` |
+| `SF_AI_DRIFT_REPORT_PATH` | drift / regression レポート JSONL の保存先 | `outputs/reports/drift-regression.jsonl` |
 | `SF_AI_AUTO_MEMORY` | チャット/ツール実行のたびに input/output サマリを `memory.jsonl` と `vector-store.jsonl` へ自動追記する。`1`/`true`/`on`/`yes` で有効。memory/vector 系ツール自身は再帰防止のため除外 | `false` |
 | `SF_AI_PROGRESS_BANNER` | ツール応答テキストの先頭に進捗タイムライン (フェーズ別開始時刻・所要時間) を追加表示する。`false`/`0`/`off`/`no` で無効。`get_tool_progress` / `ping` は対象外 | `true` |
 | `LOG_LEVEL` | ログ出力レベル（`error` / `warn` / `info` / `debug`） | `info` |

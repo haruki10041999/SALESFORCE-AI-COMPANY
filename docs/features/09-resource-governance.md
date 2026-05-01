@@ -433,8 +433,8 @@ suggest_cleanup_resources:
       "confidence": "high"
     }
   ],
-  "reportJson": "outputs/reports/cleanup-suggestions-2026-04-24T10-00-00-000Z.json",
-  "reportMarkdown": "outputs/reports/cleanup-suggestions-2026-04-24T10-00-00-000Z.md"
+  "reportJson": "outputs/reports/cleanup-suggestions/latest.json",
+  "reportMarkdown": "outputs/reports/cleanup-suggestions/latest.md"
 }
 ```
 

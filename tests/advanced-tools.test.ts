@@ -595,8 +595,8 @@ test("analyzeTestCoverageGap reports gaps and writes JSON/Markdown outputs", asy
     assert.equal(result.hasCoverageGap, true);
     assert.ok(result.gapCount >= 1);
     assert.ok(result.ciGate.pass === false);
-    assert.ok(result.reportJsonPath.includes("coverage-gap-"));
-    assert.ok(result.reportMarkdownPath.includes("coverage-gap-"));
+    assert.ok(result.reportJsonPath.endsWith("latest.json"));
+    assert.ok(result.reportMarkdownPath.endsWith("latest.md"));
   } finally {
     fixture.cleanup();
     rmSync(reportDir, { recursive: true, force: true });
@@ -625,8 +625,8 @@ test("runDeploymentVerification decides rollback when smoke failures exceed thre
     assert.equal(result.decision.recommendedAction, "rollback");
     assert.equal(result.decision.shouldRollback, true);
     assert.ok(result.smokeTestCommand.includes("sf apex run test"));
-    assert.ok(result.reportJsonPath.includes("deployment-verification-"));
-    assert.ok(result.reportMarkdownPath.includes("deployment-verification-"));
+    assert.ok(result.reportJsonPath.endsWith("latest.json"));
+    assert.ok(result.reportMarkdownPath.endsWith("latest.md"));
   } finally {
     rmSync(reportDir, { recursive: true, force: true });
   }
@@ -680,8 +680,8 @@ test("suggestFlowTestCases extracts uncovered decision paths and builds triggeri
     const caseRow = result.suggestedCases.find((row) => row.pathId === "StatusDecision.HighAmountPath");
     assert.ok(caseRow);
     assert.equal(caseRow?.simulation?.shouldTrigger, true);
-    assert.ok(result.reportJsonPath.includes("flow-test-cases-"));
-    assert.ok(result.reportMarkdownPath.includes("flow-test-cases-"));
+    assert.ok(result.reportJsonPath.endsWith("latest.json"));
+    assert.ok(result.reportMarkdownPath.endsWith("latest.md"));
   } finally {
     rmSync(repoPath, { recursive: true, force: true });
     rmSync(reportDir, { recursive: true, force: true });
@@ -883,8 +883,8 @@ test("recommendPermissionSets ranks least-privilege candidate by usage coverage"
 
     assert.equal(result.recommendationCount, 2);
     assert.equal(result.recommendations[0]?.permissionSetFile, candidateA);
-    assert.ok(result.reportJsonPath.includes("permission-set-recommendations-"));
-    assert.ok(result.reportMarkdownPath.includes("permission-set-recommendations-"));
+    assert.ok(result.reportJsonPath.endsWith("latest.json"));
+    assert.ok(result.reportMarkdownPath.endsWith("latest.md"));
   } finally {
     rmSync(repoPath, { recursive: true, force: true });
     rmSync(reportDir, { recursive: true, force: true });

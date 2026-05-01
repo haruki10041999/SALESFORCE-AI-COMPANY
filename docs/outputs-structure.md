@@ -153,12 +153,12 @@ npm run ai -- observability:dashboard -- --trace-limit 200 --event-limit 1000
 | `outputs/dashboards/observability.{html,md,json}` | `observability_dashboard` 実行時 | 可観測性ダッシュボード |
 | `outputs/reports/benchmark-suite.json` | `npm run benchmark:run` / `benchmark_suite` | 単発ベンチ |
 | `outputs/reports/agent-ab-test/runs.jsonl`, `latest.{json,md}` | `agent_ab_test` 実行時 | A/B 比較レポート |
-| `outputs/reports/test-coverage-gap/*.{json,md}` | `analyze_test_coverage_gap` 実行時 | 手動解析結果 |
-| `outputs/reports/recommend-permission-sets/*.{json,md}` | `recommend_permission_sets` 実行時 | 手動解析結果 |
+| `outputs/reports/coverage-gap/runs.jsonl`, `latest.{json,md}` | `analyze_test_coverage_gap` 実行時 | 実行履歴 + 直近結果 |
+| `outputs/reports/permission-set-recommendations/runs.jsonl`, `latest.{json,md}` | `recommend_permission_sets` 実行時 | 実行履歴 + 直近結果 |
 | `outputs/reports/resource-dependency-graph/*.{json,mmd}` | `resource_dependency_graph` 実行時 | 手動解析結果 |
-| `outputs/reports/run-deployment-verification/*.{json,md}` | `run_deployment_verification` 実行時 | 手動解析結果 |
-| `outputs/reports/suggest-flow-test-cases/*.{json,md}` | `suggest_flow_test_cases` 実行時 | 手動解析結果 |
-| `outputs/reports/cleanup/*.{json,md}` | `suggest_cleanup_resources` 実行時 | cleanup 提案レポート |
+| `outputs/reports/deployment-verification/runs.jsonl`, `latest.{json,md}` | `run_deployment_verification` 実行時 | 実行履歴 + 直近結果 |
+| `outputs/reports/flow-test-cases/runs.jsonl`, `latest.{json,md}` | `suggest_flow_test_cases` 実行時 | 実行履歴 + 直近結果 |
+| `outputs/reports/cleanup-suggestions/runs.jsonl`, `latest.{json,md}` | `suggest_cleanup_resources` 実行時 | 実行履歴 + 直近結果 |
 | `outputs/reports/skill-auto-classify.json` | `npm run skills:classify` 実行時 | skill カテゴリ妥当性 + 類似 skill 提案 (T-ADD-07) |
 | `outputs/reports/skill-rating.jsonl`, `skill-rating.json`, `skill-rating.md` | `record_skill_rating` / `get_skill_rating_report` 実行時 | 学習系だが手動トリガー |
 | `outputs/tool-proposals/proposal-feedback.jsonl`, `proposal-feedback-model.json` | `proposal_feedback_learn` 実行時 | 学習系だが手動トリガー |
@@ -192,12 +192,12 @@ npm run ai -- observability:dashboard -- --trace-limit 200 --event-limit 1000
 | `outputs/dashboards/observability.{html,md,json}` | 各形式 | `observability_dashboard` ツール実行時のみ (TASK-044) | `mcp/handlers/register-analytics-tools.ts` |
 | `outputs/reports/benchmark-suite.json` | JSON | `npm run benchmark:run` または `benchmark_suite` ツール実行時 | `scripts/benchmark-suite.ts` |
 | `outputs/reports/agent-ab-test/runs.jsonl` + `latest.{json,md}` | JSONL (追記) + 上書き | `agent_ab_test` ツール実行時。`runs.jsonl` に 1 行 = 1 実行を append、`latest.{json,md}` は直近 1 件で上書き (3 ファイル固定) | `mcp/tools/agent-ab-test.ts` |
-| `outputs/reports/test-coverage-gap/*.{json,md}` | JSON + MD | `analyze_test_coverage_gap` ツール実行時 | `mcp/tools/analyze-test-coverage-gap.ts` |
-| `outputs/reports/recommend-permission-sets/*.{json,md}` | JSON + MD | `recommend_permission_sets` ツール実行時 | `mcp/tools/recommend-permission-sets.ts` |
+| `outputs/reports/coverage-gap/runs.jsonl` + `latest.{json,md}` | JSONL (追記) + JSON/MD (上書き) | `analyze_test_coverage_gap` ツール実行時 | `mcp/tools/analyze-test-coverage-gap.ts` |
+| `outputs/reports/permission-set-recommendations/runs.jsonl` + `latest.{json,md}` | JSONL (追記) + JSON/MD (上書き) | `recommend_permission_sets` ツール実行時 | `mcp/tools/recommend-permission-sets.ts` |
 | `outputs/reports/resource-dependency-graph/*.{json,mmd}` | JSON + Mermaid | `resource_dependency_graph` ツール実行時 | `mcp/tools/resource-dependency-graph.ts` |
-| `outputs/reports/run-deployment-verification/*.{json,md}` | JSON + MD | `run_deployment_verification` ツール実行時 | `mcp/tools/run-deployment-verification.ts` |
-| `outputs/reports/suggest-flow-test-cases/*.{json,md}` | JSON + MD | `suggest_flow_test_cases` ツール実行時 | `mcp/tools/suggest-flow-test-cases.ts` |
-| `outputs/reports/cleanup/*.{json,md}` | JSON + MD | `suggest_cleanup_resources` ツール実行時 (TASK-039) | `mcp/handlers/register-resource-action-tools.ts` |
+| `outputs/reports/deployment-verification/runs.jsonl` + `latest.{json,md}` | JSONL (追記) + JSON/MD (上書き) | `run_deployment_verification` ツール実行時 | `mcp/tools/run-deployment-verification.ts` |
+| `outputs/reports/flow-test-cases/runs.jsonl` + `latest.{json,md}` | JSONL (追記) + JSON/MD (上書き) | `suggest_flow_test_cases` ツール実行時 | `mcp/tools/suggest-flow-test-cases.ts` |
+| `outputs/reports/cleanup-suggestions/runs.jsonl` + `latest.{json,md}` | JSONL (追記) + JSON/MD (上書き) | `suggest_cleanup_resources` ツール実行時 (TASK-039) | `mcp/handlers/register-resource-action-tools.ts` |
 | `outputs/reports/skill-auto-classify.json` | JSON (上書き) | `npm run skills:classify` (T-ADD-07) | `scripts/skill-auto-classify.ts` |
 | `outputs/skill-rating-report.md` | Markdown | `auto_select_resources` / 関連リソース検索時 | `mcp/handlers/register-resource-search-tools.ts` |
 | `outputs/cleanup-schedule.json` | JSON | `governance_auto_cleanup_schedule` ツール実行時 (TASK-041) | `mcp/core/resource/cleanup-scheduler.ts` |
@@ -232,6 +232,9 @@ npm run ai -- observability:dashboard -- --trace-limit 200 --event-limit 1000
 
 `outputs/` 直下に置けるディレクトリ・ファイル名は [`outputs/.schema.json`](../outputs/.schema.json) で**ホワイトリスト**として宣言されています (TASK-F12)。
 
+- `outputs/.schema.json` が存在しない初期状態では、`lint:outputs` はトップレベル検証をスキップし、warning のみ出力します。
+- `outputs/custom-tools/*.json` の DeclarativeToolSpec 検証は、`outputs/.schema.json` が無くても継続して実行されます。
+
 - `allowedDirectories`: トップレベルのサブディレクトリ名 (`history`, `events`, `sessions`, `orgs` など)。
 - `allowedFiles`: トップレベルに置けるファイル名 (`memory.jsonl`, `vector-store.jsonl`, `tool-catalog.json` など)。
 - `allowedFiles` に含まれる `*.jsonl` については、`<base>.jsonl.<timestamp>.gz` 形式のアーカイブファイルも許可されます（例: `memory.jsonl.1777359892395.gz`）。
@@ -244,6 +247,7 @@ npm run lint:outputs
 ```
 
 [`scripts/lint-outputs.ts`](../scripts/lint-outputs.ts) がこのスキーマを読み込み、`outputs/` 直下に未許可エントリが存在すれば差分を報告します。
+`outputs/.schema.json` が無い場合はトップレベル検証をスキップし、warning を表示します。
 
 ### 新しい永続化先を追加するとき
 
@@ -251,3 +255,5 @@ npm run lint:outputs
 2. [`outputs/.schema.json`](../outputs/.schema.json) の `allowedDirectories` または `allowedFiles` に追記する。
 3. このページの「フォルダ構成」「自動で保存されるもの／されないもの」表にも 1 行追加する。
 4. `npm run lint:outputs` で差分が無いことを確認。
+
+※ `outputs/.schema.json` を削除した状態で運用する場合、手順 2 は不要ですが、allow-list 保護は効かなくなります。

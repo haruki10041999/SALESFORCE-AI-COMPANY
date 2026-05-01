@@ -388,11 +388,11 @@ export async function suggestFlowTestCases(input: SuggestFlowTestCasesInput): Pr
   }
 
   const generatedAt = new Date().toISOString();
-  const reportDir = resolve(input.reportOutputDir ?? join("outputs", "reports"));
+  const reportDir = resolve(input.reportOutputDir ?? join("outputs", "reports", "flow-test-cases"));
   await fsPromises.mkdir(reportDir, { recursive: true });
-  const stamp = generatedAt.replace(/[:.]/g, "-");
-  const reportJsonPath = join(reportDir, `flow-test-cases-${stamp}.json`);
-  const reportMarkdownPath = join(reportDir, `flow-test-cases-${stamp}.md`);
+  const runsJsonlPath = join(reportDir, "runs.jsonl");
+  const reportJsonPath = join(reportDir, "latest.json");
+  const reportMarkdownPath = join(reportDir, "latest.md");
 
   const result: SuggestFlowTestCasesResult = {
     flowName,
@@ -414,6 +414,7 @@ export async function suggestFlowTestCases(input: SuggestFlowTestCasesInput): Pr
     ].join("\n")
   };
 
+  await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
   await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
   await fsPromises.writeFile(reportMarkdownPath, toMarkdown(result), "utf-8");
 

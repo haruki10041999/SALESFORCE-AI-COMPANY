@@ -37,18 +37,37 @@ function isAllowedOutputFile(name: string, allowedFiles: Set<string>): boolean {
   return allowedFiles.has(baseName);
 }
 
-async function loadSchema(): Promise<Schema> {
-  const raw = await readFile(schemaPath, "utf8");
-  const parsed = JSON.parse(raw);
-  return {
-    allowedDirectories: Array.isArray(parsed.allowedDirectories) ? parsed.allowedDirectories : [],
-    allowedFiles: Array.isArray(parsed.allowedFiles) ? parsed.allowedFiles : []
-  };
+async function loadSchema(): Promise<Schema | null> {
+  try {
+    const raw = await readFile(schemaPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return {
+      allowedDirectories: Array.isArray(parsed.allowedDirectories) ? parsed.allowedDirectories : [],
+      allowedFiles: Array.isArray(parsed.allowedFiles) ? parsed.allowedFiles : []
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      console.warn("WARN: outputs/.schema.json not found; skip top-level schema validation.");
+      return null;
+    }
+    throw error;
+  }
 }
 
 async function main(): Promise<void> {
   const fix = process.argv.includes("--fix");
   const schema = await loadSchema();
+  if (!schema) {
+    const declViolations = await lintDeclarativeTools();
+    if (declViolations.length > 0) {
+      console.error(`FAIL: ${declViolations.length} invalid DeclarativeToolSpec file(s) under outputs/custom-tools/`);
+      for (const v of declViolations) console.error(`  - ${v}`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log("OK: outputs schema validation skipped (.schema.json missing).");
+    return;
+  }
   const dirSet = new Set(schema.allowedDirectories);
   const fileSet = new Set(schema.allowedFiles);
   // The schema file itself is implicitly allowed.

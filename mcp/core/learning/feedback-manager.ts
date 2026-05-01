@@ -7,6 +7,9 @@ import { resolve, dirname } from "path";
 import { randomUUID } from "crypto";
 import type { UserFeedback, FeedbackMetrics } from "../types/feedback.js";
 import { appendTextFileAtomic } from "../persistence/unit-of-work.js";
+import type { RewardRecord, RewardAggregatorConfig } from "../types/feedback.js";
+import { syncRewardsToFeedback, computeCompositeReward, getRewardStats } from "./reward-aggregator.js";
+import { injectFailureContext, getRAGInjectionStats } from "./failure-memory-rag.js";
 
 const FEEDBACK_JSONL_PATH = resolve("outputs", "learning", "feedback.jsonl");
 
@@ -112,5 +115,140 @@ export async function computeFeedbackMetrics(filterSessionId?: string): Promise<
     thumbsUpRate: total > 0 ? thumbsUp / total : 0,
     averageQualityScore: avgQuality,
     mostCommonTags: mostCommonTags.length > 0 ? mostCommonTags : undefined
+  };
+}
+
+/**
+ * Integrate rewards into feedback system
+ * Converts reward records to feedback and maintains unified record
+ */
+export async function integrateRewardsToFeedback(
+  filterSessionId?: string,
+  rewardConfig?: RewardAggregatorConfig
+): Promise<{ feedbacks: UserFeedback[]; totalConverted: number }> {
+  const feedbacks = await syncRewardsToFeedback(filterSessionId, rewardConfig);
+  return {
+    feedbacks,
+    totalConverted: feedbacks.length
+  };
+}
+
+/**
+ * Get composite feedback metrics including reward-derived data
+ */
+export async function computeCompositeMetrics(
+  filterSessionId?: string,
+  rewardConfig?: RewardAggregatorConfig
+): Promise<FeedbackMetrics & { compositeReward: number; rewardWeight: number }> {
+  const baseFeedback = await computeFeedbackMetrics(filterSessionId);
+  const composite = await computeCompositeReward(rewardConfig);
+
+  return {
+    ...baseFeedback,
+    compositeReward: composite.composite,
+    rewardWeight: composite.weight
+  };
+}
+
+/**
+ * Get reward health over a time window
+ * Used to monitor learning signal strength
+ */
+export async function getRewardHealth(
+  hours: number = 24
+): Promise<{
+  isHealthy: boolean;
+  totalRewards: number;
+  avgReward: number;
+  positiveRate: number;
+  warning?: string;
+}> {
+  const stats = await getRewardStats(hours);
+
+  let warning: string | undefined;
+  let isHealthy = true;
+
+  if (stats.totalCount === 0) {
+    isHealthy = false;
+    warning = "No reward signals received in the time window";
+  } else if (stats.positiveRate < 0.3) {
+    warning = "Low positive reward rate - check system performance";
+  } else if (stats.stdDev > 0.5) {
+    warning = "High variance in rewards - consider stabilizing conditions";
+  }
+
+  return {
+    isHealthy,
+    totalRewards: stats.totalCount,
+    avgReward: stats.avgReward,
+    positiveRate: stats.positiveRate,
+    warning
+  };
+}
+
+/**
+ * Inject failure memory context into prompt (RAG integration)
+ * Searches for similar past errors and returns resolution guidance
+ */
+export async function injectFailureContextToPrompt(errorData: {
+  code?: string;
+  message: string;
+  stack?: string;
+  context?: {
+    tool?: string;
+    agent?: string;
+    operation?: string;
+    stage?: string;
+  };
+}): Promise<{
+  hasContext: boolean;
+  injectionPrompt: string;
+  confidence: number;
+  recommendationLevel: string;
+  similarFailures: number;
+}> {
+  try {
+    const result = await injectFailureContext(errorData);
+    return {
+      hasContext: result.similarFailures.length > 0,
+      injectionPrompt: result.injectionPrompt,
+      confidence: result.confidence,
+      recommendationLevel: result.recommendationLevel,
+      similarFailures: result.similarFailures.length
+    };
+  } catch (error) {
+    // Return empty context if injection fails
+    return {
+      hasContext: false,
+      injectionPrompt: "",
+      confidence: 0,
+      recommendationLevel: "none",
+      similarFailures: 0
+    };
+  }
+}
+
+/**
+ * Get RAG injection monitoring statistics
+ */
+export async function getRAGStats(hours: number = 24): Promise<{
+  totalInjections: number;
+  successRate: number;
+  avgConfidence: number;
+  topErrors: Array<{
+    code?: string;
+    message: string;
+    count: number;
+  }>;
+}> {
+  const stats = await getRAGInjectionStats(hours);
+  return {
+    totalInjections: stats.totalInjections,
+    successRate: stats.successRate,
+    avgConfidence: stats.avgConfidence,
+    topErrors: stats.topRecommendedErrors.map((e) => ({
+      message: e.message,
+      count: e.injectionCount
+    }))
   };
 }

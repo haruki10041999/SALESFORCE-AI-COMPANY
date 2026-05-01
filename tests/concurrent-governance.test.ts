@@ -142,6 +142,7 @@ test("governance state changes are sequenced correctly under high concurrency", 
       const state = await loadGovernanceState(governanceFile, async () => undefined, []);
       const toolName = `tool-${idx}`;
       state.disabled.tools = state.disabled.tools.filter((t) => t !== toolName);
+      delete state.lifecycle.tools[toolName];
       await saveGovernanceState(governanceFile, state);
       operations.push({ op: "enable", tool: toolName, idx });
     }

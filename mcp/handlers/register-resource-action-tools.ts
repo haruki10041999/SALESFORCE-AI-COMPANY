@@ -604,12 +604,13 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
       });
 
       const outputsDir = dirname(governanceFile);
-      const reportsDir = join(outputsDir, "reports");
+      const reportsDir = join(outputsDir, "reports", "cleanup-suggestions");
       await ensureDir(reportsDir);
-      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const jsonPath = join(reportsDir, `cleanup-suggestions-${stamp}.json`);
-      const mdPath = join(reportsDir, `cleanup-suggestions-${stamp}.md`);
+      const runsJsonlPath = join(reportsDir, "runs.jsonl");
+      const jsonPath = join(reportsDir, "latest.json");
+      const mdPath = join(reportsDir, "latest.md");
 
+      await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(suggestion)}\n`, "utf-8");
       await fsPromises.writeFile(jsonPath, JSON.stringify(suggestion, null, 2), "utf-8");
       await fsPromises.writeFile(mdPath, renderCleanupMarkdown(suggestion), "utf-8");
 
