@@ -388,7 +388,10 @@ export async function suggestFlowTestCases(input: SuggestFlowTestCasesInput): Pr
   }
 
   const generatedAt = new Date().toISOString();
-  const reportDir = resolve(input.reportOutputDir ?? join("outputs", "reports", "flow-test-cases"));
+  const defaultOutputsDir = process.env.SF_AI_OUTPUTS_DIR
+    ? resolve(process.env.SF_AI_OUTPUTS_DIR)
+    : join(process.cwd(), "outputs");
+  const reportDir = resolve(input.reportOutputDir ?? join(defaultOutputsDir, "reports", "flow-test-cases"));
   await fsPromises.mkdir(reportDir, { recursive: true });
   const runsJsonlPath = join(reportDir, "runs.jsonl");
   const reportJsonPath = join(reportDir, "latest.json");

@@ -5,7 +5,7 @@
 
 ## [Unreleased]
 
-### Changed (2026-05-01 — Reports Retention / Pre-commit Lint Stability)
+### Changed (2026-05-01 — Reports Retention / Pre-commit Lint Stability / Cross-repo Outputs)
 
 - レポート出力の保存方式を `agent_ab_test` と同じ集約型へ統一。
   - [`mcp/tools/analyze-test-coverage-gap.ts`](../mcp/tools/analyze-test-coverage-gap.ts)
@@ -14,6 +14,10 @@
   - [`mcp/tools/suggest-flow-test-cases.ts`](../mcp/tools/suggest-flow-test-cases.ts)
   - [`mcp/handlers/register-resource-action-tools.ts`](../mcp/handlers/register-resource-action-tools.ts)
   それぞれ `runs.jsonl` へ追記しつつ `latest.{json,md}` を上書きする方式に変更。
+- **複数リポジトリから起動時の出力先統一**
+  - 各レポートツールの出力ディレクトリ指定を、相対パスから `SF_AI_OUTPUTS_DIR` 環境変数ベースの絶対パスへ修正。
+  - 別リポジトリから MCP サーバが起動される場合でも、確実に salesforce-ai-company の outputs フォルダに coverage/drift/A/B テストなどが保存される。
+  - [`claude_desktop_config.json`](../claude_desktop_config.json) に `env.SF_AI_DOTENV_PATH` を追加し、どこから起動されても `.env` が正しく読み込まれるように指定。
 - [`package.json`](../package.json) の `lint:outputs` を `tsx ...` 直実行から `node --import tsx ...` へ変更し、Windows の pre-commit で `tsx` 解決に失敗するケースを回避。
 - [`scripts/lint-outputs.ts`](../scripts/lint-outputs.ts) を更新し、`outputs/.schema.json` が無い初期状態でも warning を出してトップレベル検証をスキップする挙動に変更。
 - 関連ドキュメントを更新: [`docs/outputs-structure.md`](./outputs-structure.md), [`docs/features/04-deployment.md`](./features/04-deployment.md), [`docs/features/09-resource-governance.md`](./features/09-resource-governance.md)。

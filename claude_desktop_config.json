@@ -4,7 +4,10 @@
       "command": "node",
       "args": [
         "D:/Projects/mult-agent-ai/salesforce-ai-company/dist/mcp/server.js"
-      ]
+      ],
+      "env": {
+        "SF_AI_DOTENV_PATH": "D:/Projects/mult-agent-ai/salesforce-ai-company/.env"
+      }
     }
   }
 }

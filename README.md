@@ -132,7 +132,9 @@ npm run ai -- scaffold -- preset release-readiness-check --agents release-manage
 
 ### outputs 運用の要点
 
-- `SF_AI_OUTPUTS_DIR` を絶対パスで指定すると、どのリポジトリから使っても出力先を 1 箇所に集約できます
+- **🔴 重要**: `SF_AI_OUTPUTS_DIR` を絶対パスで**必ず**指定してください。複数リポジトリから起動する場合、指定がないと各リポジトリの cwd ベースで outputs が分散します
+  - 設定方法: `.env` ファイル、`claude_desktop_config.json` の `env.SF_AI_DOTENV_PATH`, または OS 環境変数
+  - 詳細: [docs/outputs-structure.md#⚠️-重要sf_ai_outputs_dir-設定](docs/outputs-structure.md#⚠️-重要sf_ai_outputs_dir-設定)
 - `npm run ai -- outputs:cleanup -- --dry-run` は古い生成物だけを整理します
 - `npm run ai -- outputs:version -- backup` は現在の `outputs/` を世代バックアップします
 - `npm run ai -- outputs:version -- wipe --keep-backups` は `backups/` を残して `outputs/` を空にします

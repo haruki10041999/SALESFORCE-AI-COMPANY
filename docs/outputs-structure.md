@@ -29,6 +29,53 @@
 | `outputs/orgs/` | Salesforce Org カタログ (`catalog.json`) | `register_org` / `list_orgs` で参照 |
 | `outputs/.schema.json` | outputs 直下の allow-list (TASK-F12) | 新しい永続化先を追加した時に更新 |
 
+## ⚠️ 重要：SF_AI_OUTPUTS_DIR 設定
+
+**複数リポジトリから MCP サーバが起動される場合、必ず `SF_AI_OUTPUTS_DIR` を絶対パスで指定してください。**
+
+### 背景
+
+各レポート生成ツール（coverage-gap, drift, permission-sets, deployment-verification, flow-test-cases など）は、`SF_AI_OUTPUTS_DIR` から出力先を取得します。
+
+- **設定なし**：cwd ベースの相対パス解決 → 起動元リポジトリの `outputs/` に保存
+  ```
+  # docutize_form から起動した場合
+  d:\Projects\docutize_form\outputs\reports\coverage-gap\  ← ❌ 間違い
+  ```
+
+- **`SF_AI_OUTPUTS_DIR` 指定**：絶対パス指定で固定的に出力
+  ```
+  # どのリポジトリから起動しても
+  d:\Projects\mult-agent-ai\salesforce-ai-company\outputs\reports\coverage-gap\  ← ✅ 正しい
+  ```
+
+### 設定方法
+
+**方法 1: `.env` ファイル（推奨）**
+```env
+SF_AI_OUTPUTS_DIR=D:/Projects/mult-agent-ai/salesforce-ai-company/outputs
+```
+
+**方法 2: `claude_desktop_config.json`**
+```json
+{
+  "mcpServers": {
+    "salesforce-ai-company": {
+      "command": "node",
+      "args": ["D:/Projects/mult-agent-ai/salesforce-ai-company/dist/mcp/server.js"],
+      "env": {
+        "SF_AI_DOTENV_PATH": "D:/Projects/mult-agent-ai/salesforce-ai-company/.env"
+      }
+    }
+  }
+}
+```
+
+**方法 3: OS 環境変数**
+```powershell
+[Environment]::SetEnvironmentVariable('SF_AI_OUTPUTS_DIR', 'D:\Projects\mult-agent-ai\salesforce-ai-company\outputs', 'User')
+```
+
 ### `outputs/history/` の日別運用
 
 - チャット履歴は `outputs/history/YYYY-MM-DD/<historyId>.json` に保存されます。

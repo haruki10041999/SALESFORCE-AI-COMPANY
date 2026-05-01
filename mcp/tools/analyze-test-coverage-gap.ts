@@ -98,6 +98,13 @@ function renderMarkdown(result: AnalyzeTestCoverageGapResult): string {
   return lines.join("\n");
 }
 
+function getDefaultOutputsDir(): string {
+  if (process.env.SF_AI_OUTPUTS_DIR) {
+    return resolve(process.env.SF_AI_OUTPUTS_DIR);
+  }
+  return join(process.cwd(), "outputs");
+}
+
 export async function analyzeTestCoverageGap(input: AnalyzeTestCoverageGapInput): Promise<AnalyzeTestCoverageGapResult> {
   const estimate = estimateChangedCoverage(input);
   const generatedAt = new Date().toISOString();
@@ -144,7 +151,7 @@ export async function analyzeTestCoverageGap(input: AnalyzeTestCoverageGapInput)
   );
 
   const hasCoverageGap = gaps.length > 0;
-  const reportDir = resolve(input.reportOutputDir ?? join("outputs", "reports", "coverage-gap"));
+  const reportDir = resolve(input.reportOutputDir ?? join(getDefaultOutputsDir(), "reports", "coverage-gap"));
   await fsPromises.mkdir(reportDir, { recursive: true });
 
   const runsJsonlPath = join(reportDir, "runs.jsonl");

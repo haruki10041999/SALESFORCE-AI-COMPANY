@@ -317,7 +317,10 @@ export async function recommendPermissionSets(input: RecommendPermissionSetsInpu
   const selected = recommendations.slice(0, limit);
 
   const generatedAt = new Date().toISOString();
-  const reportDir = resolve(input.reportOutputDir ?? join("outputs", "reports", "permission-set-recommendations"));
+  const defaultOutputsDir = process.env.SF_AI_OUTPUTS_DIR
+    ? resolve(process.env.SF_AI_OUTPUTS_DIR)
+    : join(process.cwd(), "outputs");
+  const reportDir = resolve(input.reportOutputDir ?? join(defaultOutputsDir, "reports", "permission-set-recommendations"));
   await fsPromises.mkdir(reportDir, { recursive: true });
   const runsJsonlPath = join(reportDir, "runs.jsonl");
   const reportJsonPath = join(reportDir, "latest.json");

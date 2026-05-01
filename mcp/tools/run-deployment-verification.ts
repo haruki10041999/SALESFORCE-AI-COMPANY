@@ -184,7 +184,10 @@ export async function runDeploymentVerification(
   }
 
   const generatedAt = new Date().toISOString();
-  const reportDir = resolve(input.reportOutputDir ?? join("outputs", "reports", "deployment-verification"));
+  const defaultOutputsDir = process.env.SF_AI_OUTPUTS_DIR
+    ? resolve(process.env.SF_AI_OUTPUTS_DIR)
+    : join(process.cwd(), "outputs");
+  const reportDir = resolve(input.reportOutputDir ?? join(defaultOutputsDir, "reports", "deployment-verification"));
   await fsPromises.mkdir(reportDir, { recursive: true });
   const runsJsonlPath = join(reportDir, "runs.jsonl");
   const reportJsonPath = join(reportDir, "latest.json");
