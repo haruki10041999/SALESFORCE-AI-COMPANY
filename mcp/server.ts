@@ -464,7 +464,57 @@ registerServerTools({
     resourceScore
   });
 
+let banditStatePersisted = false;
+async function persistBanditStateOnce(reason: string): Promise<void> {
+  if (banditStatePersisted) {
+    return;
+  }
+  banditStatePersisted = true;
+  try {
+    await saveBanditState(banditState, BANDIT_STATE_FILE);
+    logger.info(`Bandit state saved (${banditState.arms.size} arms, reason=${reason})`);
+  } catch (error) {
+    logger.warn(`Failed to save bandit state on shutdown (reason=${reason})`, error);
+  }
+}
+
+let governanceStatePersisted = false;
+async function persistGovernanceStateOnce(reason: string): Promise<void> {
+  if (governanceStatePersisted) {
+    return;
+  }
+  governanceStatePersisted = true;
+  try {
+    const current = await loadGovernanceState();
+    await saveGovernanceState(current);
+    logger.info(`Governance state saved (reason=${reason})`);
+  } catch (error) {
+    logger.warn(`Failed to save governance state on shutdown (reason=${reason})`, error);
+  }
+}
+
+async function persistShutdownState(reason: string): Promise<void> {
+  await Promise.all([
+    persistBanditStateOnce(reason),
+    persistGovernanceStateOnce(reason)
+  ]);
+}
+
+function registerBanditStateShutdownHooks(): void {
+  const onSignal = (signal: "SIGINT" | "SIGTERM" | "SIGHUP") => {
+    process.once(signal, () => {
+      void persistShutdownState(signal)
+        .finally(() => process.exit(0));
+    });
+  };
+
+  onSignal("SIGINT");
+  onSignal("SIGTERM");
+  onSignal("SIGHUP");
+}
+
 async function main(): Promise<void> {
+  registerBanditStateShutdownHooks();
   banditState = await loadBanditState(BANDIT_STATE_FILE);
   logger.info(`Bandit state loaded (${banditState.arms.size} arms)`);
 
@@ -484,8 +534,7 @@ async function main(): Promise<void> {
   try {
     await startMcpTransport(server, logger);
   } finally {
-    await saveBanditState(banditState, BANDIT_STATE_FILE);
-    logger.info(`Bandit state saved (${banditState.arms.size} arms)`);
+    await persistShutdownState("main-finally");
     await observabilityRuntime.stop();
   }
 }
