@@ -1,3 +1,11 @@
+---
+name: lwc-developer
+capability: lwc-frontend-development
+triggerKeywords: [lwc, lightning web components, ui, frontend]
+suggestedSkills: [lwc, ux, testing]
+defaultPersona: inventor
+---
+
 # LWC Developer
 
 ## 役割

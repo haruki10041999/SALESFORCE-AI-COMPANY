@@ -161,10 +161,49 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(value);
 }
 
-export function createPromptCacheKey(input: BuildChatPromptInput, root: string): string {
+function hashContent(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+async function computePromptDependencyHash(
+  input: BuildChatPromptInput,
+  deps: BuildChatPromptDeps,
+  contextFiles: string[],
+  reviewModeTriggered: boolean
+): Promise<string> {
+  const parts: string[] = [];
+
+  for (const filePath of [...input.filePaths].sort()) {
+    if (!existsSync(filePath)) continue;
+    parts.push(`file:${filePath}:${hashContent(readFileSync(filePath, "utf-8"))}`);
+  }
+
+  for (const filePath of [...contextFiles].sort()) {
+    if (!existsSync(filePath)) continue;
+    parts.push(`context:${filePath}:${hashContent(readFileSync(filePath, "utf-8"))}`);
+  }
+
+  const frameworkFiles = [join(deps.root, "prompt-engine", "discussion-framework.md")];
+  if (input.filePaths.length > 0) {
+    frameworkFiles.push(join(deps.root, "prompt-engine", "review-framework.md"));
+  }
+  if (reviewModeTriggered) {
+    frameworkFiles.push(join(deps.root, "prompt-engine", "review-mode.md"));
+  }
+
+  for (const frameworkPath of frameworkFiles.sort()) {
+    if (!existsSync(frameworkPath)) continue;
+    parts.push(`framework:${frameworkPath}:${hashContent(readFileSync(frameworkPath, "utf-8"))}`);
+  }
+
+  return hashContent(parts.join("|"));
+}
+
+export function createPromptCacheKey(input: BuildChatPromptInput, root: string, dependencyHash?: string): string {
   // 配列フィールドはセマンティクス上順序非依存とみなし、正規化のためソートする
   const normalized: Record<string, unknown> = {
     root,
+    dependencyHash,
     topic: input.topic,
     agentNames: [...input.agentNames].sort(),
     personaName: input.personaName,
@@ -342,12 +381,6 @@ export async function buildChatPromptFromContext(
     getMdFileAsync
   } = deps;
 
-  const cacheKey = createPromptCacheKey(safeInput, root);
-  const cachedPrompt = getCachedPrompt(cacheKey);
-  if (cachedPrompt) {
-    return cachedPrompt;
-  }
-
   const selectedAgents = agentNames.length > 0 ? agentNames : ["product-manager", "architect", "qa-engineer"];
 
   const shouldIncludeProjectContext = includeProjectContext ?? true;
@@ -355,6 +388,19 @@ export async function buildChatPromptFromContext(
   const contextFiles = shouldIncludeProjectContext && existsSync(contextDir)
     ? findMdFilesRecursive(contextDir)
     : [];
+  const reviewModeTriggered = filePaths.length > 0 || /レビュー|確認|チェック|review|audit/i.test(topic);
+  const dependencyHash = await computePromptDependencyHash(
+    safeInput,
+    deps,
+    contextFiles,
+    reviewModeTriggered
+  );
+
+  const cacheKey = createPromptCacheKey(safeInput, root, dependencyHash);
+  const cachedPrompt = getCachedPrompt(cacheKey);
+  if (cachedPrompt) {
+    return cachedPrompt;
+  }
 
   // TASK-F6: convert the public char budget into token budget first, then
   // allocate per-category tokens by importance weights.
@@ -411,7 +457,6 @@ export async function buildChatPromptFromContext(
   ]);
 
   const sections: string[] = [];
-  const reviewModeTriggered = filePaths.length > 0 || /レビュー|確認|チェック/.test(topic);
 
   if (contextFiles.length > 0) {
     const contextContent = contextFiles

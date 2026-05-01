@@ -1,3 +1,11 @@
+---
+name: ceo
+capability: business-prioritization
+triggerKeywords: [business, strategy, roadmap, roi]
+suggestedSkills: [planning, prioritization, release]
+defaultPersona: commander
+---
+
 # CEO
 
 ## 役割

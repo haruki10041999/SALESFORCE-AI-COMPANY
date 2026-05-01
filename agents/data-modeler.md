@@ -1,3 +1,11 @@
+---
+name: data-modeler
+capability: data-model-design
+triggerKeywords: [data model, object, field, relationship]
+suggestedSkills: [data-model, optimization, integration]
+defaultPersona: engineer
+---
+
 # Data Modeler
 
 ## 役割

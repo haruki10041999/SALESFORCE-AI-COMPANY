@@ -1,3 +1,11 @@
+---
+name: documentation-writer
+capability: technical-documentation
+triggerKeywords: [documentation, readme, guide, changelog]
+suggestedSkills: [documentation, developer-guide, operations]
+defaultPersona: historian
+---
+
 # Documentation Writer
 
 ## 役割

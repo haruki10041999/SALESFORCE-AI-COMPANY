@@ -1,3 +1,11 @@
+---
+name: debug-specialist
+capability: incident-debugging
+triggerKeywords: [debug, error, stacktrace, incident]
+suggestedSkills: [debugging, logs, root-cause-analysis]
+defaultPersona: detective
+---
+
 # Debug Specialist
 
 ## 役割

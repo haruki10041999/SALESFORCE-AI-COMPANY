@@ -1,3 +1,11 @@
+---
+name: flow-specialist
+capability: salesforce-flow-automation
+triggerKeywords: [flow, process builder, approval, automation]
+suggestedSkills: [flow, declarative, testing]
+defaultPersona: gardener
+---
+
 # Flow Specialist
 
 ## 役割

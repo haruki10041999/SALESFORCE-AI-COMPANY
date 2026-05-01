@@ -8,6 +8,7 @@ import {
   cosineSimilarity
 } from "../mcp/core/llm/embedding-provider.js";
 import { OllamaClient, OllamaError } from "../mcp/core/llm/ollama-client.js";
+import { SalesforceTextTokenizer } from "../mcp/core/resource/tokenizer.js";
 
 function fixedClient(embedding: number[]): OllamaClient {
   const fakeFetch = (async () => ({
@@ -55,6 +56,24 @@ test("NgramEmbeddingProvider: similar texts have higher cosine than dissimilar",
   const sim_ab = cosineSimilarity(a, b);
   const sim_ac = cosineSimilarity(a, c);
   assert.ok(sim_ab > sim_ac, `sim_ab=${sim_ab} should be > sim_ac=${sim_ac}`);
+});
+
+test("NgramEmbeddingProvider: Salesforce tokenizer improves schema-name similarity", async () => {
+  const salesforce = new NgramEmbeddingProvider({
+    dimension: 512,
+    tokenizer: new SalesforceTextTokenizer()
+  });
+  const vanilla = new NgramEmbeddingProvider({ dimension: 512 });
+
+  const sfQuery = await salesforce.embed("Account trigger handler");
+  const sfTarget = await salesforce.embed("AccountTriggerHandler__c");
+  const plainQuery = await vanilla.embed("Account trigger handler");
+  const plainTarget = await vanilla.embed("AccountTriggerHandler__c");
+
+  assert.ok(
+    cosineSimilarity(sfQuery, sfTarget) > cosineSimilarity(plainQuery, plainTarget),
+    "salesforce tokenizer should split CRM-style identifiers more effectively"
+  );
 });
 
 test("NgramEmbeddingProvider: l2-normalized vector has unit norm", async () => {
@@ -108,6 +127,13 @@ test("OllamaEmbeddingProvider: embedBatch respects concurrency limit", async () 
 test("createEmbeddingProvider: defaults to ngram", () => {
   const p = createEmbeddingProvider({ env: {} });
   assert.equal(p.name, "ngram");
+});
+
+test("createEmbeddingProvider: passes tokenizer kind to ngram provider", async () => {
+  const p = createEmbeddingProvider({ env: {}, tokenizerKind: "salesforce" });
+  const a = await p.embed("Account trigger handler");
+  const b = await p.embed("AccountTriggerHandler__c");
+  assert.ok(cosineSimilarity(a, b) > 0);
 });
 
 test("createEmbeddingProvider: returns ollama when EMBEDDING_PROVIDER=ollama", () => {

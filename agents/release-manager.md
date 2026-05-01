@@ -1,3 +1,11 @@
+---
+name: release-manager
+capability: release-readiness-and-governance
+triggerKeywords: [release, rollout, go-no-go, deploy]
+suggestedSkills: [release, deployment, governance]
+defaultPersona: commander
+---
+
 # Release Manager
 
 ## 役割

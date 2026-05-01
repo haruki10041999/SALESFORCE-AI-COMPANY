@@ -3,6 +3,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { shouldSkipScanDir } from "../quality/scan-exclusions.js";
 import { countTokens } from "../prompt/token-counter.js";
+import { AgentFrontmatterSchema, parseFrontmatter } from "../declarative/frontmatter.js";
 
 export function resolveProjectRootFromFile(fileUrl: string): string {
   const thisFile = fileURLToPath(fileUrl);
@@ -138,10 +139,32 @@ export function listMdFiles(root: string, dir: string): { name: string; summary:
   return files
     .map((filePath) => {
       const content = readFileSync(filePath, "utf-8");
-      const heading = content.split("\n").find((l) => l.startsWith("# ")) ?? "";
-      const desc = content.split("\n").find((l) => l.trim() && !l.startsWith("#")) ?? "";
+      const { data, body } = parseFrontmatter(content);
+      const lines = body.split("\n");
+      const heading = lines.find((l) => l.startsWith("# ")) ?? "";
+      const desc = lines.find((l) => {
+        const trimmed = l.trim();
+        return trimmed.length > 0 && !trimmed.startsWith("#");
+      }) ?? "";
+      let summary = heading.replace(/^# /, "") || desc.trim();
+
+      if (dir === "agents") {
+        const parsed = AgentFrontmatterSchema.safeParse(data);
+        if (parsed.success) {
+          const metadata = [
+            parsed.data.role,
+            parsed.data.capability,
+            ...(parsed.data.triggerKeywords ?? []),
+            ...(parsed.data.suggestedSkills ?? [])
+          ].filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+          if (metadata.length > 0) {
+            summary = summary ? `${summary} ${metadata.join(" ")}` : metadata.join(" ");
+          }
+        }
+      }
+
       const name = toPosixPath(relative(fullDir, filePath)).replace(/\.md$/, "");
-      return { name, summary: heading.replace(/^# /, "") || desc.trim() };
+      return { name, summary };
     });
 }
 

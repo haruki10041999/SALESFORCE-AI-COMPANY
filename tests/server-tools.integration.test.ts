@@ -1924,6 +1924,31 @@ test("dequeue_next_agent uses learned graph recommendation", async () => {
   }
 });
 
+test("dequeue_next_agent applies deterministic tie-breaker when graph recommendation is absent", async () => {
+  const orchestrated = parseFirstJson<{
+    sessionId: string;
+  }>(await callTool("orchestrate_chat", {
+    topic: "generic topic",
+    agents: ["architect", "qa-engineer"],
+    turns: 2
+  }));
+
+  const dequeued = parseFirstJson<{
+    dequeued: string[];
+    graphRecommendation?: {
+      fromAgent: string;
+      recommendedAgent: string;
+      probability: number;
+    } | null;
+  }>(await callTool("dequeue_next_agent", {
+    sessionId: orchestrated.sessionId,
+    limit: 1
+  }));
+
+  assert.equal(dequeued.graphRecommendation ?? null, null);
+  assert.equal(dequeued.dequeued[0], "architect");
+});
+
 test("analyze_test_coverage_gap returns CI-gate compatible result", async () => {
   const repoPath = mkdtempSync(join(tmpdir(), "sf-ai-coverage-gap-int-"));
   try {

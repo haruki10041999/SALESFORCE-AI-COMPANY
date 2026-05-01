@@ -1,8 +1,10 @@
 ﻿import { z } from "zod";
 import type { RegisterGovToolDeps } from "./types.js";
 import { createLogger } from "../core/logging/logger.js";
+import { getRubricCriteriaOverrideByAgent } from "../core/config/runtime-config.js";
 import { tunePromptTemplates } from "../tools/tune-prompt-templates.js";
 import {
+  applyRubricCriteriaOverride,
   evaluateQualityRubric,
   evaluateHeuristicRubric,
   DEFAULT_RUBRIC_CRITERIA
@@ -20,7 +22,10 @@ interface RegisterVectorPromptToolsDeps extends RegisterGovToolDeps {
   buildPrompt: (
     agent: { name: string; content: string },
     task: string,
-    options?: { strategy?: "auto" | "plan" | "reflect" | "tree-of-thought" }
+    options?: {
+      strategy?: "auto" | "plan" | "reflect" | "tree-of-thought";
+      variant?: "auto" | "default" | "review" | "discussion";
+    }
   ) => string;
   evaluatePromptMetrics: (prompt: string, skills?: string[], triggerKeywords?: string[]) => {
     lengthChars: number;
@@ -160,24 +165,30 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
         agentName: z.string(),
         agentContent: z.string(),
         task: z.string(),
-        reasoningStrategy: z.enum(["auto", "plan", "reflect", "tree-of-thought"]).optional()
+        reasoningStrategy: z.enum(["auto", "plan", "reflect", "tree-of-thought"]).optional(),
+        promptVariant: z.enum(["auto", "default", "review", "discussion"]).optional()
       }
     },
     async ({
       agentName,
       agentContent,
       task,
-      reasoningStrategy
+      reasoningStrategy,
+      promptVariant
     }: {
       agentName: string;
       agentContent: string;
       task: string;
       reasoningStrategy?: "auto" | "plan" | "reflect" | "tree-of-thought";
+      promptVariant?: "auto" | "default" | "review" | "discussion";
     }) => {
       const prompt = buildPrompt(
         { name: agentName, content: agentContent },
         task,
-        { strategy: reasoningStrategy ?? "auto" }
+        {
+          strategy: reasoningStrategy ?? "auto",
+          variant: promptVariant ?? "auto"
+        }
       );
       logger.debug("build_prompt completed", {
         agentName,
@@ -270,24 +281,33 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
       inputSchema: {
         response: z.string().min(1),
         topic: z.string().optional(),
+        agentName: z.string().optional(),
         judge: z.boolean().optional(),
         model: z.string().optional()
       }
     },
-    async ({ response, topic, judge, model }: {
+    async ({ response, topic, agentName, judge, model }: {
       response: string;
       topic?: string;
+      agentName?: string;
       judge?: boolean;
       model?: string;
     }) => {
+      const criteria = agentName
+        ? applyRubricCriteriaOverride(
+            DEFAULT_RUBRIC_CRITERIA,
+            getRubricCriteriaOverrideByAgent()[agentName]
+          )
+        : DEFAULT_RUBRIC_CRITERIA;
       const useJudge = judge === true;
       const result = useJudge
         ? await evaluateQualityRubric(response, {
             ...(topic !== undefined ? { topic } : {}),
             ...(model !== undefined ? { model } : {}),
+            criteria,
             fallbackOnFailure: true
           })
-        : evaluateHeuristicRubric(response, DEFAULT_RUBRIC_CRITERIA);
+        : evaluateHeuristicRubric(response, criteria);
       logger.debug("evaluate_quality_rubric completed", {
         method: result.method,
         overallScore: result.overallScore,
@@ -308,6 +328,7 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
       inputSchema: {
         response: z.string().min(1),
         topic: z.string().optional(),
+        agentName: z.string().optional(),
         maxIterations: z.number().int().min(1).max(10).optional(),
         targetScore: z.number().min(0).max(10).optional(),
         minImprovement: z.number().min(0).max(5).optional(),
@@ -319,6 +340,7 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
     async ({
       response,
       topic,
+      agentName,
       maxIterations,
       targetScore,
       minImprovement,
@@ -328,6 +350,7 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
     }: {
       response: string;
       topic?: string;
+      agentName?: string;
       maxIterations?: number;
       targetScore?: number;
       minImprovement?: number;
@@ -335,6 +358,12 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
       model?: string;
       refineModel?: string;
     }) => {
+      const criteria = agentName
+        ? applyRubricCriteriaOverride(
+            DEFAULT_RUBRIC_CRITERIA,
+            getRubricCriteriaOverrideByAgent()[agentName]
+          )
+        : DEFAULT_RUBRIC_CRITERIA;
       const result = await runSelfRefineLoop(response, {
         topic,
         maxIterations,
@@ -342,7 +371,8 @@ export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): 
         minImprovement,
         judge,
         model,
-        refineModel
+        refineModel,
+        criteria
       });
 
       logger.debug("self_refine_response completed", {

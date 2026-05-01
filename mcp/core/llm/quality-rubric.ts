@@ -49,6 +49,11 @@ export interface QualityCriterion {
   weight: number;
 }
 
+export type RubricCriteriaOverride = Record<
+  string,
+  Partial<Pick<QualityCriterion, "label" | "description" | "weight">>
+>;
+
 export const DEFAULT_RUBRIC_CRITERIA: ReadonlyArray<QualityCriterion> = Object.freeze([
   {
     id: "relevance",
@@ -81,6 +86,30 @@ export const DEFAULT_RUBRIC_CRITERIA: ReadonlyArray<QualityCriterion> = Object.f
     weight: 0.15
   }
 ]);
+
+export function applyRubricCriteriaOverride(
+  criteria: ReadonlyArray<QualityCriterion>,
+  override?: RubricCriteriaOverride
+): ReadonlyArray<QualityCriterion> {
+  if (!override || Object.keys(override).length === 0) {
+    return criteria;
+  }
+
+  return criteria.map((criterion) => {
+    const patch = override[criterion.id];
+    if (!patch) {
+      return criterion;
+    }
+    return {
+      ...criterion,
+      ...(typeof patch.label === "string" ? { label: patch.label } : {}),
+      ...(typeof patch.description === "string" ? { description: patch.description } : {}),
+      ...(typeof patch.weight === "number" && Number.isFinite(patch.weight) && patch.weight >= 0
+        ? { weight: patch.weight }
+        : {})
+    };
+  });
+}
 
 export interface CriterionScore {
   id: string;

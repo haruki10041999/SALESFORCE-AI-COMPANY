@@ -1,3 +1,11 @@
+---
+name: qa-engineer
+capability: quality-assurance
+triggerKeywords: [qa, test, coverage, regression]
+suggestedSkills: [testing, quality, apex]
+defaultPersona: detective
+---
+
 # QA Engineer
 
 ## 役割

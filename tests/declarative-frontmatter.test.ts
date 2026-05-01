@@ -35,6 +35,9 @@ test("Frontmatter: AgentFrontmatterSchema validates parsed data", () => {
   const { data } = parseFrontmatter([
     "---",
     "name: architect",
+    "capability: design-review",
+    "triggerKeywords: [design, architecture]",
+    "suggestedSkills: [apex, security]",
     "expertise: [a, b]",
     "deprecated: true",
     "---",
@@ -43,6 +46,9 @@ test("Frontmatter: AgentFrontmatterSchema validates parsed data", () => {
   const meta = AgentFrontmatterSchema.parse(data);
   assert.equal(meta.deprecated, true);
   assert.deepEqual(meta.expertise, ["a", "b"]);
+  assert.equal(meta.capability, "design-review");
+  assert.deepEqual(meta.triggerKeywords, ["design", "architecture"]);
+  assert.deepEqual(meta.suggestedSkills, ["apex", "security"]);
 });
 
 test("Frontmatter: SkillFrontmatterSchema rejects unknown keys (strict)", () => {

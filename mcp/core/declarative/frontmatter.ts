@@ -65,6 +65,9 @@ function stripQuotes(s: string): string {
 export const AgentFrontmatterSchema = z.object({
   name: z.string().min(1).optional(),
   role: z.string().min(1).optional(),
+  capability: z.string().min(1).optional(),
+  triggerKeywords: z.array(z.string()).optional(),
+  suggestedSkills: z.array(z.string()).optional(),
   expertise: z.array(z.string()).optional(),
   defaultPersona: z.string().optional(),
   deprecated: z.boolean().optional(),

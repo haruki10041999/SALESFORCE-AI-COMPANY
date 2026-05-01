@@ -47,6 +47,17 @@ export interface BanditSelectionOptions {
   forcedExplorationRate?: number;
   /** 返す上位 N。デフォルト 1 */
   limit?: number;
+  /**
+   * 未学習 arm 初期化時に empirical Bayes prior を使うか。
+   * true の場合、既存 arm の成功率から Beta 事前分布を推定する。
+   * デフォルト true。
+   */
+  useEmpiricalBayesPrior?: boolean;
+}
+
+interface BetaPrior {
+  alpha: number;
+  beta: number;
 }
 
 export interface BanditSelectionResult {
@@ -63,13 +74,49 @@ export function createBanditState(): BanditState {
   return { arms: new Map() };
 }
 
+function sanitizePrior(prior: BetaPrior | undefined): BetaPrior {
+  const alpha = prior?.alpha;
+  const beta = prior?.beta;
+  return {
+    alpha: typeof alpha === "number" && Number.isFinite(alpha) && alpha > 0 ? alpha : 1,
+    beta: typeof beta === "number" && Number.isFinite(beta) && beta > 0 ? beta : 1
+  };
+}
+
+function estimateEmpiricalBayesPrior(state: BanditState): BetaPrior {
+  const learned = [...state.arms.values()].filter((arm) => arm.alpha + arm.beta > 2);
+  if (learned.length === 0) {
+    return { alpha: 1, beta: 1 };
+  }
+
+  let totalSuccess = 0;
+  let totalFailure = 0;
+  for (const arm of learned) {
+    totalSuccess += Math.max(0, arm.alpha - 1);
+    totalFailure += Math.max(0, arm.beta - 1);
+  }
+  const total = totalSuccess + totalFailure;
+  if (total <= 0) {
+    return { alpha: 1, beta: 1 };
+  }
+
+  const mean = totalSuccess / total;
+  const avgSamples = total / learned.length;
+  const strength = Math.min(20, Math.max(2, Math.sqrt(avgSamples)));
+  return {
+    alpha: 1 + mean * strength,
+    beta: 1 + (1 - mean) * strength
+  };
+}
+
 /**
  * arm を初期化 (既存なら何もしない)。事前分布 Beta(1,1) = 一様分布。
  */
-export function ensureArm(state: BanditState, name: string): BanditArm {
+export function ensureArm(state: BanditState, name: string, prior?: BetaPrior): BanditArm {
   let arm = state.arms.get(name);
   if (!arm) {
-    arm = { name, alpha: 1, beta: 1 };
+    const safePrior = sanitizePrior(prior);
+    arm = { name, alpha: safePrior.alpha, beta: safePrior.beta };
     state.arms.set(name, arm);
   }
   return arm;
@@ -152,11 +199,13 @@ export function selectArms(
   const rng = options.rng ?? Math.random;
   const limit = options.limit ?? 1;
   const explorationRate = clamp01(options.forcedExplorationRate ?? 0);
+  const useEmpiricalBayesPrior = options.useEmpiricalBayesPrior ?? true;
+  const prior = useEmpiricalBayesPrior ? estimateEmpiricalBayesPrior(state) : { alpha: 1, beta: 1 };
 
   const targets: BanditArm[] = [];
   if (candidateNames && candidateNames.length > 0) {
     for (const name of candidateNames) {
-      targets.push(ensureArm(state, name));
+      targets.push(ensureArm(state, name, prior));
     }
   } else {
     for (const arm of state.arms.values()) targets.push(arm);

@@ -1,3 +1,11 @@
+---
+name: apex-developer
+capability: apex-implementation
+triggerKeywords: [apex, trigger, class, soql, governor]
+suggestedSkills: [apex, unit-test, performance]
+defaultPersona: engineer
+---
+
 # Apex Developer
 
 ## 役割

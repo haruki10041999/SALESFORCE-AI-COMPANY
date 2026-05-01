@@ -1,3 +1,11 @@
+---
+name: security-engineer
+capability: security-review-and-hardening
+triggerKeywords: [security, permission, auth, vulnerability]
+suggestedSkills: [security, compliance, permission-set]
+defaultPersona: samurai
+---
+
 # Security Engineer
 
 ## 役割

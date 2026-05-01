@@ -19,6 +19,11 @@ import {
   recommendNextAgents,
   recordAgentSequence
 } from "../core/learning/agent-graph-learner.js";
+import {
+  computeAgentReputationScore,
+  loadAgentReputationRecords
+} from "../core/learning/agent-reputation.js";
+import { scoreByQuery } from "../core/resource/topic-skill-ranking.js";
 
 interface RegisterChatOrchestrationToolsDeps extends RegisterGovToolDeps {
   chatInputSchema: Record<string, unknown>;
@@ -81,6 +86,41 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     readFile
   } = deps;
   const agentGraphFile = join(sessionsDir, "..", "agent-graph.jsonl");
+  const agentReputationFile = join(sessionsDir, "..", "agent-reputation.jsonl");
+
+  async function prioritizeQueueByPolicy(queue: string[], topic: string): Promise<string[]> {
+    if (queue.length <= 1) {
+      return queue;
+    }
+
+    const reputationRecords = await loadAgentReputationRecords(agentReputationFile);
+    const topicScores = new Map<string, number>();
+    for (const agent of queue) {
+      topicScores.set(agent, scoreByQuery(topic, agent));
+    }
+    const maxTopicScore = Math.max(0, ...Array.from(topicScores.values()));
+
+    const priority = (agent: string): number => {
+      const reputation = computeAgentReputationScore(reputationRecords, agent, "global", "global", 0.5);
+      const topicRelevance = maxTopicScore > 0
+        ? (topicScores.get(agent) ?? 0) / maxTopicScore
+        : 1;
+      return reputation * topicRelevance;
+    };
+
+    return [...queue].sort((a, b) => {
+      const pDiff = priority(b) - priority(a);
+      if (Math.abs(pDiff) > 1e-9) {
+        return pDiff;
+      }
+      const topicDiff = (topicScores.get(b) ?? 0) - (topicScores.get(a) ?? 0);
+      if (topicDiff !== 0) {
+        return topicDiff;
+      }
+      // deterministic fallback when both priority and topic relevance are tied
+      return a.localeCompare(b);
+    });
+  }
 
   async function getSessionOrRestore(sessionId: string): Promise<OrchestrationSession | undefined> {
     const inMemory = orchestrationSessions.get(sessionId);
@@ -505,6 +545,10 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
             probability: top.probability
           };
         }
+      }
+
+      if (session.queue.length > 1) {
+        session.queue = await prioritizeQueueByPolicy(session.queue, session.topic);
       }
 
       const take = limit ?? 1;

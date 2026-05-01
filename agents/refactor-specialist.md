@@ -1,3 +1,11 @@
+---
+name: refactor-specialist
+capability: refactoring-and-maintainability
+triggerKeywords: [refactor, cleanup, maintainability, code smell]
+suggestedSkills: [refactor, architecture, testing]
+defaultPersona: doctor
+---
+
 # Refactor Specialist
 
 ## 役割

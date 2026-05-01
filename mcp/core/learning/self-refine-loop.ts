@@ -18,6 +18,7 @@ export interface SelfRefineOptions {
   model?: string;
   refineModel?: string;
   minImprovement?: number;
+  criteria?: ReadonlyArray<QualityCriterion>;
 }
 
 export interface SelfRefineIteration {
@@ -98,6 +99,7 @@ export async function runSelfRefineLoop(
   const client = canUseLlmProvider ? (deps.client ?? getDefaultOllamaClient()) : undefined;
   const model = options.model ?? "qwen2.5:3b";
   const refineModel = options.refineModel ?? model;
+  const criteria = options.criteria ?? DEFAULT_RUBRIC_CRITERIA;
 
   const evaluate = deps.evaluate ?? (async (text: string) => {
     if (judge) {
@@ -105,17 +107,18 @@ export async function runSelfRefineLoop(
         topic: options.topic,
         provider,
         model,
+        criteria,
         fallbackOnFailure: true
       });
     }
-    return evaluateHeuristicRubric(text, DEFAULT_RUBRIC_CRITERIA);
+    return evaluateHeuristicRubric(text, criteria);
   });
 
   const refine = deps.refine ?? (async ({ currentText, topic, evaluation }) => {
     if (!client) {
       return currentText;
     }
-    const prompt = buildRefineInstruction({ currentText, topic, evaluation });
+    const prompt = buildRefineInstruction({ currentText, topic, evaluation, criteria });
     const out = await client.chat({
       model: refineModel,
       messages: [

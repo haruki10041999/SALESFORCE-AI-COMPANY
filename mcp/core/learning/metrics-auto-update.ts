@@ -19,11 +19,13 @@ export interface MetricsAutoUpdateOptions {
   rewardFilePath?: string;
   reputationFilePath?: string;
   driftReportPath?: string;
+  onDriftAlert?: (report: DriftReport) => Promise<void> | void;
 }
 
 export interface MetricsAutoUpdateResult {
   dashboardUpdated: boolean;
   driftReport?: DriftReport;
+  driftAlertEmitted: boolean;
   updatedAt: string;
 }
 
@@ -49,9 +51,16 @@ export async function runMetricsAutoUpdate(
     });
   }
 
+  let driftAlertEmitted = false;
+  if (driftReport?.shouldAlert && options.onDriftAlert) {
+    await options.onDriftAlert(driftReport);
+    driftAlertEmitted = true;
+  }
+
   return {
     dashboardUpdated: true,
     driftReport,
+    driftAlertEmitted,
     updatedAt: new Date().toISOString()
   };
 }

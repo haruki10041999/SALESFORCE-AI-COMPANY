@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   DEFAULT_RUBRIC_CRITERIA,
+  applyRubricCriteriaOverride,
   buildJudgePrompt,
   evaluateHeuristicRubric,
   evaluateQualityRubric,
@@ -64,6 +65,19 @@ function failingClient(): OllamaClient {
 test("DEFAULT_RUBRIC_CRITERIA: weights sum approximately to 1.0", () => {
   const total = DEFAULT_RUBRIC_CRITERIA.reduce((s, c) => s + c.weight, 0);
   assert.ok(Math.abs(total - 1) < 0.0001, `weights sum=${total}`);
+});
+
+test("applyRubricCriteriaOverride: applies weight and label overrides by criterion id", () => {
+  const overridden = applyRubricCriteriaOverride(DEFAULT_RUBRIC_CRITERIA, {
+    completeness: {
+      weight: 0.4,
+      label: "Coverage"
+    }
+  });
+
+  assert.equal(overridden.find((row) => row.id === "completeness")?.weight, 0.4);
+  assert.equal(overridden.find((row) => row.id === "completeness")?.label, "Coverage");
+  assert.equal(overridden.find((row) => row.id === "relevance")?.weight, 0.25);
 });
 
 test("getRubricJudgeProvider: resolves AI_* then SF_AI_* with ollama default", () => {

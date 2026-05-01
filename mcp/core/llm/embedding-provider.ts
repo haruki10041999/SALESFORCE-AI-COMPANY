@@ -11,6 +11,11 @@
 
 import { OllamaClient, getDefaultOllamaClient } from "./ollama-client.js";
 import { readOllamaPolicy, type OllamaPolicyEnvSource } from "./ollama-health.js";
+import {
+  createTextTokenizer,
+  type TextTokenizer,
+  type TokenizerKind
+} from "../resource/tokenizer.js";
 
 export interface VectorEmbeddingProvider {
   /** プロバイダ識別子 */
@@ -28,14 +33,6 @@ export interface VectorEmbeddingProvider {
 // ============================================================
 
 const DEFAULT_NGRAM_DIM = 256;
-
-function tokenizeForNgram(text: string): string[] {
-  return text
-    .toLowerCase()
-    .split(/[^a-z0-9_\-\u3040-\u30ff\u4e00-\u9faf]+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0);
-}
 
 /** 32-bit FNV-1a (deterministic, fast, no crypto needed) */
 function fnv1a(input: string): number {
@@ -59,22 +56,26 @@ export interface NgramEmbeddingOptions {
   dimension?: number;
   /** unigram + bigram (n=1,2)。既定 [1, 2] */
   ngramSizes?: number[];
+  tokenizer?: TextTokenizer;
+  tokenizerKind?: TokenizerKind;
 }
 
 export class NgramEmbeddingProvider implements VectorEmbeddingProvider {
   readonly name = "ngram" as const;
   readonly dimension: number;
   private readonly ngramSizes: number[];
+  private readonly tokenizer: TextTokenizer;
 
   constructor(options: NgramEmbeddingOptions = {}) {
     this.dimension = options.dimension ?? DEFAULT_NGRAM_DIM;
     const sizes = options.ngramSizes ?? [1, 2];
     this.ngramSizes = sizes.filter((n) => n >= 1).sort((a, b) => a - b);
     if (this.ngramSizes.length === 0) this.ngramSizes.push(1);
+    this.tokenizer = options.tokenizer ?? createTextTokenizer(options.tokenizerKind ?? "default");
   }
 
   async embed(text: string): Promise<number[]> {
-    const tokens = tokenizeForNgram(text);
+    const tokens = this.tokenizer.tokenize(text);
     const vec = new Array<number>(this.dimension).fill(0);
     if (tokens.length === 0) return vec;
 
@@ -166,6 +167,8 @@ export interface EmbeddingFactoryOptions {
   client?: OllamaClient;
   /** ollama プロバイダ生成時に使うフォールバック (既定 NgramEmbeddingProvider) */
   fallback?: VectorEmbeddingProvider;
+  tokenizer?: TextTokenizer;
+  tokenizerKind?: TokenizerKind;
 }
 
 /**
@@ -175,7 +178,10 @@ export interface EmbeddingFactoryOptions {
  */
 export function createEmbeddingProvider(options: EmbeddingFactoryOptions = {}): VectorEmbeddingProvider {
   const policy = readOllamaPolicy(options.env ?? process.env);
-  const ngram = options.fallback ?? new NgramEmbeddingProvider();
+  const ngram = options.fallback ?? new NgramEmbeddingProvider({
+    ...(options.tokenizer ? { tokenizer: options.tokenizer } : {}),
+    ...(options.tokenizerKind ? { tokenizerKind: options.tokenizerKind } : {})
+  });
   if (policy.embeddingProvider === "ollama") {
     const ollamaOptions: OllamaEmbeddingOptions = {
       model: policy.embeddingModel,

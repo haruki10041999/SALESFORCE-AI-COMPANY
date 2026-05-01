@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   renderPromptTemplate,
   selectReasoningStrategy,
+  selectPromptVariant,
   buildPrompt
 } from "../prompt-engine/prompt-builder.js";
 
@@ -12,7 +13,8 @@ test("renderPromptTemplate: replaces nested variables", () => {
     agent: { name: "architect", content: "design" },
     task: "Review",
     base: "B",
-    reasoning: "R"
+    framework: "R",
+    frameworkLabel: "ReasoningFramework"
   });
 
   assert.equal(out, "Agent=architect; Task=Review");
@@ -23,7 +25,8 @@ test("renderPromptTemplate: missing variable becomes empty string", () => {
     agent: { name: "architect", content: "design" },
     task: "Review",
     base: "B",
-    reasoning: "R"
+    framework: "R",
+    frameworkLabel: "ReasoningFramework"
   });
 
   assert.equal(out, "X=");
@@ -39,6 +42,16 @@ test("selectReasoningStrategy: picks reflect for review/debug tasks", () => {
   assert.equal(strategy, "reflect");
 });
 
+test("selectPromptVariant: picks review for review tasks", () => {
+  const variant = selectPromptVariant("コードレビューして問題点を確認してください");
+  assert.equal(variant, "review");
+});
+
+test("selectPromptVariant: picks discussion for compare tasks", () => {
+  const variant = selectPromptVariant("Compare two design alternatives and discuss trade-offs");
+  assert.equal(variant, "discussion");
+});
+
 test("buildPrompt: supports explicit strategy override", () => {
   const prompt = buildPrompt(
     { name: "architect", content: "Focus on architecture" },
@@ -46,4 +59,26 @@ test("buildPrompt: supports explicit strategy override", () => {
     { strategy: "plan" }
   );
   assert.match(prompt, /ReasoningStrategy\nplan/);
+});
+
+test("buildPrompt: auto-selects review variant for review tasks", () => {
+  const prompt = buildPrompt(
+    { name: "architect", content: "Focus on architecture" },
+    "レビューして改善点を洗い出してください"
+  );
+
+  assert.match(prompt, /PromptVariant\nreview/);
+  assert.match(prompt, /ReviewFramework/);
+  assert.match(prompt, /Review Mode/);
+});
+
+test("buildPrompt: supports explicit discussion variant override", () => {
+  const prompt = buildPrompt(
+    { name: "architect", content: "Focus on architecture" },
+    "Implement API",
+    { variant: "discussion" }
+  );
+
+  assert.match(prompt, /PromptVariant\ndiscussion/);
+  assert.match(prompt, /DiscussionFramework/);
 });

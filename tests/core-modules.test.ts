@@ -14,6 +14,7 @@ import {
   DEFAULT_SCORING_CONFIG,
   DEFAULT_SCORING_CONFIG_BY_TYPE,
   getScoringConfigForType,
+  getScoringConfigForTypeWithAgent,
   selectResourcesByType,
   type ResourceCandidate
 } from "../mcp/core/resource/resource-selector.js";
@@ -85,11 +86,13 @@ import {
 // Embedding Ranker Tests (TASK-042)
 import {
   buildEmbedding,
+  buildEmbeddingWithTokenizer,
   cosineSimilarity,
   embeddingSimilarity,
   rankBySemanticHybrid,
   computeHybridScoreMap
 } from "../mcp/core/resource/embedding-ranker.js";
+import { SalesforceTextTokenizer } from "../mcp/core/resource/tokenizer.js";
 
 // Synergy Model Tests (TASK-043)
 import {
@@ -402,6 +405,78 @@ test("Resource Selector - selectResourcesByType uses type-specific config when o
   assert.equal(result.threshold, DEFAULT_SCORING_CONFIG_BY_TYPE.presets.gapThreshold,
     "threshold should follow preset config when no override is provided");
   assert.ok(result.detail[0].score > 0, "matching candidate should be selected");
+});
+
+test("Resource Selector - agent override applies when provided", () => {
+  const overridden = getScoringConfigForTypeWithAgent("tools", "security-engineer", {
+    "security-engineer": {
+      tools: {
+        bugPenaltyWeight: 9,
+        recencyBonusWeight: 1
+      }
+    }
+  });
+
+  assert.equal(overridden.bugPenaltyWeight, 9);
+  assert.equal(overridden.recencyBonusWeight, 1);
+  assert.equal(overridden.nameContainWeight, DEFAULT_SCORING_CONFIG_BY_TYPE.tools.nameContainWeight);
+});
+
+test("Resource Selector - selectResourcesByType accepts options with agent override", () => {
+  const candidate: ResourceCandidate = {
+    name: "security-scan",
+    description: "security scan tool",
+    usage: 3,
+    bugSignals: 1
+  };
+
+  const overridden = selectResourcesByType("tools", [candidate], "security", 1, {
+    agentName: "security-engineer",
+    scoringOverrideByAgent: {
+      "security-engineer": {
+        tools: {
+          gapThreshold: 99
+        }
+      }
+    }
+  });
+
+  assert.equal(overridden.threshold, 99,
+    "overridden options should affect effective scoring config");
+});
+
+test("Resource Selector - selectResourcesByType applies synergy rerank from options", () => {
+  const candidates: ResourceCandidate[] = [
+    {
+      name: "flow-helper",
+      description: "flow helper utilities for generic process automation",
+      usage: 2,
+      bugSignals: 0
+    },
+    {
+      name: "case-escalation-skill",
+      description: "case escalation workflow automation",
+      usage: 0,
+      bugSignals: 0
+    }
+  ];
+
+  const config = {
+    ...DEFAULT_SCORING_CONFIG_BY_TYPE.skills,
+    embeddingMode: "off" as const
+  };
+
+  const withoutSynergy = selectResourcesByType("skills", candidates, "flow helper", 2, { config });
+  assert.equal(withoutSynergy.selected[0], "flow-helper");
+
+  const withSynergy = selectResourcesByType("skills", candidates, "flow helper", 2, {
+    config,
+    synergy: {
+      bonus: (name) => (name === "case-escalation-skill" ? 1 : 0),
+      weight: 40
+    }
+  });
+  assert.equal(withSynergy.selected[0], "case-escalation-skill");
 });
 
 test("Query Intent Classifier - achieves >=80% accuracy on labeled dataset", () => {
@@ -885,6 +960,14 @@ test("Embedding Ranker - similar terms score higher than unrelated", () => {
   const sim1 = embeddingSimilarity("apex trigger", "apex triggers best practice");
   const sim2 = embeddingSimilarity("apex trigger", "lwc component testing");
   assert.ok(sim1 > sim2, `expected related > unrelated (${sim1} vs ${sim2})`);
+});
+
+test("Embedding Ranker - Salesforce tokenizer splits platform-style identifiers", () => {
+  const tokenizer = new SalesforceTextTokenizer();
+  const query = buildEmbeddingWithTokenizer("Case escalation rule", { tokenizer });
+  const target = buildEmbeddingWithTokenizer("CaseEscalationRule__mdt", { tokenizer });
+  const unrelated = buildEmbeddingWithTokenizer("Lightning web component styling", { tokenizer });
+  assert.ok(cosineSimilarity(query, target) > cosineSimilarity(query, unrelated));
 });
 
 test("Embedding Ranker - rankBySemanticHybrid orders by hybrid score", () => {
@@ -1425,6 +1508,33 @@ test("RL Bandit - forcedExplorationRate=1 picks coldest arm first", () => {
   const rng = () => 0.0; // < 1.0 → 強制探索発火
   const top = selectArms(s, ["hot", "cold"], { rng, forcedExplorationRate: 1.0, limit: 1 });
   assert.equal(top[0].name, "cold");
+});
+
+test("RL Bandit - selectArms initializes unseen arm with empirical Bayes prior", () => {
+  const s = createBanditState();
+  recordFeedbacks(s, Array.from({ length: 40 }, () => ({ name: "strong", reward: true })));
+  recordFeedbacks(s, Array.from({ length: 10 }, () => ({ name: "weak", reward: false })));
+
+  selectArms(s, ["new-arm"], { rng: () => 0.5, limit: 1 });
+  const arm = s.arms.get("new-arm");
+  assert.ok(arm);
+  assert.ok((arm?.alpha ?? 0) > 1);
+  assert.ok((arm?.beta ?? 0) > 1);
+  assert.ok((arm?.alpha ?? 0) > (arm?.beta ?? 0));
+});
+
+test("RL Bandit - empirical Bayes prior can be disabled", () => {
+  const s = createBanditState();
+  recordFeedbacks(s, Array.from({ length: 30 }, () => ({ name: "known", reward: true })));
+
+  selectArms(s, ["new-default-prior"], {
+    rng: () => 0.5,
+    limit: 1,
+    useEmpiricalBayesPrior: false
+  });
+  const arm = s.arms.get("new-default-prior");
+  assert.equal(arm?.alpha, 1);
+  assert.equal(arm?.beta, 1);
 });
 
 test("RL Bandit - selectArms returns empty for empty candidates", () => {

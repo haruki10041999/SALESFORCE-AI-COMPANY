@@ -14,15 +14,20 @@ export type PromptTemplateData = {
   agent: AgentProfile;
   task: string;
   base: string;
-  reasoning: string;
+  framework: string;
+  frameworkLabel: string;
+  modeInstructions?: string;
+  variantName?: string;
   strategyName?: string;
   strategyGuidance?: string;
 };
 
 export type ReasoningStrategy = "plan" | "reflect" | "tree-of-thought";
+export type PromptVariant = "default" | "review" | "discussion";
 
 export interface BuildPromptOptions {
   strategy?: ReasoningStrategy | "auto";
+  variant?: PromptVariant | "auto";
 }
 
 const STRATEGY_GUIDANCE: Record<ReasoningStrategy, string> = {
@@ -42,12 +47,35 @@ const DEFAULT_PROMPT_TEMPLATE = [
   "Task",
   "{{task}}",
   "",
-  "{{reasoning}}",
+  "PromptVariant",
+  "{{variantName}}",
+  "",
+  "{{frameworkLabel}}",
+  "{{framework}}",
+  "",
+  "ModeInstructions",
+  "{{modeInstructions}}",
   "",
   "ReasoningStrategy",
   "{{strategyName}}",
   "{{strategyGuidance}}"
 ].join("\n");
+
+const FRAMEWORK_FILES: Record<PromptVariant, { frameworkFile: string; frameworkLabel: string; modeFile?: string }> = {
+  default: {
+    frameworkFile: "reasoning-framework.md",
+    frameworkLabel: "ReasoningFramework"
+  },
+  review: {
+    frameworkFile: "review-framework.md",
+    frameworkLabel: "ReviewFramework",
+    modeFile: "review-mode.md"
+  },
+  discussion: {
+    frameworkFile: "discussion-framework.md",
+    frameworkLabel: "DiscussionFramework"
+  }
+};
 
 function resolveTemplatePath(data: unknown, path: string): string {
   const value = path
@@ -78,18 +106,39 @@ export function selectReasoningStrategy(task: string): ReasoningStrategy {
   return "plan";
 }
 
+export function selectPromptVariant(task: string): PromptVariant {
+  const normalized = task.toLowerCase();
+  if (/review|レビュー|確認|チェック|査読/.test(normalized)) {
+    return "review";
+  }
+  if (/compare|discussion|discuss|trade-?off|alternative|選択肢|比較|議論|合意/.test(normalized)) {
+    return "discussion";
+  }
+  return "default";
+}
+
 export function buildPrompt(agent: AgentProfile, task: string, options: BuildPromptOptions = {}): string {
   const base = fs.readFileSync(join(__dirname, "base-prompt.md"), "utf-8");
-  const reasoning = fs.readFileSync(join(__dirname, "reasoning-framework.md"), "utf-8");
   const selected = options.strategy && options.strategy !== "auto"
     ? options.strategy
     : selectReasoningStrategy(task);
+  const variant = options.variant && options.variant !== "auto"
+    ? options.variant
+    : selectPromptVariant(task);
+  const variantConfig = FRAMEWORK_FILES[variant];
+  const framework = fs.readFileSync(join(__dirname, variantConfig.frameworkFile), "utf-8");
+  const modeInstructions = variantConfig.modeFile
+    ? fs.readFileSync(join(__dirname, variantConfig.modeFile), "utf-8")
+    : "";
 
   return renderPromptTemplate(DEFAULT_PROMPT_TEMPLATE, {
     agent,
     task,
     base,
-    reasoning,
+    framework,
+    frameworkLabel: variantConfig.frameworkLabel,
+    modeInstructions,
+    variantName: variant,
     strategyName: selected,
     strategyGuidance: STRATEGY_GUIDANCE[selected]
   });

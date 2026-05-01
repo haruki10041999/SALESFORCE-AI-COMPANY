@@ -1,3 +1,11 @@
+---
+name: repository-analyst
+capability: repository-analysis
+triggerKeywords: [repository, codebase, structure, analysis]
+suggestedSkills: [analysis, architecture, documentation]
+defaultPersona: detective
+---
+
 # Repository Analyst
 
 ## 役割

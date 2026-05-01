@@ -1,3 +1,11 @@
+---
+name: product-manager
+capability: product-scope-and-priority
+triggerKeywords: [product, requirements, scope, priority]
+suggestedSkills: [planning, roadmap, release]
+defaultPersona: strategist
+---
+
 # Product Manager
 
 ## 役割

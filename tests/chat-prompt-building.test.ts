@@ -535,6 +535,68 @@ test("createPromptCacheKey is order-independent for arrays and produces stable h
   assert.notEqual(key1, key3, "different content must produce different keys");
 });
 
+test("createPromptCacheKey changes when dependency hash changes", () => {
+  const input = {
+    topic: "design review",
+    agentNames: ["architect"],
+    personaName: undefined,
+    skillNames: [],
+    filePaths: [],
+    turns: 1,
+    includeProjectContext: false
+  };
+
+  const root = "/workspace";
+  const key1 = createPromptCacheKey(input, root, "dep-a");
+  const key2 = createPromptCacheKey(input, root, "dep-b");
+  assert.notEqual(key1, key2);
+});
+
+test("prompt cache invalidation hash refreshes cached prompt when framework content changes", async () => {
+  clearBuildChatPromptCache();
+  resetPromptCacheMetrics();
+  const root = mkdtempSync(join(tmpdir(), "chat-prompt-test-cache-hash-"));
+
+  try {
+    const promptEngineDir = join(root, "prompt-engine");
+    mkdirSync(promptEngineDir, { recursive: true });
+    const frameworkPath = join(promptEngineDir, "discussion-framework.md");
+    writeFileSync(frameworkPath, "Framework V1", "utf-8");
+
+    const deps = buildDeps(
+      root,
+      {
+        "agents/architect": "Architect Agent"
+      },
+      []
+    );
+
+    const input = {
+      topic: "設計ディスカッション",
+      agentNames: ["architect"],
+      personaName: undefined,
+      skillNames: [],
+      filePaths: [],
+      turns: 1,
+      includeProjectContext: false
+    };
+
+    const firstPrompt = await buildChatPromptFromContext(input, deps);
+    writeFileSync(frameworkPath, "Framework V2", "utf-8");
+    const secondPrompt = await buildChatPromptFromContext(input, deps);
+
+    assert.notEqual(firstPrompt, secondPrompt);
+    assert.ok(secondPrompt.includes("Framework V2"));
+
+    const metrics = getPromptCacheMetrics();
+    assert.equal(metrics.hits, 0);
+    assert.equal(metrics.misses, 2);
+  } finally {
+    clearBuildChatPromptCache();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("buildChatPromptFromContext injects persona-specific style hints (TASK-040)", async () => {
   const root = mkdtempSync(join(tmpdir(), "chat-prompt-persona-style-"));
   try {

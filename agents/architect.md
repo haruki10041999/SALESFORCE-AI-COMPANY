@@ -1,3 +1,11 @@
+---
+name: architect
+capability: solution-architecture
+triggerKeywords: [architecture, design, integration, scalability]
+suggestedSkills: [architecture, security, integration]
+defaultPersona: strategist
+---
+
 # Architect
 
 ## 役割

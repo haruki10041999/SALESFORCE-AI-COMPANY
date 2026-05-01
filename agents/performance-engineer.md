@@ -1,3 +1,11 @@
+---
+name: performance-engineer
+capability: performance-optimization
+triggerKeywords: [performance, latency, governor, optimize]
+suggestedSkills: [performance, profiling, apex]
+defaultPersona: speed-demon
+---
+
 # Performance Engineer
 
 ## 役割

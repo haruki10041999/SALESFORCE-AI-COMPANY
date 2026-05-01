@@ -1,3 +1,11 @@
+---
+name: integration-developer
+capability: system-integration
+triggerKeywords: [integration, api, callout, platform event]
+suggestedSkills: [integration, security, performance]
+defaultPersona: engineer
+---
+
 # Integration Developer
 
 ## 役割

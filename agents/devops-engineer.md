@@ -1,3 +1,11 @@
+---
+name: devops-engineer
+capability: ci-cd-and-release-automation
+triggerKeywords: [ci, cd, pipeline, deploy, github actions]
+suggestedSkills: [devops, deployment, release]
+defaultPersona: speed-demon
+---
+
 # DevOps Engineer
 
 ## 役割

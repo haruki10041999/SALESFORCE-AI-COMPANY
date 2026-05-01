@@ -97,6 +97,21 @@ export interface ScoringConfig {
   embeddingAlpha?: number;
 }
 
+export type ResourceScoringOverrideByAgent = Record<
+  string,
+  Partial<Record<ResourceType, Partial<ScoringConfig>>>
+>;
+
+export interface ResourceSelectionOptions {
+  config?: ScoringConfig;
+  agentName?: string;
+  scoringOverrideByAgent?: ResourceScoringOverrideByAgent;
+  synergy?: {
+    bonus: (name: string) => number;
+    weight?: number;
+  };
+}
+
 /**
  * デフォルトスコアリング設定
  */
@@ -145,6 +160,52 @@ export const DEFAULT_SCORING_CONFIG_BY_TYPE: Record<ResourceType, ScoringConfig>
  */
 export function getScoringConfigForType(resourceType: ResourceType): ScoringConfig {
   return DEFAULT_SCORING_CONFIG_BY_TYPE[resourceType] ?? DEFAULT_SCORING_CONFIG;
+}
+
+function mergeScoringConfig(base: ScoringConfig, override: Partial<ScoringConfig>): ScoringConfig {
+  const merged: ScoringConfig = { ...base };
+  const numericKeys: Array<keyof ScoringConfig> = [
+    "exactNameMatchWeight",
+    "nameContainWeight",
+    "tokenMatchWeight",
+    "tagMatchWeight",
+    "descriptionMatchWeight",
+    "usageWeight",
+    "bugPenaltyWeight",
+    "recencyBonusWeight",
+    "dayWindow",
+    "gapThreshold",
+    "embeddingAlpha"
+  ];
+
+  for (const key of numericKeys) {
+    const value = override[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      (merged[key] as number | undefined) = value;
+    }
+  }
+
+  if (override.embeddingMode === "off" || override.embeddingMode === "hybrid") {
+    merged.embeddingMode = override.embeddingMode;
+  }
+
+  return merged;
+}
+
+export function getScoringConfigForTypeWithAgent(
+  resourceType: ResourceType,
+  agentName?: string,
+  scoringOverrideByAgent?: ResourceScoringOverrideByAgent
+): ScoringConfig {
+  const base = getScoringConfigForType(resourceType);
+  if (!agentName || !scoringOverrideByAgent) {
+    return base;
+  }
+  const override = scoringOverrideByAgent[agentName]?.[resourceType];
+  if (!override) {
+    return base;
+  }
+  return mergeScoringConfig(base, override);
 }
 
 /**
@@ -382,14 +443,31 @@ export function selectResourcesByType(
   candidates: ResourceCandidate[],
   query: string,
   limit: number = 3,
-  config?: ScoringConfig
+  configOrOptions?: ScoringConfig | ResourceSelectionOptions
 ): ResourceSelectionResult {
-  const effectiveConfig = config ?? getScoringConfigForType(resourceType);
+  let effectiveConfig: ScoringConfig;
+  let synergy: ResourceSelectionOptions["synergy"];
+  if (
+    configOrOptions &&
+    typeof configOrOptions === "object" &&
+    "exactNameMatchWeight" in configOrOptions
+  ) {
+    effectiveConfig = configOrOptions as ScoringConfig;
+  } else {
+    const options = (configOrOptions as ResourceSelectionOptions | undefined) ?? {};
+    effectiveConfig = options.config ?? getScoringConfigForTypeWithAgent(
+      resourceType,
+      options.agentName,
+      options.scoringOverrideByAgent
+    );
+    synergy = options.synergy;
+  }
   const { selected, maxScore, isGap } = selectResources(
     candidates,
     query,
     limit,
-    effectiveConfig
+    effectiveConfig,
+    synergy
   );
 
   return {

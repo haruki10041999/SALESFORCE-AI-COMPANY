@@ -16,7 +16,6 @@ import { runWithLifecycle } from "./lifecycle.js";
 // ============================================================
 import { scoreByQuery } from "./core/resource/topic-skill-ranking.js";
 import {
-  resolveProjectRootFromFile,
   findMdFilesRecursive,
   toPosixPath,
   truncateContent,
@@ -74,7 +73,6 @@ import { createPresetStore } from "./core/context/preset-store.js";
 import { createHistoryStore } from "./core/context/history-store.js";
 import { createOrchestrationSessionStore } from "./core/context/orchestration-session-store.js";
 import { createPromptRenderer } from "./core/context/prompt-rendering.js";
-import { DEFAULT_SQLITE_STATE_FILE } from "./core/persistence/sqlite-store.js";
 import { evaluatePseudoHooks as evaluatePseudoHooksCore } from "./core/orchestration/pseudo-hooks.js";
 import { createChatToolRunner, generateSessionId } from "./core/orchestration/chat-tool-runner.js";
 import { orchestrationSessions, clearOrchestrationSessionsForTest } from "./core/orchestration/session-registry.js";
@@ -90,22 +88,25 @@ import {
   saveBanditState
 } from "./core/learning/rl-feedback.js";
 import { createServerResourceDeps } from "./server-resource-deps.js";
+import { resolveServerRuntimePaths } from "./core/server/server-runtime-paths.js";
+import { createShutdownStatePersistence } from "./core/server/shutdown-state-persistence.js";
 
-// Resolve project root from this file location so cross-repo clients can share one server.
-const ROOT = resolveProjectRootFromFile(import.meta.url);
-const OUTPUTS_DIR = process.env.SF_AI_OUTPUTS_DIR
-  ? resolve(process.env.SF_AI_OUTPUTS_DIR)
-  : join(ROOT, "outputs");
-const STATE_DB_PATH = process.env.SF_AI_STATE_DB_PATH
-  ? resolve(process.env.SF_AI_STATE_DB_PATH)
-  : join(OUTPUTS_DIR, DEFAULT_SQLITE_STATE_FILE);
-const BANDIT_STATE_FILE = join(OUTPUTS_DIR, "bandit-state.jsonl");
+const {
+  root: ROOT,
+  outputsDir: OUTPUTS_DIR,
+  stateDbPath: STATE_DB_PATH,
+  banditStateFile: BANDIT_STATE_FILE,
+  startupWarnings: outputsDirStartupWarnings
+} = resolveServerRuntimePaths(import.meta.url, process.env);
 const logger = createLogger("Server");
 
 // Log environment variables for debugging output directory configuration
 logger.debug(`SF_AI_OUTPUTS_DIR env: ${process.env.SF_AI_OUTPUTS_DIR || "(not set)"}`);
 logger.debug(`Resolved OUTPUTS_DIR: ${OUTPUTS_DIR}`);
 logger.debug(`process.cwd(): ${process.cwd()}`);
+for (const warning of outputsDirStartupWarnings) {
+  logger.warn(warning);
+}
 
 let banditState = createBanditState();
 
@@ -454,57 +455,17 @@ registerServerTools({
     resourceScore
   });
 
-let banditStatePersisted = false;
-async function persistBanditStateOnce(reason: string): Promise<void> {
-  if (banditStatePersisted) {
-    return;
-  }
-  banditStatePersisted = true;
-  try {
-    await saveBanditState(banditState, BANDIT_STATE_FILE);
-    logger.info(`Bandit state saved (${banditState.arms.size} arms, reason=${reason})`);
-  } catch (error) {
-    logger.warn(`Failed to save bandit state on shutdown (reason=${reason})`, error);
-  }
-}
-
-let governanceStatePersisted = false;
-async function persistGovernanceStateOnce(reason: string): Promise<void> {
-  if (governanceStatePersisted) {
-    return;
-  }
-  governanceStatePersisted = true;
-  try {
-    const current = await loadGovernanceState();
-    await saveGovernanceState(current);
-    logger.info(`Governance state saved (reason=${reason})`);
-  } catch (error) {
-    logger.warn(`Failed to save governance state on shutdown (reason=${reason})`, error);
-  }
-}
-
-async function persistShutdownState(reason: string): Promise<void> {
-  await Promise.all([
-    persistBanditStateOnce(reason),
-    persistGovernanceStateOnce(reason)
-  ]);
-}
-
-function registerBanditStateShutdownHooks(): void {
-  const onSignal = (signal: "SIGINT" | "SIGTERM" | "SIGHUP") => {
-    process.once(signal, () => {
-      void persistShutdownState(signal)
-        .finally(() => process.exit(0));
-    });
-  };
-
-  onSignal("SIGINT");
-  onSignal("SIGTERM");
-  onSignal("SIGHUP");
-}
+const { persistShutdownState, registerShutdownHooks } = createShutdownStatePersistence({
+  getBanditState: () => banditState,
+  banditStateFile: BANDIT_STATE_FILE,
+  saveBanditState,
+  loadGovernanceState,
+  saveGovernanceState,
+  logger
+});
 
 async function main(): Promise<void> {
-  registerBanditStateShutdownHooks();
+  registerShutdownHooks();
   banditState = await loadBanditState(BANDIT_STATE_FILE);
   logger.info(`Bandit state loaded (${banditState.arms.size} arms)`);
 

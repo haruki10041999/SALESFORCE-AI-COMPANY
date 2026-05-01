@@ -14,6 +14,8 @@
  * - 入出力は純粋関数とし、副作用を持たない
  */
 
+import { createTextTokenizer, type TextTokenizer, type TokenizerKind } from "./tokenizer.js";
+
 export interface EmbeddingVector {
   /** 次元 (ngram) → 重み */
   terms: Map<string, number>;
@@ -43,28 +45,22 @@ export interface SemanticRankOptions {
   ngramSizes?: number[];
   /** 1.0 にするためのスケーリング基準 (token score を embedding と同オーダーに) */
   tokenScoreScale?: number;
+  tokenizer?: TextTokenizer;
+  tokenizerKind?: TokenizerKind;
 }
 
 const DEFAULT_ALPHA = 0.6;
 const DEFAULT_NGRAM_SIZES = [2, 3];
 const DEFAULT_TOKEN_SCALE = 10;
 
-function normalizeText(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[\s_\-\/\.,;:!\?\(\)\[\]\{\}"'`]+/g, " ")
-    .trim();
-}
-
 /**
  * 文字 n-gram を生成する。長さ n 未満の語はそのまま 1 トークンとして扱う。
  */
-function extractNgrams(text: string, sizes: number[]): string[] {
-  const normalized = normalizeText(text);
-  if (!normalized) return [];
+function extractNgrams(tokens: string[], sizes: number[]): string[] {
+  if (tokens.length === 0) return [];
   const result: string[] = [];
   // 単語境界を保ちつつ char ngram を取る
-  for (const word of normalized.split(" ")) {
+  for (const word of tokens) {
     if (!word) continue;
     if (word.length === 1) {
       result.push(word);
@@ -87,7 +83,17 @@ function extractNgrams(text: string, sizes: number[]): string[] {
  * テキストから n-gram TF ベクトルを構築する。
  */
 export function buildEmbedding(text: string, ngramSizes: number[] = DEFAULT_NGRAM_SIZES): EmbeddingVector {
-  const ngrams = extractNgrams(text, ngramSizes);
+  return buildEmbeddingWithTokenizer(text, {
+    ngramSizes
+  });
+}
+
+export function buildEmbeddingWithTokenizer(
+  text: string,
+  options: Pick<SemanticRankOptions, "ngramSizes" | "tokenizer" | "tokenizerKind"> = {}
+): EmbeddingVector {
+  const tokenizer = options.tokenizer ?? createTextTokenizer(options.tokenizerKind ?? "default");
+  const ngrams = extractNgrams(tokenizer.tokenize(text), options.ngramSizes ?? DEFAULT_NGRAM_SIZES);
   const terms = new Map<string, number>();
   for (const g of ngrams) {
     terms.set(g, (terms.get(g) ?? 0) + 1);
@@ -122,10 +128,11 @@ export function cosineSimilarity(a: EmbeddingVector, b: EmbeddingVector): number
 export function embeddingSimilarity(
   query: string,
   text: string,
-  ngramSizes: number[] = DEFAULT_NGRAM_SIZES
+  ngramSizes: number[] = DEFAULT_NGRAM_SIZES,
+  tokenizer?: TextTokenizer
 ): number {
-  const q = buildEmbedding(query, ngramSizes);
-  const t = buildEmbedding(text, ngramSizes);
+  const q = buildEmbeddingWithTokenizer(query, { ngramSizes, tokenizer });
+  const t = buildEmbeddingWithTokenizer(text, { ngramSizes, tokenizer });
   return cosineSimilarity(q, t);
 }
 
@@ -143,14 +150,15 @@ export function rankBySemanticHybrid(
   const alpha = clamp01(options.alpha ?? DEFAULT_ALPHA);
   const ngramSizes = options.ngramSizes ?? DEFAULT_NGRAM_SIZES;
   const tokenScale = options.tokenScoreScale ?? DEFAULT_TOKEN_SCALE;
+  const tokenizer = options.tokenizer ?? createTextTokenizer(options.tokenizerKind ?? "default");
 
   if (!query.trim() || items.length === 0) {
     return [];
   }
 
-  const queryVec = buildEmbedding(query, ngramSizes);
+  const queryVec = buildEmbeddingWithTokenizer(query, { ngramSizes, tokenizer });
   const results: SemanticRankResult[] = items.map((item) => {
-    const itemVec = buildEmbedding(item.text, ngramSizes);
+    const itemVec = buildEmbeddingWithTokenizer(item.text, { ngramSizes, tokenizer });
     const embeddingScore = cosineSimilarity(queryVec, itemVec);
     const rawTokenScore = item.tokenScore ?? 0;
     const normalizedToken = clamp01(rawTokenScore / tokenScale);
