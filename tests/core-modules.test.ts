@@ -450,7 +450,7 @@ test("Resource Selector - selectResourcesByType applies synergy rerank from opti
     {
       name: "flow-helper",
       description: "flow helper utilities for generic process automation",
-      usage: 2,
+      usage: 5,
       bugSignals: 0
     },
     {
@@ -466,14 +466,14 @@ test("Resource Selector - selectResourcesByType applies synergy rerank from opti
     embeddingMode: "off" as const
   };
 
-  const withoutSynergy = selectResourcesByType("skills", candidates, "flow helper", 2, { config });
+  const withoutSynergy = selectResourcesByType("skills", candidates, "automation", 2, { config });
   assert.equal(withoutSynergy.selected[0], "flow-helper");
 
-  const withSynergy = selectResourcesByType("skills", candidates, "flow helper", 2, {
+  const withSynergy = selectResourcesByType("skills", candidates, "automation", 2, {
     config,
     synergy: {
       bonus: (name) => (name === "case-escalation-skill" ? 1 : 0),
-      weight: 40
+      weight: 10
     }
   });
   assert.equal(withSynergy.selected[0], "case-escalation-skill");
