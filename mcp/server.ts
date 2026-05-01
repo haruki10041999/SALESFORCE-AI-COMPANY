@@ -25,11 +25,6 @@ import {
   getMdFileAsync as getMdFileAsyncFromCatalog
 } from "./core/context/markdown-catalog.js";
 import { createCustomToolRegistry } from "./core/resource/custom-tool-registry.js";
-import {
-  validateSkillCreation,
-  validatePresetCreation,
-  validateToolCreation
-} from "./core/quality/resource-validation.js";
 import { emitEvent } from "./core/event/event-dispatcher.js";
 import {
   createSystemEventManager,
@@ -44,8 +39,7 @@ import {
 import {
   initializeHandlersState,
   autoInitializeHandlers,
-  generateHandlersDashboard,
-  type HandlersState
+  generateHandlersDashboard
 } from "./handlers/auto-init.js";
 
 // ============================================================
@@ -62,8 +56,7 @@ import { buildPrompt } from "../prompt-engine/prompt-builder.js";
 import { evaluatePromptMetrics } from "../prompt-engine/prompt-evaluator.js";
 import {
   exportStatisticsAsCsv,
-  exportStatisticsAsJson,
-  type HandlersStatistics
+  exportStatisticsAsJson
 } from "./handlers/statistics-manager.js";
 import {
   checkDailyLimitExceeded
@@ -75,16 +68,13 @@ import { createDisabledResourceFilter } from "./core/governance/disabled-resourc
 import { createDisabledToolsCacheManager } from "./core/governance/disabled-tools-cache.js";
 import { createGovernanceStateManager } from "./core/governance/governance-state-manager.js";
 import {
-  type GovernedResourceType,
   type GovernanceState
 } from "./core/governance/governance-state.js";
 import { createPresetStore } from "./core/context/preset-store.js";
-import type { ChatPreset as StoredChatPreset } from "./core/context/preset-store.js";
 import { createHistoryStore } from "./core/context/history-store.js";
 import { createOrchestrationSessionStore } from "./core/context/orchestration-session-store.js";
 import { createPromptRenderer } from "./core/context/prompt-rendering.js";
 import { DEFAULT_SQLITE_STATE_FILE } from "./core/persistence/sqlite-store.js";
-import type { CustomToolDefinition as RegistryCustomToolDefinition } from "./core/resource/custom-tool-registry.js";
 import { evaluatePseudoHooks as evaluatePseudoHooksCore } from "./core/orchestration/pseudo-hooks.js";
 import { createChatToolRunner, generateSessionId } from "./core/orchestration/chat-tool-runner.js";
 import { orchestrationSessions, clearOrchestrationSessionsForTest } from "./core/orchestration/session-registry.js";
@@ -300,10 +290,6 @@ function normalizeResourceName(name: string): string {
   return disabledResourceFilter.normalizeResourceName(name);
 }
 
-async function getDisabledResourceSet(resourceType: GovernedResourceType): Promise<Set<string>> {
-  return disabledResourceFilter.getDisabledResourceSet(resourceType);
-}
-
 async function filterDisabledSkills(skillNames: string[]): Promise<{ enabled: string[]; disabled: string[] }> {
   return disabledResourceFilter.filterDisabledSkills(skillNames);
 }
@@ -390,10 +376,6 @@ const governanceEventAutomation = createGovernanceEventAutomationManager({
   getDefaultEventAutomationConfig: () => buildDefaultGovernanceState().config.eventAutomation,
   summarizeError: summarizeValue
 });
-
-async function setToolDisabledState(toolName: string, disabled: boolean): Promise<{ changed: boolean; disabledTools: string[] }> {
-  return governanceEventAutomation.setToolDisabledState(toolName, disabled);
-}
 
 async function applyEventAutomation(event: SystemEventName, payload: Record<string, unknown>): Promise<void> {
   await governanceEventAutomation.applyEventAutomation(event, payload);

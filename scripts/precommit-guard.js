@@ -55,6 +55,16 @@ function isPlaceholderValue(value) {
   return PLACEHOLDER_PATTERN.test(value.trim());
 }
 
+// 代入の右辺がコード片（識別子参照・添字・関数呼び出しなど）に見える場合は秘匿情報ではないと判断
+function looksLikeCodeExpression(value) {
+  const trimmed = value.trim().replace(/;$/, "");
+  if (!trimmed) return false;
+  if (/[[\]()]/.test(trimmed)) return true;
+  if (/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/.test(trimmed)) return true; // foo.bar.baz
+  if (/^(?:await|new|typeof|void|return)\s/.test(trimmed)) return true;
+  return false;
+}
+
 export function scanTextForSensitiveData(content, filePath = "") {
   const findings = [];
 
@@ -62,6 +72,7 @@ export function scanTextForSensitiveData(content, filePath = "") {
     const keyName = match[1] ?? "credential";
     const value = match[2] ?? "";
     if (!value || isPlaceholderValue(value)) continue;
+    if (looksLikeCodeExpression(value)) continue;
     findings.push({ type: "secret", label: `${keyName} assignment`, value });
   }
 

@@ -58,11 +58,11 @@ export async function selectAgentWithPolicyMixer(
 ): Promise<PolicyMixerOutput> {
   const {
     candidates,
-    topic,
-    fromAgent,
+    topic: _topic,
+    fromAgent: _fromAgent,
     graphRecommendation,
-    user: userId,
-    org: orgId,
+    user: _userId,
+    org: _orgId,
     banditState: existingState,
     useGraphLearning = true,
     useBandit = true,

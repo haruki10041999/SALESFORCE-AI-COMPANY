@@ -6,9 +6,7 @@
 
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+
 
 /**
  * メモリ保持機構のテスト用実装
@@ -183,7 +181,6 @@ test("ProjectMemory: slice boundary check (avoiding slice(-0) bug)", async () =>
 
   // Test slice logic: should NOT use slice(-0) which deletes everything
   // Instead should use proper boundary checks
-  const keep = Math.max(10, Math.floor(5 / 2)); // 10 (max of 10 and 2)
 
   // Add more records with maxRecords = 5 but keep = Math.max(10, 2) = 10
   // This means at least 10 should be kept if possible, but capped by maxRecords

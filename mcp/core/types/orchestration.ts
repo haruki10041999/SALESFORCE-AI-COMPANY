@@ -1,4 +1,4 @@
-import type { AgentMessage, ChatSession } from "./agent.js";
+import type { AgentMessage } from "./agent.js";
 import type { TriggerRule } from "./trigger-rule.js";
 
 /**

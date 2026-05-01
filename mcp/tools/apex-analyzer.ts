@@ -36,6 +36,7 @@ function extractDynamicQueryArguments(src: string): string[] {
   const args: string[] = [];
   const headRegex = /Database\.(query|countQuery)\s*\(/gi;
   let match: RegExpExecArray | null;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   while ((match = headRegex.exec(src)) !== null) {
     const start = headRegex.lastIndex; // position right after the `(`
     let depth = 1;

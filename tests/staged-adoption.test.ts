@@ -14,8 +14,7 @@ import {
   evaluateCanaryRollout,
   shouldTriggerRollback,
   executeRollback,
-  getAdoptionSummary,
-  type StagedToolProposal
+  getAdoptionSummary
 } from "../mcp/core/learning/staged-adoption.js";
 
 const testDir = path.resolve("outputs", "learning");
@@ -142,9 +141,9 @@ test("executeRollback transitions to rolled-back stage", async () => {
 test("getAdoptionSummary counts proposals by stage", async () => {
   await setupTest();
   try {
-    const p1 = await createStagedProposal("tool-1", "1.0");
+    await createStagedProposal("tool-1", "1.0");
     const p2 = await createStagedProposal("tool-2", "1.0");
-    const p3 = await createStagedProposal("tool-3", "1.0");
+    await createStagedProposal("tool-3", "1.0");
 
     await transitionProposalStage(p2.proposalId, "canary");
 

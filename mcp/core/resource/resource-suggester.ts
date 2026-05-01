@@ -74,7 +74,7 @@ export function suggestResource(gap: GapDetectionResult): ResourceSuggestion {
 /**
  * リソース名を生成
  */
-function generateResourceName(topic: string, resourceType: string): string {
+function generateResourceName(topic: string, _resourceType: string): string {
   // トピックから safe な名前を生成
   const sanitized = topic
     .toLowerCase()
@@ -157,7 +157,7 @@ function suggestPreset(
 /**
  * スキル内容テンプレートを生成
  */
-function generateSkillContent(topic: string, severity: string): string {
+function generateSkillContent(topic: string, _severity: string): string {
   return `# ${topic} スキル
 
 ## 説明

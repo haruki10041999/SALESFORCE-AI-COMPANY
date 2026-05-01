@@ -11,10 +11,7 @@ import { strict as assert } from "node:assert";
 import {
   checkSkillQuality,
   checkToolQuality,
-  checkPresetQuality,
-  SKILL_QUALITY_REQUIREMENTS,
-  TOOL_QUALITY_REQUIREMENTS,
-  PRESET_QUALITY_REQUIREMENTS
+  checkPresetQuality
 } from "../mcp/core/quality/quality-checker.js";
 
 import {

@@ -1,4 +1,3 @@
-import { join, relative } from "path";
 import type { GovernanceState, GovernedResourceType } from "../governance/governance-state.js";
 import type { ChatPreset } from "./preset-store.js";
 

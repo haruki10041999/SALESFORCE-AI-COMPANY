@@ -6,9 +6,7 @@
 
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+
 
 /**
  * 簡略版プロンプトキャッシュ実装

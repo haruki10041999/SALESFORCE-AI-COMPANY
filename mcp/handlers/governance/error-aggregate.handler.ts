@@ -138,7 +138,7 @@ export function generateErrorReport(
     lastErrorTime?: string;
   }> = [];
 
-  for (const [toolName, record] of tracker.toolErrors.entries()) {
+  for (const [, record] of tracker.toolErrors.entries()) {
     totalErrorCount += record.errorCount;
     toolErrors.push({
       toolName: record.toolName,

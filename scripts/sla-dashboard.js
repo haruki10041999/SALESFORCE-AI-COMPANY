@@ -21,18 +21,6 @@ const AUDIT_DIR = join(ROOT, "outputs", "audit");
 const SLA_JOURNAL = join(AUDIT_DIR, "sla-journal.jsonl");
 const DEFAULT_OUTPUT = join(ROOT, "outputs", "reports", "sla-dashboard.html");
 
-interface SLAEntry {
-  date: string;
-  timestamp: string;
-  successRate: number;
-  p95DurationMs: number;
-  totalCount: number;
-  failureCount: number;
-  alertLevel: "ok" | "warning" | "critical";
-  alertReason?: string;
-  toolFailures?: Array<{ toolName: string; errorRate: number; failureCount: number }>;
-}
-
 function readSLAJournal(path) {
   if (!existsSync(path)) {
     console.warn(`[warn] SLA journal not found: ${path}`);
@@ -94,13 +82,6 @@ function generateHTML(entries) {
   const avgP95 = (entries.reduce((sum, e) => sum + e.p95DurationMs, 0) / entries.length).toFixed(
     0
   );
-  const totalToolFailures = entries.reduce((acc, e) => {
-    if (!e.toolFailures) return acc;
-    e.toolFailures.forEach((tf) => {
-      acc[tf.toolName] = (acc[tf.toolName] || 0) + tf.failureCount;
-    });
-    return acc;
-  }, {});
 
   const alertCounts = {
     ok: entries.filter((e) => e.alertLevel === "ok").length,

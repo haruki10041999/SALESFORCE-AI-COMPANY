@@ -6,8 +6,6 @@
 
 import {
   isOverCapacity,
-  suggestDeletionCandidates,
-  suggestDisableCandidates,
   type ResourceScore
 } from "../../core/governance/governance-manager.js";
 
@@ -134,7 +132,7 @@ export async function handleGovernanceThresholdExceeded(
               }
             }
           }
-        } catch (err) {
+        } catch {
           deletionFailures.push(candidate.name);
         }
       }
@@ -157,7 +155,7 @@ export async function handleGovernanceThresholdExceeded(
               }
             }
           }
-        } catch (err) {
+        } catch {
           disableFailures.push(candidate.name);
         }
       }

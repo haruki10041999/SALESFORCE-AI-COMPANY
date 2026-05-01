@@ -1,10 +1,7 @@
-import { promises as fsPromises } from "node:fs";
 import {
-  appendTextFileAtomic,
   createStagedTextFile,
   removeIfExists,
-  renameOrReplace,
-  writeTextFileAtomic
+  renameOrReplace
 } from "./atomic-file.js";
 
 interface StagedFileWrite {

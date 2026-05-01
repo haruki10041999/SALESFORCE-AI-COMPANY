@@ -7,7 +7,7 @@ import { resolve, dirname } from "path";
 import { randomUUID } from "crypto";
 import type { UserFeedback, FeedbackMetrics } from "../types/feedback.js";
 import { appendTextFileAtomic } from "../persistence/unit-of-work.js";
-import type { RewardRecord, RewardAggregatorConfig } from "../types/feedback.js";
+import type { RewardAggregatorConfig } from "../types/feedback.js";
 import { syncRewardsToFeedback, computeCompositeReward, getRewardStats } from "./reward-aggregator.js";
 import { injectFailureContext, getRAGInjectionStats } from "./failure-memory-rag.js";
 
@@ -216,7 +216,7 @@ export async function injectFailureContextToPrompt(errorData: {
       recommendationLevel: result.recommendationLevel,
       similarFailures: result.similarFailures.length
     };
-  } catch (error) {
+  } catch {
     // Return empty context if injection fails
     return {
       hasContext: false,

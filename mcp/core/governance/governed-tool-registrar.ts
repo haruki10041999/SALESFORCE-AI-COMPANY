@@ -1,4 +1,4 @@
-﻿import type { GovTool, GovToolConfig, GovToolHandler, RegisterToolFn } from "@mcp/tool-types.js";
+﻿import type { GovToolConfig, GovToolHandler, RegisterToolFn } from "@mcp/tool-types.js";
 import type { BanditState } from "../learning/rl-feedback.js";
 import { saveBanditState } from "../learning/rl-feedback.js";
 import { isRetryableByCode, isRetryableError } from "../errors/tool-error.js";
@@ -81,8 +81,6 @@ function recordToolExecutionToMemory(
     // 自動記録の失敗はツール実行を阻害しない
   }
 }
-
-type ToolResponse = { content: Array<{ type: string; text: string }> };
 
 interface CreateGovernedToolRegistrarDeps {
   registerTool: RegisterToolFn;

@@ -208,7 +208,7 @@ export function findDuplicateGroups(
       if (similarity >= threshold) {
         // グループ化
         let foundGroup = false;
-        for (const [gid, members] of groups.entries()) {
+        for (const [, members] of groups.entries()) {
           if (members.has(i) || members.has(j)) {
             members.add(i);
             members.add(j);

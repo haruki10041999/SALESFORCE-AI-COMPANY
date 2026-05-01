@@ -182,7 +182,7 @@ export async function computeCompositeReward(
  */
 export async function syncRewardsToFeedback(
   filterSessionId?: string,
-  config: RewardAggregatorConfig = {}
+  _config: RewardAggregatorConfig = {}
 ): Promise<UserFeedback[]> {
   let allRewards = await loadAllRewards();
 

@@ -5,7 +5,6 @@
 
 import { promises as fsPromises } from "fs";
 import { resolve } from "path";
-import { randomUUID } from "crypto";
 import type {
   LearningProgressDashboard,
   BanditMetrics,
@@ -15,7 +14,7 @@ import type {
   PromptTemplateQualityMetrics,
   ErrorRecoveryMetrics
 } from "../types/learning-dashboard.js";
-import { loadAllRewards, getRewardStats } from "./reward-aggregator.js";
+import { getRewardStats } from "./reward-aggregator.js";
 import { loadAgentReputationRecords } from "./agent-reputation.js";
 import { getRewardHealth } from "./feedback-manager.js";
 

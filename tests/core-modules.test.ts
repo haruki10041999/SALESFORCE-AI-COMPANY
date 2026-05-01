@@ -21,14 +21,12 @@ import {
 // Resource Gap Detector Tests
 import {
   detectGap,
-  createGapEvent,
-  detectGapsForTopic
+  createGapEvent
 } from "../mcp/core/resource/resource-gap-detector.js";
 
 // Resource Suggester Tests
 import {
-  suggestResource,
-  suggestResourcesForGaps
+  suggestResource
 } from "../mcp/core/resource/resource-suggester.js";
 
 // Query Intent Classifier Tests

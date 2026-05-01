@@ -160,7 +160,6 @@ export async function archiveHistoryByDate(outputsDir: string, date: string): Pr
 async function main(): Promise<void> {
   const { date, outputsDir } = parseArgs(process.argv.slice(2));
   const result = await archiveHistoryByDate(outputsDir, date);
-  // eslint-disable-next-line no-console
   console.log(
     JSON.stringify(
       {
@@ -183,7 +182,6 @@ function isDirectRun(): boolean {
 
 if (isDirectRun()) {
   main().catch((error: unknown) => {
-    // eslint-disable-next-line no-console
     console.error("[archive-history] failed", error);
     process.exitCode = 1;
   });
