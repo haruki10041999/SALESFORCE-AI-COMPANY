@@ -3,15 +3,17 @@
     "salesforce-ai-company": {
       "command": "node",
       "args": [
-        "D:/Projects/mult-agent-ai/salesforce-ai-company/scripts/start-mcp-with-docker.mjs",
+        "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor/scripts/start-mcp-with-docker.mjs",
         "--",
         "node",
         "dist/mcp/server.js"
       ],
-      "cwd": "D:/Projects/mult-agent-ai/salesforce-ai-company",
+      "cwd": "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor",
       "env": {
         "SF_AI_OUTPUTS_DIR": "D:/shared/sf-ai-outputs",
-        "SF_AI_OUTPUTS_BACKUP_DIR": "D:/shared/sf-ai-outputs/backups"
+        "SF_AI_OUTPUTS_BACKUP_DIR": "D:/shared/sf-ai-outputs/backups",
+        "SF_AI_DOCKER_SERVICES": "postgres,ollama",
+        "SF_AI_WAIT_FOR_PORTS": "5432,11434"
       }
     }
   }

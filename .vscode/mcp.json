@@ -2,9 +2,19 @@
   "servers": {
     "salesforce-ai-company": {
       "type": "stdio",
-      "command": "npm",
-      "args": ["run", "mcp:dev"],
-      "cwd": "${workspaceFolder}"
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/scripts/start-mcp-with-docker.mjs",
+        "--",
+        "npx",
+        "tsx",
+        "mcp/server.ts"
+      ],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "SF_AI_DOCKER_SERVICES": "postgres,ollama",
+        "SF_AI_WAIT_FOR_PORTS": "5432,11434"
+      }
     }
   }
 }

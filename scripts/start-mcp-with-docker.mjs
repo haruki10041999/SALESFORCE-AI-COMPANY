@@ -9,6 +9,9 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 const DEFAULT_SERVER_ARGS = ["node", "dist/mcp/server.js"];
 const DEFAULT_SERVICES = ["postgres", "ollama"];
+const PROFILE_SERVICES = new Map([
+  ["observability", ["jaeger", "prometheus", "grafana"]]
+]);
 const DEFAULT_SERVICE_PORTS = new Map([
   ["postgres", 5432],
   ["ollama", 11434],
@@ -27,6 +30,10 @@ function log(message) {
 function parseList(value, fallback) {
   if (!value) return fallback;
   return value.split(",").map((part) => part.trim()).filter(Boolean);
+}
+
+function unique(values) {
+  return [...new Set(values)];
 }
 
 function normalizeCommandArg(arg) {
@@ -49,7 +56,9 @@ function resolveServerCommand(argv) {
 
 function createDockerArgs() {
   const profile = process.env.SF_AI_DOCKER_PROFILE?.trim();
-  const services = parseList(process.env.SF_AI_DOCKER_SERVICES, DEFAULT_SERVICES);
+  const requestedServices = parseList(process.env.SF_AI_DOCKER_SERVICES, DEFAULT_SERVICES);
+  const profileServices = profile ? (PROFILE_SERVICES.get(profile) ?? []) : [];
+  const services = unique(requestedServices.concat(profileServices));
   const args = ["compose"];
   if (profile) {
     args.push("--profile", profile);
@@ -177,7 +186,7 @@ function waitForPort(port) {
 
 async function waitForPorts(ports) {
   const deadline = Date.now() + WAIT_TIMEOUT_MS;
-  const remaining = [...new Set(ports)];
+  const remaining = unique(ports);
 
   while (remaining.length > 0) {
     for (let index = remaining.length - 1; index >= 0; index -= 1) {
@@ -215,7 +224,7 @@ function getServiceStatus(record) {
 
 async function waitForServiceRecords(services) {
   const deadline = Date.now() + WAIT_TIMEOUT_MS;
-  const remaining = [...new Set(services)];
+  const remaining = unique(services);
 
   while (remaining.length > 0) {
     let records = [];
@@ -235,7 +244,8 @@ async function waitForServiceRecords(services) {
       const health = getServiceHealth(record);
       const status = getServiceStatus(record);
       const healthy = health.includes("healthy");
-      const startedWithoutHealthcheck = !health && (status.includes("running") || status.includes("up"));
+      const oneShotCompleted = status.includes("exited (0)");
+      const startedWithoutHealthcheck = !health && (status.includes("running") || status.includes("up") || oneShotCompleted);
       if (healthy || startedWithoutHealthcheck) {
         log(`service ${service} is ready${health ? ` (${health})` : ""}`);
         remaining.splice(index, 1);

@@ -9,7 +9,11 @@
         "node",
         "dist/mcp/server.js"
       ],
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "SF_AI_DOCKER_SERVICES": "postgres,ollama",
+        "SF_AI_WAIT_FOR_PORTS": "5432,11434"
+      }
     }
   }
 }

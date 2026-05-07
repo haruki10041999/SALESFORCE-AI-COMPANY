@@ -3,9 +3,9 @@
     "salesforce-ai-company": {
       "command": "node",
       "args": [
-        "D:/Projects/mult-agent-ai/salesforce-ai-company/dist/mcp/server.js"
+        "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor/dist/mcp/server.js"
       ],
-      "cwd": "D:/Projects/mult-agent-ai/salesforce-ai-company",
+      "cwd": "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor",
       "env": {
         "SF_AI_OUTPUTS_DIR": "D:/shared/sf-ai-outputs",
         "SF_AI_OUTPUTS_BACKUP_DIR": "D:/shared/sf-ai-outputs/backups"

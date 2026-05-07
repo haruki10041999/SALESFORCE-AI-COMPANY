@@ -8,7 +8,7 @@
 - 異常が出たときに最低限の切り分けをする
 - 必要なログとバックアップを確認する
 
-## Docker有り運用（Ollama + 観測性）
+## Docker有り運用（Postgres + Ollama + 任意の観測性）
 
 Docker Desktop を使わない運用を行う場合は、先に [WSL2 + Docker Engine 運用手順 (Docker Desktop なし)](./wsl-docker-engine-setup.md) を参照してください。
 
@@ -16,11 +16,19 @@ Docker Desktop を使わない運用を行う場合は、先に [WSL2 + Docker E
 
 - Docker Desktop / Docker Compose が利用可能
 - ホスト版 Ollama を同時起動しない（`11434` のポート競合回避）
+- Postgres を使うため `5432` のポート競合がないこと
 
 1. 依存サービスを起動
 
 ```bash
-docker compose up -d
+docker compose up -d postgres ollama
+docker compose ps
+```
+
+観測性も含める場合:
+
+```bash
+docker compose --profile observability up -d
 docker compose ps
 ```
 
@@ -39,6 +47,7 @@ npm run ai -- dev
 4. 疎通確認
 
 - Ollama API: `http://localhost:11434`
+- PostgreSQL: `localhost:5432`
 - Jaeger UI: `http://localhost:16686`
 - Prometheus UI: `http://localhost:9090`
 - Grafana UI: `http://localhost:3000`
@@ -59,6 +68,12 @@ curl http://localhost:16686/api/services
 ```bash
 docker compose down
 ```
+
+重要:
+
+- `docker compose down` は DB データを残します
+- `docker compose down -v` は Postgres の named volume も削除し、DB データが消えます
+- 通常運用では `down -v` を使わないでください
 
 補足:
 

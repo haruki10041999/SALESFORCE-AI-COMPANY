@@ -11,11 +11,17 @@ npm run build
 npm run ai -- doctor
 ```
 
+Docker 前提で Postgres と Ollama を使う場合は、先に次を起動します。
+
+```bash
+docker compose up -d postgres ollama
+```
+
 `npm run init` で次を自動実行します。
 
 - `outputs/` 配下の初期ディレクトリ作成
 - `.env` 未作成時に `.env.local.sample` から雛形をコピー
-- OpenCode 用 MCP 設定例を `outputs/setup/opencode-mcp.local.json` に生成
+- Docker 起動ラッパー付きの OpenCode 用 MCP 設定例を `outputs/setup/opencode-mcp.local.json` に生成
 - Git 管理下なら `pre-commit` フックを自動導入
 
 ## 最初の1コマンド
@@ -103,10 +109,17 @@ npm run ai -- doctor
 - `.env` をローカル向け安全設定で始めたい場合、そのまま `npm run init` で十分です
 - OpenCode 連携時は `outputs/setup/opencode-mcp.local.json` を OpenCode 設定へ貼り付けます
 - `dist/mcp/server.js` は `npm run build` 後に生成されます
+- Docker 依存サービス込みで起動する場合は `docker compose up -d postgres ollama` を先に実行します
 
 ### サーバー起動
 
 ```bash
+# 依存サービスだけ先に起動
+docker compose up -d postgres ollama
+
+# 観測性も含めてフル起動
+docker compose --profile observability up -d
+
 # 開発実行
 npm run mcp:dev
 
@@ -120,6 +133,12 @@ npm run mcp:start:docker
 MCP クライアントから Docker 依存サービスも含めて自動起動したい場合は、
 [scripts/start-mcp-with-docker.mjs](scripts/start-mcp-with-docker.mjs) を MCP 設定の `command` / `args`
 から呼び出します。OpenCode 例は [docs/opencode-setup.md](docs/opencode-setup.md) を参照してください。
+
+注意:
+
+- `docker compose down` はコンテナ停止のみで、Postgres の named volume は残ります
+- `docker compose down -v` は Postgres / Grafana / Ollama の named volume も削除する破壊操作です
+- DB を保持したい通常運用では `down -v` を使わないでください
 
 ### 統一 CLI
 

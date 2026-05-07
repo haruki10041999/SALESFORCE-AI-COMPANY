@@ -24,24 +24,30 @@ npm run init
 npm run build
 ```
 
+Docker 前提で使う場合は、次で依存サービスを先に起動します。
+
+```powershell
+docker compose up -d postgres ollama
+```
+
 `npm run init` を実行すると、次の生成物がそろいます。
 
 - `outputs/` の初期ディレクトリ
 - `.env` 雛形（未作成時のみ）
-- OpenCode 用の生成済み設定例: `outputs/setup/opencode-mcp.local.json`
+- Docker 起動ラッパー込みの OpenCode 用生成済み設定例: `outputs/setup/opencode-mcp.local.json`
 
 このとき使われる主要パスは次のとおりです。
 
-- リポジトリルート: `D:/Projects/mult-agent-ai/salesforce-ai-company`
-- 実行ファイル: `D:/Projects/mult-agent-ai/salesforce-ai-company/dist/mcp/server.js`
-- 作業ディレクトリ: `D:/Projects/mult-agent-ai/salesforce-ai-company`
+- リポジトリルート: `D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor`
+- 実行ファイル: `D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor/dist/mcp/server.js`
+- 作業ディレクトリ: `D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor`
 
 補足:
 
 - `dist/mcp/server.js` が無ければ OpenCode から起動できません
 - outputs を共通化したい場合は `SF_AI_OUTPUTS_DIR` を絶対パスで指定します
 - 例ファイルでは `SF_AI_OUTPUTS_BACKUP_DIR` も指定しています。バックアップ運用をするなら合わせて設定してください
-- Docker 依存サービスも自動起動したい場合は [../scripts/start-mcp-with-docker.mjs](../scripts/start-mcp-with-docker.mjs) を MCP 起動コマンドとして使えます
+- `npm run init` が生成する設定は [../scripts/start-mcp-with-docker.mjs](../scripts/start-mcp-with-docker.mjs) を使う前提です
 
 ## 3. OpenCode で実際に編集する場所
 
@@ -89,9 +95,9 @@ Docker 依存サービスも同時に自動起動したい場合は、
     "salesforce-ai-company": {
       "command": "node",
       "args": [
-        "D:/Projects/mult-agent-ai/salesforce-ai-company/dist/mcp/server.js"
+        "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor/dist/mcp/server.js"
       ],
-      "cwd": "D:/Projects/mult-agent-ai/salesforce-ai-company",
+      "cwd": "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor",
       "env": {
         "SF_AI_OUTPUTS_DIR": "D:/shared/sf-ai-outputs",
         "SF_AI_OUTPUTS_BACKUP_DIR": "D:/shared/sf-ai-outputs/backups"
@@ -112,9 +118,9 @@ OpenCode のバージョンによってはトップレベルキーが `servers` 
     "salesforce-ai-company": {
       "command": "node",
       "args": [
-        "D:/Projects/mult-agent-ai/salesforce-ai-company/dist/mcp/server.js"
+        "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor/dist/mcp/server.js"
       ],
-      "cwd": "D:/Projects/mult-agent-ai/salesforce-ai-company",
+      "cwd": "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor",
       "env": {
         "SF_AI_OUTPUTS_DIR": "D:/shared/sf-ai-outputs",
         "SF_AI_OUTPUTS_BACKUP_DIR": "D:/shared/sf-ai-outputs/backups"
@@ -144,15 +150,17 @@ OpenCode でも VS Code でも、MCP サーバーの `command` / `args` に
     "salesforce-ai-company": {
       "command": "node",
       "args": [
-        "D:/Projects/mult-agent-ai/salesforce-ai-company/scripts/start-mcp-with-docker.mjs",
+        "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor/scripts/start-mcp-with-docker.mjs",
         "--",
         "node",
         "dist/mcp/server.js"
       ],
-      "cwd": "D:/Projects/mult-agent-ai/salesforce-ai-company",
+      "cwd": "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor",
       "env": {
         "SF_AI_OUTPUTS_DIR": "D:/shared/sf-ai-outputs",
-        "SF_AI_OUTPUTS_BACKUP_DIR": "D:/shared/sf-ai-outputs/backups"
+        "SF_AI_OUTPUTS_BACKUP_DIR": "D:/shared/sf-ai-outputs/backups",
+        "SF_AI_DOCKER_SERVICES": "postgres,ollama",
+        "SF_AI_WAIT_FOR_PORTS": "5432,11434"
       }
     }
   }
@@ -217,9 +225,9 @@ build 済みの `dist/mcp/server.js` を使わず、TypeScript を直接起動�
       "command": "npx",
       "args": [
         "tsx",
-        "D:/Projects/mult-agent-ai/salesforce-ai-company/mcp/server.ts"
+        "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor/mcp/server.ts"
       ],
-      "cwd": "D:/Projects/mult-agent-ai/salesforce-ai-company"
+      "cwd": "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor"
     }
   }
 }

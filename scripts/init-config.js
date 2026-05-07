@@ -21,6 +21,7 @@ const OUTPUTS_DIR = process.env.SF_AI_OUTPUTS_DIR
   ? resolve(process.env.SF_AI_OUTPUTS_DIR)
   : join(ROOT, "outputs");
 const DIST_SERVER_PATH = join(ROOT, "dist", "mcp", "server.js");
+const DOCKER_STARTER_PATH = join(ROOT, "scripts", "start-mcp-with-docker.mjs");
 const ENV_TARGET = join(ROOT, ".env");
 const LOCAL_ENV_SAMPLE = join(ROOT, ".env.local.sample");
 const DEFAULT_ENV_SAMPLE = join(ROOT, ".env.sample");
@@ -65,10 +66,17 @@ function writeOpencodeConfig(outputsDir) {
     mcpServers: {
       "salesforce-ai-company": {
         command: "node",
-        args: [normalizePathForJson(DIST_SERVER_PATH)],
+        args: [
+          normalizePathForJson(DOCKER_STARTER_PATH),
+          "--",
+          "node",
+          normalizePathForJson(DIST_SERVER_PATH)
+        ],
         cwd: normalizePathForJson(ROOT),
         env: {
-          SF_AI_OUTPUTS_DIR: normalizePathForJson(outputsDir)
+          SF_AI_OUTPUTS_DIR: normalizePathForJson(outputsDir),
+          SF_AI_DOCKER_SERVICES: "postgres,ollama",
+          SF_AI_WAIT_FOR_PORTS: "5432,11434"
         }
       }
     }
@@ -161,9 +169,10 @@ installGitHooks();
 
 console.log("[init-config] done.");
 console.log("[init-config] next steps:");
-console.log("  1. npm run build");
-console.log("  2. npm run ai -- doctor");
-console.log(`  3. OpenCode MCP config: ${opencodeConfigPath}`);
+console.log("  1. docker compose up -d postgres ollama");
+console.log("  2. npm run build");
+console.log("  3. npm run ai -- doctor");
+console.log(`  4. OpenCode MCP config: ${opencodeConfigPath}`);
 if (envCreated) {
-  console.log("  4. Review .env if you need Ollama / telemetry / shared outputs settings");
+  console.log("  5. Review .env if you need Docker profile / telemetry / shared outputs settings");
 }
