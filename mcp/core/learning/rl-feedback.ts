@@ -1,5 +1,10 @@
 import { promises as fsPromises } from "node:fs";
 import { dirname } from "node:path";
+import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
+
+const analyticsStorePromise = process.env.DATABASE_URL
+  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
+  : Promise.resolve(null);
 
 /**
  * Reinforcement Learning Feedback (TASK-047)
@@ -277,14 +282,21 @@ export function fromBanditSnapshot(snapshot: { arms: BanditArm[] }): BanditState
  * 1行 = 1 arm なので将来の差分追記や部分読み込みにも対応しやすい。
  */
 export async function saveBanditState(state: BanditState, filePath: string): Promise<void> {
-  const lines = [...state.arms.values()]
+  const arms = [...state.arms.values()]
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map((arm) => JSON.stringify({
+    .map((arm) => ({
       name: arm.name,
       alpha: arm.alpha,
       beta: arm.beta
     }));
 
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    await analyticsStore.saveNamedModel("bandit-state", { arms } as Record<string, unknown>);
+    return;
+  }
+
+  const lines = arms.map((arm) => JSON.stringify(arm));
   await fsPromises.mkdir(dirname(filePath), { recursive: true });
   const content = lines.length > 0 ? `${lines.join("\n")}\n` : "";
   await fsPromises.writeFile(filePath, content, "utf-8");
@@ -294,6 +306,26 @@ export async function saveBanditState(state: BanditState, filePath: string): Pro
  * JSONL 形式の bandit state を復元する。存在しない場合は空 state を返す。
  */
 export async function loadBanditState(filePath: string): Promise<BanditState> {
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    const payload = await analyticsStore.loadNamedModelPublic("bandit-state");
+    const state = createBanditState();
+    if (payload && Array.isArray(payload.arms)) {
+      for (const raw of payload.arms) {
+        const parsed = raw as Partial<BanditArm>;
+        if (typeof parsed.name !== "string" || parsed.name.length === 0) {
+          continue;
+        }
+        state.arms.set(parsed.name, {
+          name: parsed.name,
+          alpha: typeof parsed.alpha === "number" && parsed.alpha > 0 ? parsed.alpha : 1,
+          beta: typeof parsed.beta === "number" && parsed.beta > 0 ? parsed.beta : 1
+        });
+      }
+    }
+    return state;
+  }
+
   try {
     const content = await fsPromises.readFile(filePath, "utf-8");
     const state = createBanditState();

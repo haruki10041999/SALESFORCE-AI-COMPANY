@@ -1,7 +1,12 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname } from "node:path";
 import type { AgentTrustHistory } from "./agent-trust-score.js";
+import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
 import { writeTextFileAtomic } from "../persistence/unit-of-work.js";
+
+const analyticsStorePromise = process.env.DATABASE_URL
+  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
+  : Promise.resolve(null);
 
 export type AgentTrustOutcome = "accepted" | "rejected";
 
@@ -16,6 +21,24 @@ const EMPTY_FILE: AgentTrustHistoriesFile = {
 };
 
 export async function loadAgentTrustHistories(filePath: string): Promise<AgentTrustHistoriesFile> {
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    const payload = await analyticsStore.loadNamedModelPublic("agent-trust-histories");
+    if (!payload || typeof payload.histories !== "object" || payload.histories === null) {
+      return { ...EMPTY_FILE, histories: {} };
+    }
+    const sanitized: Record<string, AgentTrustHistory> = {};
+    for (const [agent, history] of Object.entries(payload.histories as Record<string, unknown>)) {
+      const accepted = Math.max(0, Math.floor(Number((history as AgentTrustHistory)?.accepted ?? 0)));
+      const rejected = Math.max(0, Math.floor(Number((history as AgentTrustHistory)?.rejected ?? 0)));
+      sanitized[agent] = { accepted, rejected };
+    }
+    return {
+      updatedAt: typeof payload.updatedAt === "string" ? payload.updatedAt : new Date(0).toISOString(),
+      histories: sanitized
+    };
+  }
+
   if (!existsSync(filePath)) {
     return { ...EMPTY_FILE, histories: {} };
   }
@@ -45,11 +68,16 @@ export async function saveAgentTrustHistories(
   filePath: string,
   data: AgentTrustHistoriesFile
 ): Promise<void> {
-  await fsPromises.mkdir(dirname(filePath), { recursive: true });
   const payload: AgentTrustHistoriesFile = {
     updatedAt: new Date().toISOString(),
     histories: data.histories
   };
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    await analyticsStore.saveNamedModel("agent-trust-histories", payload as unknown as Record<string, unknown>);
+    return;
+  }
+  await fsPromises.mkdir(dirname(filePath), { recursive: true });
   await writeTextFileAtomic(filePath, JSON.stringify(payload, null, 2));
 }
 

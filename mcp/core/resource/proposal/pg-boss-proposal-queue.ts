@@ -88,14 +88,18 @@ function mapRow(row: ProposalRow): ProposalRecord {
 }
 
 export class PgBossProposalQueueStore implements ProposalQueueStore {
-  private readonly pool: Pool;
-  private readonly boss: PgBoss;
+  private pool: Pool;
+  private boss: PgBoss;
+  private readonly databaseUrl: string;
   private readonly queueName: string;
   private schemaReady = false;
+  private closed = false;
+  private reconnectPromise: Promise<void> | null = null;
 
-  private constructor(pool: Pool, boss: PgBoss, queueName: string) {
+  private constructor(pool: Pool, boss: PgBoss, databaseUrl: string, queueName: string) {
     this.pool = pool;
     this.boss = boss;
+    this.databaseUrl = databaseUrl;
     this.queueName = queueName;
   }
 
@@ -107,7 +111,12 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
     const pool = new Pool({ connectionString: options.databaseUrl });
     const boss = new PgBoss(options.databaseUrl);
     await boss.start();
-    const store = new PgBossProposalQueueStore(pool, boss, options.queueName ?? "resource-proposals");
+    const store = new PgBossProposalQueueStore(
+      pool,
+      boss,
+      options.databaseUrl,
+      options.queueName ?? "resource-proposals"
+    );
     await store.ensureSchema();
     try {
       await store.boss.createQueue(store.queueName);
@@ -118,8 +127,70 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
   }
 
   public async close(): Promise<void> {
-    await this.boss.stop();
-    await this.pool.end();
+    if (this.closed) {
+      return;
+    }
+    this.closed = true;
+    try {
+      await this.boss.stop();
+    } catch {
+      // ignore stop errors
+    }
+    try {
+      await this.pool.end();
+    } catch {
+      // ignore end errors (already ended)
+    }
+  }
+
+  /**
+   * 接続が「Cannot use a pool after calling end」状態になった場合に
+   * pool / boss を再生成する。`close()` 後は再オープンしない。
+   */
+  private async reconnect(): Promise<void> {
+    if (this.closed) {
+      throw new Error("PgBossProposalQueueStore is closed");
+    }
+    if (this.reconnectPromise) {
+      return this.reconnectPromise;
+    }
+    this.reconnectPromise = (async () => {
+      try {
+        try { await this.pool.end(); } catch { /* ignore */ }
+        try { await this.boss.stop(); } catch { /* ignore */ }
+      } finally {
+        this.pool = new Pool({ connectionString: this.databaseUrl });
+        this.boss = new PgBoss(this.databaseUrl);
+        await this.boss.start();
+        this.schemaReady = false;
+        await this.ensureSchema();
+        try { await this.boss.createQueue(this.queueName); } catch { /* ignore */ }
+      }
+    })().finally(() => {
+      this.reconnectPromise = null;
+    });
+    return this.reconnectPromise;
+  }
+
+  private isPoolEndedError(error: unknown): boolean {
+    if (!error) {
+      return false;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    return /Cannot use a pool after calling end/i.test(message)
+      || /pool.*end/i.test(message) && /closed/i.test(message);
+  }
+
+  private async withRetry<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      if (this.closed || !this.isPoolEndedError(error)) {
+        throw error;
+      }
+      await this.reconnect();
+      return operation();
+    }
   }
 
   public async scheduleRecurringJob(input: {
@@ -128,23 +199,28 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
     data?: Record<string, unknown>;
     key?: string;
   }): Promise<void> {
-    await this.ensureSchema();
-    try {
-      await this.boss.createQueue(input.queue);
-    } catch {
-      // queue may already exist
-    }
-    await this.boss.schedule(input.queue, input.cron, input.data ?? null, {
-      key: input.key
+    return this.withRetry(async () => {
+      await this.ensureSchema();
+      try {
+        await this.boss.createQueue(input.queue);
+      } catch {
+        // queue may already exist
+      }
+      await this.boss.schedule(input.queue, input.cron, input.data ?? null, {
+        key: input.key
+      });
     });
   }
 
   public async unscheduleRecurringJob(input: { queue: string; key?: string }): Promise<void> {
-    await this.ensureSchema();
-    await this.boss.unschedule(input.queue, input.key);
+    return this.withRetry(async () => {
+      await this.ensureSchema();
+      await this.boss.unschedule(input.queue, input.key);
+    });
   }
 
   public async enqueue(input: NewProposalInput, now: Date = new Date()): Promise<ProposalRecord> {
+    return this.withRetry(async () => {
     await this.ensureSchema();
     const id = nextProposalId(now.getTime());
     const record = buildProposal(input, now, id);
@@ -184,9 +260,11 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
     }
 
     return record;
+    });
   }
 
   public async list(options: ListProposalsOptions = {}): Promise<ProposalRecord[]> {
+    return this.withRetry(async () => {
     await this.ensureSchema();
     const values: Array<string | number> = [];
     const clauses: string[] = [];
@@ -240,22 +318,26 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
     }
 
     return records;
+    });
   }
 
   public async get(id: string): Promise<ProposalRecord | null> {
-    await this.ensureSchema();
-    const result = await this.pool.query<ProposalRow>(
-      [
-        "SELECT id, resource_type, name, content, confidence, source_event, origin, created_at, resolved_at, reject_reason, approval_json, status, boss_job_id",
-        "FROM resource_proposals WHERE id = $1"
-      ].join("\n"),
-      [id]
-    );
-    const row = result.rows[0];
-    return row ? mapRow(row) : null;
+    return this.withRetry(async () => {
+      await this.ensureSchema();
+      const result = await this.pool.query<ProposalRow>(
+        [
+          "SELECT id, resource_type, name, content, confidence, source_event, origin, created_at, resolved_at, reject_reason, approval_json, status, boss_job_id",
+          "FROM resource_proposals WHERE id = $1"
+        ].join("\n"),
+        [id]
+      );
+      const row = result.rows[0];
+      return row ? mapRow(row) : null;
+    });
   }
 
   public async approve(id: string): Promise<ProposalRecord> {
+    return this.withRetry(async () => {
     const current = await this.requirePending(id);
     const approval = ensureApprovalState(current.record);
     const now = new Date().toISOString();
@@ -279,9 +361,11 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
         finalApprovedAt: now
       }
     });
+    });
   }
 
   public async reject(id: string, reason: string): Promise<ProposalRecord> {
+    return this.withRetry(async () => {
     const trimmed = reason.trim();
     if (trimmed.length === 0) {
       throw new Error("rejectReason must not be empty");
@@ -308,12 +392,14 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
         rejectedAt: now
       }
     });
+    });
   }
 
   public async approveStage(
     id: string,
     input: { stage: ApprovalStage; actor: string; comment?: string }
   ): Promise<ProposalRecord> {
+    return this.withRetry(async () => {
     const current = await this.requirePending(id);
     const approval = ensureApprovalState(current.record);
     if (approval.currentStage !== input.stage) {
@@ -358,12 +444,14 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
         history
       }
     });
+    });
   }
 
   public async rejectStage(
     id: string,
     input: { stage: ApprovalStage; actor: string; reason: string }
   ): Promise<ProposalRecord> {
+    return this.withRetry(async () => {
     const current = await this.requirePending(id);
     const approval = ensureApprovalState(current.record);
     if (approval.currentStage !== input.stage) {
@@ -394,9 +482,11 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
         rejectedAt: now
       }
     });
+    });
   }
 
   public async summarize(): Promise<ProposalQueueSummary> {
+    // list() already wraps with withRetry; no need to re-wrap
     const rows = await this.list();
     const summary: ProposalQueueSummary = {
       pending: 0,

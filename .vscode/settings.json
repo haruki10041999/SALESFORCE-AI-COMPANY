@@ -169,5 +169,16 @@
             "matchCommandLine": true
         }
     },
-    "sqltools.connections": []
+    "sqltools.connections": [
+        {
+            "ssh": "Disabled",
+            "previewLimit": 50,
+            "server": "localhost",
+            "port": 5432,
+            "driver": "PostgreSQL",
+            "name": "sfai",
+            "database": "sfai",
+            "username": "sfai"
+        }
+    ]
 }

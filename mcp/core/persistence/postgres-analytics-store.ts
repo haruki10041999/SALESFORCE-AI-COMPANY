@@ -332,6 +332,81 @@ export class PostgresAnalyticsStore {
     return payload as unknown as QuerySkillIncrementalModel;
   }
 
+  public async loadNamedModelPublic(name: string): Promise<Record<string, unknown> | null> {
+    return this.loadNamedModel(name);
+  }
+
+  public async appendSkillRatingEntries(entries: Array<{
+    skill: string;
+    rating: number;
+    topic?: string;
+    note?: string;
+    recordedAt: string;
+  }>): Promise<void> {
+    if (entries.length === 0) {
+      return;
+    }
+    await this.ensureSchema();
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      for (const entry of entries) {
+        await client.query(
+          [
+            "INSERT INTO skill_rating_entries(id, skill, rating, topic, note, recorded_at, payload)",
+            "VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::jsonb)"
+          ].join("\n"),
+          [
+            this.createId(),
+            entry.skill,
+            entry.rating,
+            entry.topic ?? null,
+            entry.note ?? null,
+            entry.recordedAt,
+            JSON.stringify(entry)
+          ]
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async listSkillRatingEntries(): Promise<Array<{
+    skill: string;
+    rating: number;
+    topic?: string;
+    note?: string;
+    recordedAt: string;
+  }>> {
+    await this.ensureSchema();
+    const result = await this.pool.query<{
+      skill: string;
+      rating: number;
+      topic: string | null;
+      note: string | null;
+      recorded_at: Date | string;
+    }>([
+      "SELECT skill, rating, topic, note, recorded_at",
+      "FROM skill_rating_entries",
+      "ORDER BY recorded_at ASC"
+    ].join("\n"));
+    return result.rows.map((row) => {
+      const entry: { skill: string; rating: number; topic?: string; note?: string; recordedAt: string } = {
+        skill: row.skill,
+        rating: row.rating,
+        recordedAt: row.recorded_at instanceof Date ? row.recorded_at.toISOString() : String(row.recorded_at)
+      };
+      if (row.topic !== null) entry.topic = row.topic;
+      if (row.note !== null) entry.note = row.note;
+      return entry;
+    });
+  }
+
   public async insertAgentReputationRecord(record: AgentReputationRecord): Promise<void> {
     await this.ensureSchema();
     await this.pool.query(
@@ -761,6 +836,19 @@ export class PostgresAnalyticsStore {
       ")"
     ].join("\n"));
     await client.query("CREATE INDEX IF NOT EXISTS idx_failure_memory_entries_recorded_at ON failure_memory_entries(recorded_at DESC)");
+    await client.query([
+      "CREATE TABLE IF NOT EXISTS skill_rating_entries(",
+      "  id text PRIMARY KEY,",
+      "  skill text NOT NULL,",
+      "  rating integer NOT NULL,",
+      "  topic text,",
+      "  note text,",
+      "  recorded_at timestamptz NOT NULL,",
+      "  payload jsonb NOT NULL DEFAULT '{}'::jsonb",
+      ")"
+    ].join("\n"));
+    await client.query("CREATE INDEX IF NOT EXISTS idx_skill_rating_entries_recorded_at ON skill_rating_entries(recorded_at DESC)");
+    await client.query("CREATE INDEX IF NOT EXISTS idx_skill_rating_entries_skill ON skill_rating_entries(skill)");
   }
 
   private createId(): string {

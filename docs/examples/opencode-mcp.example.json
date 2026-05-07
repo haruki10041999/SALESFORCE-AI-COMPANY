@@ -1,16 +1,19 @@
 {
   "mcpServers": {
     "salesforce-ai-company": {
-      "command": "node",
-      "args": [
+      "type": "local",
+      "command": [
+        "node",
         "D:/Projects/mult-agent-ai/salesforce-ai-company/scripts/start-mcp-with-docker.mjs",
         "--",
-        "npx",
-        "tsx",
-        "mcp/server.ts"
+        "node",
+        "D:/Projects/mult-agent-ai/salesforce-ai-company/dist/mcp/server.js"
       ],
-      "cwd": "D:/Projects/mult-agent-ai/salesforce-ai-company",
-      "env": {
+      "environment": {
+        "DATABASE_URL": "postgres://sfai:sfai@localhost:5432/sfai",
+        "OLLAMA_BASE_URL": "http://localhost:11434",
+        "OTEL_ENABLED": "false",
+        "SF_AI_LANGSMITH_ENABLED": "false",
         "SF_AI_DOCKER_SERVICES": "postgres,ollama",
         "SF_AI_WAIT_FOR_PORTS": "5432,11434"
       }
