@@ -27,7 +27,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = join(__dirname, "..");
 
-test("project-memory supports add, search, and list copy semantics", () => {
+test("project-memory supports add, search, and list copy semantics", async () => {
   const tempRoot = mkdtempSync(join(tmpdir(), "sf-ai-memory-copy-test-"));
   const tempStorage = join(tempRoot, "memory.jsonl");
   const token = `memory-token-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -35,36 +35,36 @@ test("project-memory supports add, search, and list copy semantics", () => {
 
   try {
     configureMemoryStorageForTest(tempStorage);
-    clearMemory();
-    addMemory(searchable);
-    addMemory(`Security note ${token}`);
+    await clearMemory();
+    await addMemory(searchable);
+    await addMemory(`Security note ${token}`);
 
-    const found = searchMemory(token.toUpperCase());
+    const found = await searchMemory(token.toUpperCase());
     assert.ok(found.some((v) => v === searchable));
 
-    const snapshot = listMemory();
+    const snapshot = await listMemory();
     const injected = `injected-${token}`;
     snapshot.push(injected);
 
-    const after = listMemory();
+    const after = await listMemory();
     assert.equal(after.includes(injected), false);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
 });
 
-test("project-memory persists to disk and can be reloaded", () => {
+test("project-memory persists to disk and can be reloaded", async () => {
   const tempRoot = mkdtempSync(join(tmpdir(), "sf-ai-memory-test-"));
   const tempStorage = join(tempRoot, "memory.jsonl");
   const token = `persistent-token-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
   try {
     configureMemoryStorageForTest(tempStorage);
-    clearMemory();
-    addMemory(`Persist ${token}`);
+    await clearMemory();
+    await addMemory(`Persist ${token}`);
 
     configureMemoryStorageForTest(tempStorage);
-    const items = listMemory();
+    const items = await listMemory();
     assert.ok(items.some((item) => item.includes(token)));
   } finally {
     configureMemoryStorageForTest(join(ROOT, "outputs", "memory.jsonl"));
@@ -72,20 +72,20 @@ test("project-memory persists to disk and can be reloaded", () => {
   }
 });
 
-test("project-memory applies retention limit", () => {
+test("project-memory applies retention limit", async () => {
   const tempRoot = mkdtempSync(join(tmpdir(), "sf-ai-memory-retention-test-"));
   const tempStorage = join(tempRoot, "memory.jsonl");
 
   try {
     configureMemoryStorageForTest(tempStorage);
     configureMemoryLimitsForTest({ maxRecords: 10, maxBytes: 1000000 });
-    clearMemory();
+    await clearMemory();
 
     for (let i = 0; i < 15; i += 1) {
-      addMemory(`memory-${i}`);
+      await addMemory(`memory-${i}`);
     }
 
-    const items = listMemory();
+    const items = await listMemory();
     assert.equal(items.length, 10);
     assert.equal(items[0], "memory-5");
   } finally {

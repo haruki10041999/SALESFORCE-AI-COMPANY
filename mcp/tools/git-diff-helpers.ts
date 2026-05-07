@@ -11,11 +11,11 @@ export type DiffFile = {
   oldPath?: string;
 };
 
-export function runGit(repoPath: string, args: string[]): string {
-  const repoCheck = runSchemaValidation(SafeFilePathSchema, repoPath);
-  if (!repoCheck.success) {
-    throw new Error(`Invalid repoPath: ${repoCheck.errors.join(", ")}`);
-  }
+/**
+ * Git リポジトリの指定パスで git コマンドを実行する。
+ * 内部的には execFileSync で実行し、後で simple-git に移行可能な設計にする。
+ */
+function runGitRaw(repoPath: string, args: string[]): string {
   try {
     return execFileSync("git", args, {
       cwd: repoPath,
@@ -27,6 +27,14 @@ export function runGit(repoPath: string, args: string[]): string {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`git command failed (${args.join(" ")}): ${message}`);
   }
+}
+
+export function runGit(repoPath: string, args: string[]): string {
+  const repoCheck = runSchemaValidation(SafeFilePathSchema, repoPath);
+  if (!repoCheck.success) {
+    throw new Error(`Invalid repoPath: ${repoCheck.errors.join(", ")}`);
+  }
+  return runGitRaw(repoPath, args);
 }
 
 export function validateRef(ref: string, fieldName: string): void {
@@ -110,6 +118,30 @@ function parseNumStat(output: string): Map<string, { additions: number; deletion
   return result;
 }
 
+export async function getDiffFilesAsync(repoPath: string, comparison: string): Promise<DiffFile[]> {
+  const nameStatus = parseNameStatus(runGit(repoPath, ["diff", "--name-status", comparison]));
+  const numStat = parseNumStat(runGit(repoPath, ["diff", "--numstat", comparison]));
+
+  const files: DiffFile[] = [];
+
+  for (const [path, info] of nameStatus.entries()) {
+    const num = numStat.get(path) ?? { additions: 0, deletions: 0 };
+    files.push({
+      path,
+      status: info.status,
+      additions: num.additions,
+      deletions: num.deletions,
+      oldPath: info.oldPath
+    });
+  }
+
+  files.sort((a, b) => (b.additions + b.deletions) - (a.additions + a.deletions));
+  return files;
+}
+
+/**
+ * 後方互換性を保つため同期版を提供するが、使用は非推奨
+ */
 export function getDiffFiles(repoPath: string, comparison: string): DiffFile[] {
   const nameStatus = parseNameStatus(runGit(repoPath, ["diff", "--name-status", comparison]));
   const numStat = parseNumStat(runGit(repoPath, ["diff", "--numstat", comparison]));

@@ -7,6 +7,15 @@ interface OrchestrationSessionShape {
   history: Array<unknown>;
 }
 
+export interface OrchestrationSessionSummary {
+  id: string;
+  topic: string;
+  agents: string[];
+  queueLength: number;
+  historyCount: number;
+  firedRuleCount: number;
+}
+
 interface CreateOrchestrationSessionStoreDeps<TSession extends OrchestrationSessionShape> {
   sessionsDir: string;
   ensureDir: (dir: string) => Promise<void>;
@@ -134,9 +143,42 @@ export function createOrchestrationSessionStore<TSession extends OrchestrationSe
     }
   }
 
+  async function listOrchestrationSessions(): Promise<OrchestrationSessionSummary[]> {
+    await ensureDir(sessionsDir);
+    const files = await fsPromises.readdir(sessionsDir);
+    const sessions: OrchestrationSessionSummary[] = [];
+
+    for (const file of files) {
+      if (!file.endsWith(".json")) continue;
+      try {
+        const raw = await fsPromises.readFile(join(sessionsDir, file), "utf-8");
+        const s = JSON.parse(raw) as TSession & Partial<{
+          topic: string;
+          agents: string[];
+          queue: unknown[];
+          firedRules: string[];
+        }>;
+        sessions.push({
+          id: s.id,
+          topic: s.topic ?? "",
+          agents: Array.isArray(s.agents) ? s.agents : [],
+          queueLength: Array.isArray(s.queue) ? s.queue.length : 0,
+          historyCount: Array.isArray(s.history) ? s.history.length : 0,
+          firedRuleCount: Array.isArray(s.firedRules) ? s.firedRules.length : 0
+        });
+      } catch {
+        // ignore corrupted session files
+      }
+    }
+
+    sessions.sort((a, b) => b.id.localeCompare(a.id));
+    return sessions;
+  }
+
   return {
     saveOrchestrationSession,
     restoreOrchestrationSession,
+    listOrchestrationSessions,
     deleteOldSessions
   };
 }

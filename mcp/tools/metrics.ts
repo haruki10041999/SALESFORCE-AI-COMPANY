@@ -10,6 +10,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PostgresAnalyticsStore } from "../core/persistence/postgres-analytics-store.js";
 
 export interface ToolMetricSample {
   toolName: string;
@@ -49,6 +50,10 @@ const collectedSince = new Date().toISOString();
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DEFAULT_METRICS_FILE = join(ROOT, "outputs", "events", "metrics-samples.jsonl");
 let storageFilePath = process.env.SF_AI_METRICS_FILE ?? DEFAULT_METRICS_FILE;
+const analyticsStorePromise = process.env.DATABASE_URL
+  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
+  : Promise.resolve(null);
+let metricsBootstrapPromise: Promise<void> | null = null;
 
 function loadFromDisk(): void {
   samples.length = 0;
@@ -89,6 +94,24 @@ function loadFromDisk(): void {
   }
 }
 
+function loadFromPersistentStore(): void {
+  if (metricsBootstrapPromise) {
+    return;
+  }
+  metricsBootstrapPromise = (async () => {
+    const analyticsStore = await analyticsStorePromise;
+    if (!analyticsStore) {
+      loadFromDisk();
+      return;
+    }
+    const stored = await analyticsStore.listMetrics(MAX_SAMPLES);
+    samples.length = 0;
+    samples.push(...stored);
+  })().catch(() => {
+    loadFromDisk();
+  });
+}
+
 function saveToDisk(): void {
   try {
     mkdirSync(dirname(storageFilePath), { recursive: true });
@@ -105,7 +128,34 @@ export function recordMetric(sample: ToolMetricSample): void {
   if (samples.length > MAX_SAMPLES) {
     samples.splice(0, samples.length - MAX_SAMPLES);
   }
-  saveToDisk();
+  if (!process.env.DATABASE_URL) {
+    saveToDisk();
+    // T-OBS-02: Prometheus にも fan-out (動的 import で no-op フォールバック)
+    void import("../core/observability/prometheus-metrics.js")
+      .then((m) => {
+        m.recordToolExecutionForPrometheus({
+          toolName: sample.toolName,
+          status: sample.status === "success" ? "success" : "error",
+          durationMs: sample.durationMs
+        });
+      })
+      .catch(() => {
+        // module 解決失敗時は静かに無視
+      });
+    return;
+  }
+
+  void analyticsStorePromise
+    .then(async (analyticsStore) => {
+      if (analyticsStore) {
+        await analyticsStore.appendMetric(sample);
+        return;
+      }
+      saveToDisk();
+    })
+    .catch(() => {
+      saveToDisk();
+    });
   // T-OBS-02: Prometheus にも fan-out (動的 import で no-op フォールバック)
   void import("../core/observability/prometheus-metrics.js")
     .then((m) => {
@@ -184,7 +234,21 @@ export function getMetricsSummary(): MetricsSummary {
 /** メトリクスをリセット（テスト用途） */
 export function resetMetrics(): void {
   samples.splice(0, samples.length);
-  saveToDisk();
+  if (!process.env.DATABASE_URL) {
+    saveToDisk();
+    return;
+  }
+  void analyticsStorePromise
+    .then(async (analyticsStore) => {
+      if (analyticsStore) {
+        await analyticsStore.clearMetrics();
+        return;
+      }
+      saveToDisk();
+    })
+    .catch(() => {
+      saveToDisk();
+    });
 }
 
 export function configureMetricsStorageForTest(filePath: string): void {
@@ -193,3 +257,6 @@ export function configureMetricsStorageForTest(filePath: string): void {
 }
 
 loadFromDisk();
+if (process.env.DATABASE_URL) {
+  loadFromPersistentStore();
+}

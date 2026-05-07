@@ -695,7 +695,7 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
     {
       title: "Observability Dashboard",
       description:
-        "trace + system_event + governance_state を join した HTML/Markdown ダッシュボードを生成し、outputs/dashboards/observability.* に保存します。",
+        "trace + system_event + governance_state を join したダッシュボードを生成します。必要時のみ write=true かつ保存先指定でファイル保存します。",
       inputSchema: {
         eventLimit: z.number().int().min(50).max(5000).optional(),
         traceLimit: z.number().int().min(10).max(500).optional(),
@@ -759,7 +759,7 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
       });
 
       const dashboardsDir = join(outputsDir, "dashboards");
-      const shouldWrite = write !== false;
+      const shouldWrite = write === true;
       if (shouldWrite) {
         await ensureDir(dashboardsDir);
         await fsPromises.writeFile(join(dashboardsDir, "observability.html"), report.html, "utf-8");
@@ -782,7 +782,11 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
                 summary: report.summary,
                 correlations: report.correlations,
                 governanceFlagged: report.governanceFlagged,
-                writtenTo: shouldWrite ? dashboardsDir : null
+                writtenTo: shouldWrite ? dashboardsDir : null,
+                persisted: shouldWrite,
+                persistenceNotice: shouldWrite
+                  ? `dashboard files were written to ${dashboardsDir}`
+                  : "write=true is not provided; dashboard file persistence is skipped"
               },
               null,
               2

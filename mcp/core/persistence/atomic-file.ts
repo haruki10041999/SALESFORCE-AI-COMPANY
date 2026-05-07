@@ -1,44 +1,20 @@
 import { promises as fsPromises } from "node:fs";
-import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
+import writeFileAtomic from "write-file-atomic";
 
-export function buildTempFilePath(targetFile: string): string {
-  const targetDir = dirname(targetFile);
-  const targetBase = basename(targetFile);
-  return join(targetDir, `.${targetBase}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`);
-}
-
-export async function removeIfExists(targetFile: string): Promise<void> {
-  try {
-    await fsPromises.unlink(targetFile);
-  } catch {
-    // 削除競合や未存在は無視する。
-  }
-}
-
-export async function renameOrReplace(sourceFile: string, targetFile: string): Promise<void> {
-  try {
-    await fsPromises.rename(sourceFile, targetFile);
-  } catch {
-    try {
-      const payload = await fsPromises.readFile(sourceFile, "utf-8");
-      await fsPromises.writeFile(targetFile, payload, "utf-8");
-    } finally {
-      await removeIfExists(sourceFile);
-    }
-  }
-}
-
-export async function createStagedTextFile(targetFile: string, payload: string): Promise<string> {
-  await fsPromises.mkdir(dirname(targetFile), { recursive: true });
-  const tempFile = buildTempFilePath(targetFile);
-  await fsPromises.writeFile(tempFile, payload, "utf-8");
-  return tempFile;
-}
-
+/**
+ * write-file-atomic を使用してアトミックにファイルを書き込む。
+ * 
+ * write-file-atomic:
+ * - 一時ファイルへの書き込み
+ * - 原子的な rename で置き換え
+ * - エラー時の自動クリーンアップ
+ * - プロセス終了時の cleanup ハンドラ登録
+ */
 export async function writeTextFileAtomic(targetFile: string, payload: string): Promise<void> {
-  const tempFile = await createStagedTextFile(targetFile, payload);
-  await renameOrReplace(tempFile, targetFile);
+  await fsPromises.mkdir(dirname(targetFile), { recursive: true });
+  // write-file-atomic returns a Promise when called without callback
+  return writeFileAtomic(targetFile, payload, { encoding: "utf-8" });
 }
 
 export async function appendTextFileAtomic(targetFile: string, appendedText: string): Promise<void> {
@@ -51,9 +27,24 @@ export async function appendTextFileAtomic(targetFile: string, appendedText: str
   await writeTextFileAtomic(targetFile, current + appendedText);
 }
 
+export async function removeIfExists(targetFile: string): Promise<void> {
+  try {
+    await fsPromises.unlink(targetFile);
+  } catch {
+    // 削除競合や未存在は無視する。
+  }
+}
+
+/**
+ * cleanupStaleTempFiles
+ * 
+ * 古いスタイルの temp ファイルをクリーンアップする。
+ * パターン: `.${basename}.${pid}.${timestamp}.tmp` または `.${basename}.${pid}.${random}.tmp`
+ */
 export async function cleanupStaleTempFiles(targetFile: string): Promise<void> {
   const targetDir = dirname(targetFile);
-  const tempPrefix = `.${basename(targetFile)}.`;
+  const targetBase = basename(targetFile);
+  const tempPrefix = `.${targetBase}.`;
 
   try {
     const entries = await fsPromises.readdir(targetDir, { withFileTypes: true });

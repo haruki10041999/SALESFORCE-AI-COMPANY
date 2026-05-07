@@ -40,10 +40,9 @@ graph TB
         REG["register-*.ts (19+)"]
     end
 
-    subgraph Output["outputs/"]
-        GOVSTATE["governance.json"]
-        EVENTS["events/"]
-        PRESETS["presets/"]
+    subgraph Storage["Storage"]
+        PG[(Postgres)]
+        OUT["outputs/ (artifacts/fallback)"]
     end
 
     USER -->|MCP| GOVTOOL
@@ -58,7 +57,7 @@ graph TB
     EVT --> AUTOINIT
     AUTOINIT --> REG
     REG --> STATS
-    EVT --> Output
+    EVT --> Storage
 ```
 
 ---
@@ -127,8 +126,7 @@ sequenceDiagram
     actor User
     participant Server as MCP Server
     participant Session as OrchestrationSession (Memory)
-    participant FS as outputs/sessions/
-    participant Graph as outputs/agent-graph.jsonl
+    participant DB as Postgres (session/learning)
 
     User->>Server: orchestrate_chat(topic, agents, triggerRules)
     Server->>Server: buildChatPrompt()
@@ -137,7 +135,7 @@ sequenceDiagram
 
     loop 会話ループ（クライアント側）
         User->>Server: dequeue_next_agent(sessionId)
-        Server->>Graph: 過去シーケンスをロード
+        Server->>DB: 過去シーケンスをロード
         Server->>Session: 推奨順へ並べ替え 후 queue.shift()
         Server-->>User: { dequeued: ["apex-developer"], remainingQueue, graphRecommendation }
 
@@ -155,14 +153,14 @@ sequenceDiagram
         Server-->>User: { nextAgents, reasons }
 
         alt キューが空
-            Server->>Graph: 完了シーケンスを追記学習
+            Server->>DB: 完了シーケンスを追記学習
             Server->>Server: session_end イベント発火
         end
     end
 
     opt セッション保存
         User->>Server: save_orchestration_session(sessionId)
-        Server->>FS: sessions/{sessionId}.json に書き込み
+        Server->>DB: セッションを保存（file backend 時は JSON fallback）
         Server-->>User: { saved: true, filePath }
     end
 ```
@@ -209,7 +207,7 @@ flowchart TD
     QUAL -- fail --> ERR4["quality_check_failed\n(品質基準未達)"]
     QUAL -- pass --> WRITE["ファイルに書き込み\n(skill .md / preset .json / tool .json)"]
     WRITE --> EVT1["resource_created イベント発火"]
-    WRITE --> LOG["operations-log.jsonl に記録"]
+    WRITE --> LOG["監査ログに記録（既定: Postgres）"]
     ERR3 --> EVT2["quality_check_failed イベント発火"]
     ERR4 --> EVT2
 ```
@@ -317,7 +315,7 @@ classDiagram
 sequenceDiagram
     participant Tool as govTool
     participant Event as EventDispatcher
-    participant Log as system-events.jsonl
+    participant Log as Postgres system_events
     participant Auto as applyEventAutomation
     participant Handler as register-*.ts
 
@@ -385,13 +383,10 @@ salesforce-ai-company/
 ├── personas/        (15 個)
 ├── context/      (全プロンプトに自動注入)
 ├── outputs/
-│   ├── presets/
-│   ├── history/          (.json 都度生成)
-│   ├── sessions/         (.json 都度生成)
-│   ├── custom-tools/     (.json 動的生成)
-│   ├── resource-governance.json
-│   ├── system-events.jsonl
-│   └── operations-log.jsonl
+│   ├── reports/          (生成レポート)
+│   ├── dashboards/       (生成ダッシュボード)
+│   ├── benchmark/        (ベンチマーク成果物)
+│   └── ...               (fallback / 一時生成物)
 └── tests/
     ├── server-tools.integration.test.ts  ← ツール登録確認 + E2E
     ├── core-tools.test.ts
@@ -541,13 +536,13 @@ recBonus:    7日以内の更新で最大 +5
 
 | データ | 形式 | パス | 揮発性 |
 |---|---|---|---|
-| チャット履歴 | JSON | `outputs/history/{id}.json` | 永続 |
-| オーケストレーションセッション（保存済み） | JSON | `outputs/sessions/{id}.json` | 永続 |
-| システムイベントログ | JSONL | `outputs/events/system-events.jsonl` | 永続 |
-| 操作ログ（日次制限用） | JSONL | `outputs/operations-log.jsonl` | 永続 |
-| ガバナンス状態 | JSON | `outputs/resource-governance.json` | 永続 |
-| カスタムツール定義 | JSON | `outputs/custom-tools/{name}.json` | 永続 |
-| プリセット | JSON | `outputs/presets/{name}.json` | 永続 |
+| チャット履歴 | DB Record | Postgres history store（fallback: `outputs/history/{id}.json`） | 永続 |
+| オーケストレーションセッション（保存済み） | DB Record | Postgres session store（fallback: `outputs/sessions/{id}.json`） | 永続 |
+| システムイベントログ | DB Record | Postgres `system_events`（fallback: `outputs/events/system-events.jsonl`） | 永続 |
+| 操作監査ログ | DB Record | Postgres audit logs（fallback: `outputs/operations-log.jsonl`） | 永続 |
+| ガバナンス状態 | DB Record | Postgres state backend（fallback: `outputs/resource-governance.json`） | 永続 |
+| カスタムツール定義 | JSON | custom-tools 定義（運用により file artifact を利用） | 永続 |
+| プリセット | JSON/DB | Preset store（backend により保存先が異なる） | 永続 |
 | エージェントログ（agentLog） | メモリ配列 | — | **揮発** |
 | オーケストレーションセッション（Map） | メモリ Map | — | **揮発**（save で永続化可） |
 | インメモリ文字列ストア | メモリ配列 | — | **揮発** |

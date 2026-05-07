@@ -8,7 +8,10 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import net from "node:net";
 import { fileURLToPath } from "node:url";
+import { config as loadDotenv } from "dotenv";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -21,12 +24,9 @@ function loadEnvFile() {
   const envPath = join(ROOT, ".env");
   if (!existsSync(envPath)) return;
   try {
-    const loader = process.loadEnvFile;
-    if (typeof loader === "function") {
-      loader.call(process, envPath);
-    }
+    loadDotenv({ path: envPath, override: false, processEnv: process.env });
   } catch {
-    // Node 20.6 未満や読み込み失敗は無視
+    // 読み込み失敗は無視
   }
 }
 loadEnvFile();
@@ -53,6 +53,41 @@ function daysAgo(ms) {
   return Math.floor((Date.now() - ms) / (24 * 60 * 60 * 1000));
 }
 
+function parsePortFromUrl(url, fallbackPort) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.port) {
+      const value = Number.parseInt(parsed.port, 10);
+      if (Number.isFinite(value)) return value;
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return fallbackPort;
+}
+
+async function checkTcpPort(host, port, timeoutMs = 2500) {
+  await new Promise((resolvePromise, rejectPromise) => {
+    const socket = net.createConnection({ host, port });
+    const timer = setTimeout(() => {
+      socket.destroy();
+      rejectPromise(new Error("timeout"));
+    }, timeoutMs);
+
+    socket.once("connect", () => {
+      clearTimeout(timer);
+      socket.end();
+      resolvePromise();
+    });
+
+    socket.once("error", (error) => {
+      clearTimeout(timer);
+      socket.destroy();
+      rejectPromise(error);
+    });
+  });
+}
+
 let hasError = false;
 let warningCount = 0;
 
@@ -64,6 +99,8 @@ log("INFO", `AI_PROMPT_CACHE_MAX_ENTRIES=${process.env.AI_PROMPT_CACHE_MAX_ENTRI
 log("INFO", `AI_PROMPT_CACHE_TTL_SECONDS=${process.env.AI_PROMPT_CACHE_TTL_SECONDS ?? process.env.PROMPT_CACHE_TTL_SECONDS ?? "600"}`);
 log("INFO", `AI_LLM_PROVIDER=${process.env.AI_LLM_PROVIDER ?? "ollama"}`);
 log("INFO", `OLLAMA_BASE_URL=${process.env.OLLAMA_BASE_URL ?? "http://localhost:11434"}`);
+log("INFO", `SF_AI_STATE_BACKEND=${process.env.SF_AI_STATE_BACKEND ?? "sqlite"}`);
+log("INFO", `DATABASE_URL=${process.env.DATABASE_URL ?? "(unset)"}`);
 
 // ── 2. ビルド成果物チェック ───────────────────────────────────
 const distServer = join(ROOT, "dist", "mcp", "server.js");
@@ -181,6 +218,34 @@ if (existsSync(sessionDir)) {
 }
 
 // ── 6. Ollama 疎通確認 (任意) ─────────────────────────────────
+const dockerVersion = spawnSync("docker", ["--version"], { encoding: "utf-8" });
+if ((dockerVersion.status ?? 1) === 0) {
+  log("OK", `Docker CLI 検出: ${(dockerVersion.stdout || dockerVersion.stderr).trim()}`);
+  const dockerInfo = spawnSync("docker", ["info", "--format", "{{.ServerVersion}}"], { encoding: "utf-8" });
+  if ((dockerInfo.status ?? 1) === 0) {
+    log("OK", `Docker daemon 接続成功: server ${dockerInfo.stdout.trim()}`);
+  } else {
+    warningCount += 1;
+    log("WARN", "Docker daemon へ接続できません。Docker Desktop / Engine の起動を確認してください。");
+  }
+} else {
+  warningCount += 1;
+  log("WARN", "Docker CLI が見つかりません。Docker 必須構成では機能を利用できません。");
+}
+
+const postgresPort = parsePortFromUrl(process.env.DATABASE_URL ?? "", 5432);
+if ((process.env.SF_AI_STATE_BACKEND ?? "sqlite").toLowerCase() === "postgres") {
+  try {
+    await checkTcpPort("127.0.0.1", postgresPort, 2500);
+    log("OK", `Postgres 接続確認: 127.0.0.1:${postgresPort}`);
+  } catch (error) {
+    warningCount += 1;
+    log("WARN", `Postgres へ接続できません (127.0.0.1:${postgresPort}): ${String(error)}`);
+  }
+} else {
+  log("INFO", "SF_AI_STATE_BACKEND=sqlite: Postgres 疎通確認をスキップ。");
+}
+
 const provider = process.env.AI_LLM_PROVIDER ?? "ollama";
 if (provider !== "heuristic") {
   const ollamaUrl = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";

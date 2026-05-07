@@ -115,6 +115,8 @@ test("handlers integration - orchestration event flow enqueues next agent", asyn
 
 test("handlers integration - cleanup scheduler create and due evaluation", async () => {
   const scheduleName = `handlers-schedule-${Date.now().toString(36)}`;
+  const evaluationTime = new Date();
+  evaluationTime.setSeconds(0, 0);
 
   const created = parseFirstJson<{
     created?: { id: string; name: string; cron: string };
@@ -134,7 +136,7 @@ test("handlers integration - cleanup scheduler create and due evaluation", async
     due: Array<{ id: string; name: string }>;
   }>(await callTool("governance_auto_cleanup_schedule", {
     operation: "due",
-    when: new Date().toISOString()
+    when: evaluationTime.toISOString()
   }));
 
   assert.ok(Array.isArray(due.due));

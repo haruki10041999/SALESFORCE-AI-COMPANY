@@ -4,7 +4,7 @@
 
 ## 1. 共通前提
 
-- 入力データ: `outputs/events/metrics-samples.jsonl`
+- 入力データ: Postgres `metrics_samples`（fallback: `outputs/events/metrics-samples.jsonl`）
 - 1レコードに含まれる主な項目:
   - `toolName`
   - `startedAt`

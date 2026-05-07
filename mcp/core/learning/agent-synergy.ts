@@ -11,6 +11,7 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,6 +53,9 @@ export type AgentPersonaWeeklySeries = {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_PATH = "outputs/learning/agent-synergy.jsonl";
+const analyticsStorePromise = process.env.DATABASE_URL
+  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
+  : Promise.resolve(null);
 
 function resolvePath(filePath?: string): string {
   return resolve(filePath ?? DEFAULT_PATH);
@@ -68,8 +72,17 @@ export function recordAgentSynergySession(
   filePath?: string
 ): void {
   const fp = resolvePath(filePath);
-  ensureDir(fp);
-  appendFileSync(fp, JSON.stringify(record) + "\n", "utf-8");
+  void analyticsStorePromise.then(async (analyticsStore) => {
+    if (analyticsStore && (!filePath || fp === resolvePath(DEFAULT_PATH))) {
+      await analyticsStore.insertAgentSynergyRecord(record);
+      return;
+    }
+    ensureDir(fp);
+    appendFileSync(fp, JSON.stringify(record) + "\n", "utf-8");
+  }).catch(() => {
+    ensureDir(fp);
+    appendFileSync(fp, JSON.stringify(record) + "\n", "utf-8");
+  });
 }
 
 /** JSONL ファイルから全レコードをロードする。 */
@@ -87,6 +100,15 @@ export function loadAgentSynergyRecords(filePath?: string): AgentSynergyRecord[]
     }
   }
   return records;
+}
+
+export async function loadAgentSynergyRecordsAsync(filePath?: string): Promise<AgentSynergyRecord[]> {
+  const fp = resolvePath(filePath);
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore && (!filePath || fp === resolvePath(DEFAULT_PATH))) {
+    return analyticsStore.listAgentSynergyRecords();
+  }
+  return loadAgentSynergyRecords(filePath);
 }
 
 // ---------------------------------------------------------------------------

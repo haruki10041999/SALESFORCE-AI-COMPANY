@@ -17,6 +17,8 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { Cron } from "croner";
+import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
 import { writeTextFileAtomic } from "../persistence/unit-of-work.js";
 
 export type CleanupScheduleStatus = "active" | "paused";
@@ -46,6 +48,9 @@ export interface CleanupSchedulesFile {
 export const CLEANUP_SCHEDULES_FILE_VERSION = 1;
 
 const DEFAULT_RELATIVE_PATH = join("outputs", "cleanup-schedules.json");
+const analyticsStorePromise = process.env.DATABASE_URL
+  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
+  : Promise.resolve(null);
 
 function isPositiveInt(value: unknown, max?: number): boolean {
   if (typeof value !== "number" || !Number.isFinite(value)) return false;
@@ -120,6 +125,13 @@ export interface ParsedCronExpression {
  */
 export function parseCronExpression(expr: string): ParsedCronExpression | null {
   if (typeof expr !== "string") return null;
+  try {
+    // Croner parser validation (alignment with standard cron semantics)
+    // eslint-disable-next-line no-new
+    new Cron(expr, { paused: true, maxRuns: 1 });
+  } catch {
+    return null;
+  }
   const fields = expr.trim().split(/\s+/);
   if (fields.length !== 5) return null;
   const [m, h, dom, mon, dow] = fields;
@@ -136,15 +148,12 @@ export function parseCronExpression(expr: string): ParsedCronExpression | null {
  * cron 表現が指定時刻にマッチするか判定する（秒は無視）。
  */
 export function cronMatches(expr: string, when: Date): boolean {
-  const parsed = parseCronExpression(expr);
-  if (!parsed) return false;
-  return (
-    parsed.minutes.has(when.getMinutes()) &&
-    parsed.hours.has(when.getHours()) &&
-    parsed.daysOfMonth.has(when.getDate()) &&
-    parsed.months.has(when.getMonth() + 1) &&
-    parsed.daysOfWeek.has(when.getDay())
-  );
+  try {
+    const cron = new Cron(expr, { paused: true, maxRuns: 1 });
+    return cron.match(when);
+  } catch {
+    return false;
+  }
 }
 
 function buildEmptyFile(): CleanupSchedulesFile {
@@ -160,6 +169,11 @@ export function getDefaultSchedulesFilePath(rootDir: string): string {
 }
 
 export async function loadCleanupSchedules(filePath: string): Promise<CleanupSchedulesFile> {
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    return analyticsStore.loadCleanupSchedules();
+  }
+
   if (!existsSync(filePath)) {
     return buildEmptyFile();
   }
@@ -213,6 +227,16 @@ export async function saveCleanupSchedules(
   filePath: string,
   data: CleanupSchedulesFile
 ): Promise<void> {
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    await analyticsStore.saveCleanupSchedules({
+      ...data,
+      version: CLEANUP_SCHEDULES_FILE_VERSION,
+      updatedAt: new Date().toISOString()
+    });
+    return;
+  }
+
   await ensureParentDir(filePath);
   const payload: CleanupSchedulesFile = {
     ...data,

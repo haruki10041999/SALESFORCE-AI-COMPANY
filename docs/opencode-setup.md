@@ -32,9 +32,9 @@ docker compose up -d postgres ollama
 
 `npm run init` を実行すると、次の生成物がそろいます。
 
-- `outputs/` の初期ディレクトリ
+- `setup/` の初期ディレクトリ
 - `.env` 雛形（未作成時のみ）
-- Docker 起動ラッパー込みの OpenCode 用生成済み設定例: `outputs/setup/opencode-mcp.local.json`
+- Docker 起動ラッパー込みの OpenCode 用生成済み設定例: `setup/opencode-mcp.local.json`
 
 このとき使われる主要パスは次のとおりです。
 
@@ -45,8 +45,7 @@ docker compose up -d postgres ollama
 補足:
 
 - `dist/mcp/server.js` が無ければ OpenCode から起動できません
-- outputs を共通化したい場合は `SF_AI_OUTPUTS_DIR` を絶対パスで指定します
-- 例ファイルでは `SF_AI_OUTPUTS_BACKUP_DIR` も指定しています。バックアップ運用をするなら合わせて設定してください
+- 既定保存先を Postgres にするため `DATABASE_URL` を設定します
 - `npm run init` が生成する設定は [../scripts/start-mcp-with-docker.mjs](../scripts/start-mcp-with-docker.mjs) を使う前提です
 
 ## 3. OpenCode で実際に編集する場所
@@ -82,7 +81,7 @@ VS Code ではワークスペース設定として [../.vscode/mcp.json](../.vsc
 コピー元は [examples/opencode-mcp.example.json](./examples/opencode-mcp.example.json) です。  
 OpenCode 側の MCP 設定に、`salesforce-ai-company` エントリを追加してください。
 
-`npm run init` 実行後は、生成済みの `outputs/setup/opencode-mcp.local.json` をそのまま流用して構いません。
+`npm run init` 実行後は、生成済みの `setup/opencode-mcp.local.json` をそのまま流用して構いません。
 
 Docker 依存サービスも同時に自動起動したい場合は、
 [examples/opencode-mcp.with-docker.example.json](./examples/opencode-mcp.with-docker.example.json) をベースにしてください。
@@ -99,8 +98,7 @@ Docker 依存サービスも同時に自動起動したい場合は、
       ],
       "cwd": "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor",
       "env": {
-        "SF_AI_OUTPUTS_DIR": "D:/shared/sf-ai-outputs",
-        "SF_AI_OUTPUTS_BACKUP_DIR": "D:/shared/sf-ai-outputs/backups"
+        "DATABASE_URL": "postgres://sfai:sfai@localhost:5432/sfai"
       }
     }
   }
@@ -122,8 +120,7 @@ OpenCode のバージョンによってはトップレベルキーが `servers` 
       ],
       "cwd": "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor",
       "env": {
-        "SF_AI_OUTPUTS_DIR": "D:/shared/sf-ai-outputs",
-        "SF_AI_OUTPUTS_BACKUP_DIR": "D:/shared/sf-ai-outputs/backups"
+        "DATABASE_URL": "postgres://sfai:sfai@localhost:5432/sfai"
       }
     }
   }
@@ -135,7 +132,7 @@ OpenCode のバージョンによってはトップレベルキーが `servers` 
 - `command` は `node`
 - `args[0]` はこのリポジトリのビルド済みファイル `dist/mcp/server.js`
 - `cwd` はこのリポジトリのルートフォルダ
-- `SF_AI_OUTPUTS_DIR` は任意。共有出力が不要なら削除しても構いません
+- `DATABASE_URL` は推奨。Postgres を既定保存先にする場合は必須です
 - パス区切りは Windows では `/` でも動作します
 
 ### 4.4 Docker 依存サービスも自動起動する例
@@ -157,8 +154,7 @@ OpenCode でも VS Code でも、MCP サーバーの `command` / `args` に
       ],
       "cwd": "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor",
       "env": {
-        "SF_AI_OUTPUTS_DIR": "D:/shared/sf-ai-outputs",
-        "SF_AI_OUTPUTS_BACKUP_DIR": "D:/shared/sf-ai-outputs/backups",
+        "DATABASE_URL": "postgres://sfai:sfai@localhost:5432/sfai",
         "SF_AI_DOCKER_SERVICES": "postgres,ollama",
         "SF_AI_WAIT_FOR_PORTS": "5432,11434"
       }

@@ -5,6 +5,8 @@ import { analyzeRepo } from "../tools/repo-analyzer.js";
 import { formatErrorMessage } from "../core/errors/tool-error.js";
 import { createLogger } from "../core/logging/logger.js";
 import { scoreByQuery } from "../core/resource/topic-skill-ranking.js";
+import { cosineSimilarity } from "../core/llm/embedding-provider.js";
+import { getDefaultLangChainEmbeddingProvider } from "../core/llm/langchain-embedding.js";
 import {
   getAgentTrustScoringEnabled,
   getAgentTrustThreshold
@@ -44,6 +46,28 @@ function summarizeProactiveRagMatches(
     lines.push(`- [${match.id}]${score} ${snippet}`);
   }
   return lines.join("\n");
+}
+
+async function rerankMatchesWithLangChain(
+  topic: string,
+  matches: Array<{ id: string; text: string; score?: number }>
+): Promise<Array<{ id: string; text: string; score?: number }>> {
+  if (matches.length <= 1) {
+    return matches;
+  }
+
+  const provider = getDefaultLangChainEmbeddingProvider();
+  const queryVector = await provider.embed(topic);
+  const scored = await Promise.all(matches.map(async (item) => {
+    const itemVector = await provider.embed(item.text);
+    return {
+      ...item,
+      score: cosineSimilarity(queryVector, itemVector)
+    };
+  }));
+
+  scored.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  return scored;
 }
 
 function extractExistingFilePathsFromTopic(topic: string): string[] {
@@ -111,6 +135,9 @@ export function registerSmartChatTools(deps: RegisterSmartChatToolsDeps): void {
       if (searchByKeywordAsync) {
         try {
           proactiveRagMatches = await searchByKeywordAsync(topic, { limit: 3, minScore: 0.1 });
+          if ((process.env.SF_AI_LLM_CLIENT ?? "native").toLowerCase() === "langchain") {
+            proactiveRagMatches = await rerankMatchesWithLangChain(topic, proactiveRagMatches);
+          }
         } catch (err) {
           const error = formatErrorMessage(err);
           logger.warn("proactive vector retrieval failed", { error });

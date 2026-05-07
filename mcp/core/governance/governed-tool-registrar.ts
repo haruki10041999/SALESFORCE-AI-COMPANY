@@ -7,6 +7,7 @@ import { recordMetric } from "../../tools/metrics.js";
 import { addMemory } from "../../../memory/project-memory.js";
 import { addRecord as addVectorRecord } from "../../../memory/vector-store.js";
 import { buildProgressBanner } from "../progress/progress-formatter.js";
+import { PostgresRuntimeLogStore } from "../persistence/postgres-runtime-log-store.js";
 import { appendExecutionOrigin, buildExecutionOriginRecord } from "./outputs-origin.js";
 import { checkToolAccess } from "./rbac-policy.js";
 import { evaluateExecutionPolicy, loadExecutionPolicy } from "./execution-policy.js";
@@ -71,7 +72,9 @@ function recordToolExecutionToMemory(
   try {
     const ts = new Date().toISOString();
     const text = `[${ts}] ${toolName} (${status}) trace=${traceId}\nINPUT: ${inputSummary}\nOUTPUT: ${outputSummary}`;
-    addMemory(text);
+    void addMemory(text).catch(() => {
+      // ignore memory persistence errors
+    });
     addVectorRecord({
       id: `${traceId}-${toolName}`,
       text,
@@ -87,6 +90,7 @@ interface CreateGovernedToolRegistrarDeps {
   isToolDisabled: (toolName: string) => boolean;
   normalizeResourceName: (name: string) => string;
   outputsDir: string;
+  databaseUrl?: string;
   serverRoot: string;
   emitSystemEvent: (event: string, payload: Record<string, unknown>) => Promise<void>;
   summarizeValue: (value: unknown, maxLength?: number) => string;
@@ -109,6 +113,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
     isToolDisabled,
     normalizeResourceName,
     outputsDir,
+    databaseUrl,
     serverRoot,
     emitSystemEvent,
     summarizeValue,
@@ -117,6 +122,9 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
     getBanditState,
     banditStateFile
   } = deps;
+  const runtimeStorePromise = databaseUrl
+    ? PostgresRuntimeLogStore.open({ databaseUrl }).catch(() => null)
+    : Promise.resolve(null);
 
   function recordExecutionOrigin(toolName: string, input: unknown, status: "success" | "error"): void {
     try {
@@ -127,6 +135,19 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
   }
 
   async function appendToolAudit(entry: Record<string, unknown>): Promise<void> {
+    const runtimeStore = await runtimeStorePromise;
+    if (runtimeStore) {
+      try {
+        await runtimeStore.appendAuditLog("tool_execution", "tools", {
+          recordedAt: new Date().toISOString(),
+          ...entry
+        }, new Date().toISOString());
+        return;
+      } catch {
+        // fall back to file logging
+      }
+    }
+
     const auditFile = resolve(outputsDir, "audit", "tool-executions.jsonl");
     try {
       await fsPromises.mkdir(resolve(outputsDir, "audit"), { recursive: true });

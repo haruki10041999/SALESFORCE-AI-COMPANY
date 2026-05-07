@@ -35,13 +35,14 @@ Salesforce 開発業務を対象に、MCP サーバとして次の機能を提�
 ### Core Layer
 
 - `mcp/core/`
+  - `persistence/`: State store abstraction (SQLite / Postgres backend switcher) / `pg-boss-proposal-queue` (distributed transaction) / `pgvector-adapter` (large-scale vector search)
   - `quality/`: zod を使った検証 / `agent-trust-score` (synergy bonus 対応) / `scan-exclusions` (`.sf` / `.sfdx` / `node_modules` 等の走査除外を集中管理)
   - `resource/`: リソース選択・提案・スコアリング / `embedding-ranker` (n-gram cosine hybrid) / `synergy-model` / `query-intent-classifier` / `usage-pattern` / `cascading-delete` / `cleanup-scheduler` / `feedback-loop-visualization` (rejectReason 分布・heatmap・トレンド)
   - `governance/`: しきい値、上限、disable 状態管理 / `defaults` (既定値の一元管理) / `governance-ui` (HTML/Markdown レンダラ) / `handler-schedule` (allow/deny + wrap-around 時間帯)
   - `event/`: イベント発火と履歴管理
   - `trace/`: トレース文脈管理 (`startPhase`/`endPhase`/`withPhase` で input/plan/execute/render を計測)
-  - `learning/`: `rl-feedback` (Thompson sampling bandit) / `model-registry` (shadow/promote/rollback) / `model-arbitration` (shadow vs production アービトレーション)
-  - `observability/`: `dashboard` (HTML/Markdown/JSON 出力) / `dashboard-drill-down` (filter / 5 秒窓相関)
+  - `learning/`: `rl-feedback` (Thompson sampling bandit) / `model-registry` (shadow/promote/rollback) / `model-arbitration` (shadow vs production アービトレーション) / `agent-graph-learner` (agent sequence learning)
+  - `observability/`: `runtime.ts` (OTel SDK + Prometheus exporter / LangSmith auto-toggle) / `dashboard` (HTML/Markdown/JSON 出力) / `dashboard-drill-down` (filter / 5 秒窓相関)
   - `context/`: `persona-style-registry` / `prompt-cache-persistence` / `context-budget` (tokens × priority カット) / `prompt-rendering`
   - `errors/`: `messages` (errorCode テーブル) と `i18n/` ロケール辞書による多言語化
   - `org/`: Salesforce Org カタログの永続化と CRUD
@@ -57,11 +58,13 @@ Salesforce 開発業務を対象に、MCP サーバとして次の機能を提�
 
 ### Persistence Layer
 
+- Postgres（既定）
+  - events / trace / metrics / learning / governance の主保存先
 - `outputs/`
-  - events / history / sessions / presets / governance 状態
+  - レポート・ダッシュボード・fallback 用生成物
 - `memory/`
   - `project-memory.ts`, `vector-store.ts`
-  - JSONL 永続化 + LRU ベースのレコード管理
+  - Postgres/PGVector 優先 + file fallback + LRU ベースのレコード管理
 
 ## 3. 代表的な処理フロー
 
@@ -78,7 +81,7 @@ Salesforce 開発業務を対象に、MCP サーバとして次の機能を提�
 2. 品質チェックと重複チェックを実施
 3. ガバナンス上限を評価
 4. 変更反映とイベント発火
-5. 統計・履歴を `outputs/` へ保存
+5. 統計・履歴を Postgres（既定）または fallback file へ保存
 
 ### Orchestration
 
@@ -123,7 +126,8 @@ flowchart LR
     C_Reg[learning/model-registry]
   end
   subgraph Persistence
-    P_Out[outputs/]
+    P_DB[(Postgres)]
+    P_Out[outputs/<br/>artifacts/fallback]
     P_Mem[memory/]
   end
 
@@ -141,11 +145,11 @@ flowchart LR
   C_Selector --> C_Embed
   C_Selector --> C_Synergy
   C_Trust --> C_Synergy
-  C_Bandit --> P_Out
-  C_Cache --> P_Out
+  C_Bandit --> P_DB
+  C_Cache --> P_DB
   C_Cleanup --> P_Out
   C_Dash --> P_Out
-  C_Reg --> P_Out
+  C_Reg --> P_DB
   T_Bench --> P_Out
   T_Chat --> P_Mem
 ```
@@ -155,7 +159,7 @@ flowchart LR
 - 安全性
   - 入力検証を共通化し、危険なパスや識別子を遮断
 - 観測性
-  - trace と metrics を JSONL へ継続記録
+  - trace と metrics を Postgres へ継続記録（fallback は JSONL）
 - 拡張性
   - register モジュール分割で機能追加しやすい構造
 - 運用性
@@ -177,7 +181,7 @@ LLM やノンエンジニアからの安全な追加 (Declarative 層) と、副
 ```mermaid
 flowchart LR
   subgraph Declarative["Declarative layer (JSON)"]
-    A1["outputs/custom-tools/*.json<br/>DeclarativeToolSpec"]
+    A1["custom-tools JSON (artifact / fallback)<br/>DeclarativeToolSpec"]
     A2["docs/examples/declarative-tool.*.example.json"]
   end
   subgraph Code["Code layer (TypeScript)"]
@@ -211,9 +215,9 @@ flowchart LR
 ### 関連モジュール
 
 - [`mcp/core/declarative/tool-spec.ts`](../mcp/core/declarative/tool-spec.ts) — zod スキーマと legacy 互換変換
-- [`mcp/core/declarative/loader.ts`](../mcp/core/declarative/loader.ts) — `outputs/custom-tools/` 動的ロード
+- [`mcp/core/declarative/loader.ts`](../mcp/core/declarative/loader.ts) — custom-tools 定義の動的ロード
 - [`mcp/core/declarative/frontmatter.ts`](../mcp/core/declarative/frontmatter.ts) — agents/personas/skills 用 (opt-in)
 - [`mcp/core/resource/proposal-applier.ts`](../mcp/core/resource/proposal-applier.ts) — 提案を新スキーマで物理書き込み
-- [`scripts/lint-outputs.ts`](../scripts/lint-outputs.ts) — `outputs/custom-tools/*.json` の DeclarativeToolSpec 検証
+- [`scripts/lint-outputs.ts`](../scripts/lint-outputs.ts) — custom-tools JSON の DeclarativeToolSpec 検証
 - 例示ファイル: [`docs/examples/declarative-tool.compose-prompt.example.json`](./examples/declarative-tool.compose-prompt.example.json) / [`docs/examples/declarative-tool.static-text.example.json`](./examples/declarative-tool.static-text.example.json)
 

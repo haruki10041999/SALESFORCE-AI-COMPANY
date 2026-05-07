@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
+import { PostgresAnalyticsStore } from "../mcp/core/persistence/postgres-analytics-store.js";
 import { createLogger } from "../mcp/core/logging/logger.js";
 import { atomicWriteFileSync } from "../mcp/core/io/atomic-write.js";
 
@@ -13,6 +14,13 @@ const logger = createLogger("ProjectMemory");
 let storageFilePath = process.env.SF_AI_MEMORY_FILE ?? DEFAULT_MEMORY_FILE;
 let maxRecords = Number.parseInt(process.env.SF_AI_MEMORY_MAX_RECORDS ?? "2000", 10);
 let maxBytes = Number.parseInt(process.env.SF_AI_MEMORY_MAX_BYTES ?? `${1024 * 1024}`, 10);
+const analyticsStorePromise = process.env.DATABASE_URL
+  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
+  : Promise.resolve(null);
+
+function shouldUseDatabase(): boolean {
+  return Boolean(process.env.DATABASE_URL) && resolve(storageFilePath) === resolve(DEFAULT_MEMORY_FILE);
+}
 
 function normalizeLimits(): void {
   if (!Number.isFinite(maxRecords) || maxRecords < 10) {
@@ -99,7 +107,37 @@ function saveToDisk(): void {
   }
 }
 
+async function loadFromDatabase(): Promise<void> {
+  const analyticsStore = await analyticsStorePromise;
+  if (!analyticsStore || !shouldUseDatabase()) {
+    return;
+  }
+  try {
+    const rows = await analyticsStore.listProjectMemory();
+    memory.length = 0;
+    memory.push(...rows);
+    applyRetention();
+  } catch {
+    // ignore database read failure and keep in-memory state
+  }
+}
+
+async function persistToDatabase(): Promise<void> {
+  const analyticsStore = await analyticsStorePromise;
+  if (!analyticsStore || !shouldUseDatabase()) {
+    return;
+  }
+  try {
+    normalizeLimits();
+    applyRetention();
+    await analyticsStore.replaceProjectMemory(memory);
+  } catch {
+    // keep API non-throwing for tool execution stability
+  }
+}
+
 loadFromDisk();
+void loadFromDatabase();
 
 export function configureMemoryStorageForTest(filePath: string): void {
   storageFilePath = filePath;
@@ -115,24 +153,42 @@ export function configureMemoryLimitsForTest(limits: { maxRecords?: number; maxB
   }
   normalizeLimits();
   applyRetention();
+  if (shouldUseDatabase()) {
+    void persistToDatabase();
+    return;
+  }
   saveToDisk();
 }
 
-export function addMemory(data: string): void {
+export async function addMemory(data: string): Promise<void> {
   memory.push(data);
+  if (shouldUseDatabase()) {
+    await persistToDatabase();
+    return;
+  }
   saveToDisk();
 }
 
-export function searchMemory(query: string): string[] {
+export async function searchMemory(query: string): Promise<string[]> {
+  if (shouldUseDatabase()) {
+    await loadFromDatabase();
+  }
   const normalized = query.toLowerCase();
   return memory.filter((item) => item.toLowerCase().includes(normalized));
 }
 
-export function listMemory(): string[] {
+export async function listMemory(): Promise<string[]> {
+  if (shouldUseDatabase()) {
+    await loadFromDatabase();
+  }
   return [...memory];
 }
 
-export function clearMemory(): void {
+export async function clearMemory(): Promise<void> {
   memory.length = 0;
+  if (shouldUseDatabase()) {
+    await persistToDatabase();
+    return;
+  }
   saveToDisk();
 }

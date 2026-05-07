@@ -1,5 +1,4 @@
 ﻿import { z } from "zod";
-import { join, resolve } from "node:path";
 import { buildResourceDependencyGraph, type ResourceDependencyGraphResult } from "../tools/resource-dependency-graph.js";
 import type { RegisterGovToolDeps } from "./types.js";
 
@@ -15,9 +14,6 @@ interface RegisterResourceCatalogToolsDeps extends RegisterGovToolDeps {
 
 export function registerResourceCatalogTools(deps: RegisterResourceCatalogToolsDeps): void {
   const { govTool, listMdFiles, getMdFile, rootDir, presetsDir } = deps;
-  const outputsDir = process.env.SF_AI_OUTPUTS_DIR
-    ? resolve(process.env.SF_AI_OUTPUTS_DIR)
-    : join(rootDir, "outputs");
 
   govTool(
     "list_agents",
@@ -116,7 +112,6 @@ export function registerResourceCatalogTools(deps: RegisterResourceCatalogToolsD
       const result: ResourceDependencyGraphResult = await buildResourceDependencyGraph({
         rootDir,
         presetsDir,
-        outputsDir,
         includeTypes,
         includeIsolated,
         impactTarget,

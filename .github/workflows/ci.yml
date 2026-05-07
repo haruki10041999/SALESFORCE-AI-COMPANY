@@ -86,3 +86,40 @@ jobs:
       - name: Dependency audit
         if: matrix.os == 'ubuntu-latest'
         run: npm run audit:deps
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: sfai
+          POSTGRES_PASSWORD: sfai
+          POSTGRES_DB: sfai
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sfai -d sfai"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Postgres integration test
+        env:
+          SF_AI_STATE_BACKEND: postgres
+          DATABASE_URL: postgres://sfai:sfai@localhost:5432/sfai
+        run: npm test -- tests/postgres-state-store.test.ts

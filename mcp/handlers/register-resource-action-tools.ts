@@ -19,6 +19,7 @@ import {
   getDueSchedules,
   parseCronExpression,
   getDefaultSchedulesFilePath,
+  type CleanupSchedule,
   type CleanupScheduleAction,
   type CleanupScheduleStatus
 } from "../core/resource/cleanup-scheduler.js";
@@ -51,6 +52,10 @@ interface RegisterResourceActionToolsDeps extends RegisterGovToolDeps {
   toPosixPath: (pathValue: string) => string;
   loadSystemEvents: (limit?: number, event?: string) => Promise<SystemEventRecord[]>;
   handlersStatistics: HandlersStatistics;
+  cleanupScheduleSync?: {
+    upsert: (schedule: CleanupSchedule) => Promise<void>;
+    remove: (scheduleId: string) => Promise<void>;
+  };
 }
 
 export function registerResourceActionTools(deps: RegisterResourceActionToolsDeps): void {
@@ -80,7 +85,8 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
     emitEvent,
     toPosixPath,
     loadSystemEvents,
-    handlersStatistics
+    handlersStatistics,
+    cleanupScheduleSync
   } = deps;
   const auditFile = join(dirname(governanceFile), "audit", "resource-actions.jsonl");
 
@@ -605,7 +611,7 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
 
       const outputsDir = dirname(governanceFile);
       const reportsDir = join(outputsDir, "reports", "cleanup-suggestions");
-      await ensureDir(reportsDir);
+      await fsPromises.mkdir(reportsDir, { recursive: true });
       const runsJsonlPath = join(reportsDir, "runs.jsonl");
       const jsonPath = join(reportsDir, "latest.json");
       const mdPath = join(reportsDir, "latest.md");
@@ -736,6 +742,9 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
             status
           });
           await saveCleanupSchedules(filePath, result.file);
+          if (cleanupScheduleSync) {
+            await cleanupScheduleSync.upsert(result.schedule);
+          }
           return { content: [{ type: "text", text: JSON.stringify({ created: result.schedule }, null, 2) }] };
         } catch (err) {
           return { content: [{ type: "text", text: JSON.stringify({ error: (err as Error).message }, null, 2) }] };
@@ -757,6 +766,9 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
             status
           });
           await saveCleanupSchedules(filePath, result.file);
+          if (cleanupScheduleSync) {
+            await cleanupScheduleSync.upsert(result.schedule);
+          }
           return { content: [{ type: "text", text: JSON.stringify({ updated: result.schedule }, null, 2) }] };
         } catch (err) {
           return { content: [{ type: "text", text: JSON.stringify({ error: (err as Error).message }, null, 2) }] };
@@ -769,6 +781,9 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
         }
         const result = deleteCleanupSchedule(current, id);
         await saveCleanupSchedules(filePath, result.file);
+        if (cleanupScheduleSync && result.deleted) {
+          await cleanupScheduleSync.remove(id);
+        }
         return { content: [{ type: "text", text: JSON.stringify({ deleted: result.deleted, id }, null, 2) }] };
       }
 
@@ -780,6 +795,13 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
           const newStatus: CleanupScheduleStatus = operation === "pause" ? "paused" : "active";
           const result = setCleanupScheduleStatus(current, id, newStatus);
           await saveCleanupSchedules(filePath, result.file);
+          if (cleanupScheduleSync) {
+            if (newStatus === "active") {
+              await cleanupScheduleSync.upsert(result.schedule);
+            } else {
+              await cleanupScheduleSync.remove(result.schedule.id);
+            }
+          }
           return { content: [{ type: "text", text: JSON.stringify({ updated: result.schedule }, null, 2) }] };
         } catch (err) {
           return { content: [{ type: "text", text: JSON.stringify({ error: (err as Error).message }, null, 2) }] };

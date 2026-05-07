@@ -6,12 +6,16 @@ import { promises as fsPromises } from "fs";
 import { resolve, dirname } from "path";
 import { randomUUID } from "crypto";
 import type { UserFeedback, FeedbackMetrics } from "../types/feedback.js";
+import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
 import { appendTextFileAtomic } from "../persistence/unit-of-work.js";
 import type { RewardAggregatorConfig } from "../types/feedback.js";
 import { syncRewardsToFeedback, computeCompositeReward, getRewardStats } from "./reward-aggregator.js";
 import { injectFailureContext, getRAGInjectionStats } from "./failure-memory-rag.js";
 
 const FEEDBACK_JSONL_PATH = resolve("outputs", "learning", "feedback.jsonl");
+const analyticsStorePromise = process.env.DATABASE_URL
+  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
+  : Promise.resolve(null);
 
 /**
  * Ensure outputs/learning directory exists
@@ -30,13 +34,19 @@ async function ensureLearningDir(): Promise<void> {
  * @param feedback - Feedback data (feedbackId will be auto-generated if not provided)
  */
 export async function recordUserFeedback(feedback: Omit<UserFeedback, "feedbackId" | "timestamp">): Promise<UserFeedback> {
-  await ensureLearningDir();
-
   const record: UserFeedback = {
     feedbackId: randomUUID(),
     timestamp: new Date().toISOString(),
     ...feedback
   };
+
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    await analyticsStore.insertFeedback(record);
+    return record;
+  }
+
+  await ensureLearningDir();
 
   try {
     await appendTextFileAtomic(FEEDBACK_JSONL_PATH, JSON.stringify(record) + "\n");
@@ -51,6 +61,11 @@ export async function recordUserFeedback(feedback: Omit<UserFeedback, "feedbackI
  * Load all feedback entries from outputs/learning/feedback.jsonl
  */
 export async function loadAllFeedback(): Promise<UserFeedback[]> {
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    return analyticsStore.listFeedback();
+  }
+
   try {
     const content = await fsPromises.readFile(FEEDBACK_JSONL_PATH, "utf-8");
     return content

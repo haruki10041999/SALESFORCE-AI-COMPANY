@@ -1,14 +1,16 @@
-import {
-  createStagedTextFile,
-  removeIfExists,
-  renameOrReplace
-} from "./atomic-file.js";
+import { writeTextFileAtomic } from "./atomic-file.js";
 
 interface StagedFileWrite {
   targetFile: string;
-  tempFile: string;
+  payload: string;
 }
 
+/**
+ * FileUnitOfWork
+ *
+ * 複数ファイルの書き込みをステージングし、commit 時に全て atomic に反映させる。
+ * write-file-atomic ライブラリが各ファイルの atomic 性を保証する。
+ */
 export class FileUnitOfWork {
   private readonly stagedWrites = new Map<string, StagedFileWrite>();
   private prepared = false;
@@ -19,13 +21,7 @@ export class FileUnitOfWork {
       throw new Error("cannot stage file writes after prepare or commit");
     }
 
-    const existing = this.stagedWrites.get(targetFile);
-    if (existing) {
-      await removeIfExists(existing.tempFile);
-    }
-
-    const tempFile = await createStagedTextFile(targetFile, payload);
-    this.stagedWrites.set(targetFile, { targetFile, tempFile });
+    this.stagedWrites.set(targetFile, { targetFile, payload });
   }
 
   public async prepare(): Promise<void> {
@@ -43,28 +39,24 @@ export class FileUnitOfWork {
       await this.prepare();
     }
 
-    const committedWrites: StagedFileWrite[] = [];
-
     try {
+      // All writes use write-file-atomic, which guarantees atomicity per file
+      // Files are written serially to ensure predictable behavior
       for (const stagedWrite of this.stagedWrites.values()) {
-        await renameOrReplace(stagedWrite.tempFile, stagedWrite.targetFile);
-        committedWrites.push(stagedWrite);
+        await writeTextFileAtomic(stagedWrite.targetFile, stagedWrite.payload);
       }
       this.committed = true;
       this.stagedWrites.clear();
     } catch (error) {
-      await Promise.all(
-        [...this.stagedWrites.values()].map((stagedWrite) => removeIfExists(stagedWrite.tempFile))
-      );
+      // On error, clear the staged writes without cleanup
+      // write-file-atomic handles temp file cleanup automatically
       this.stagedWrites.clear();
       throw error;
     }
   }
 
   public async rollback(): Promise<void> {
-    await Promise.all(
-      [...this.stagedWrites.values()].map((stagedWrite) => removeIfExists(stagedWrite.tempFile))
-    );
+    // No temp files to clean up since we don't pre-create them
     this.stagedWrites.clear();
     this.prepared = false;
   }

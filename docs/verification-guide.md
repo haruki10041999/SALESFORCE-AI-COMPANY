@@ -79,7 +79,7 @@ npm run ai -- doctor
 確認ポイント:
 
 - `ERROR 0` で終了する
-- `outputs dir` が意図した保存先（例: `D:/sf-ai-data/outputs`）になっている
+- `DATABASE_URL` が設定されている場合、Postgres 接続エラーが出ない
 
 4. 可観測性ダッシュボード生成
 
@@ -150,7 +150,7 @@ node scripts/test.mjs tests/agent-graph-learning.test.ts tests/server-tools.inte
 - `tests/agent-graph-learning.test.ts` が pass する
 - `tests/server-tools.integration.test.ts` の `dequeue_next_agent` ケースが pass する
 - `dequeue_next_agent` のレスポンスに `graphRecommendation` フィールドが含まれる
-- セッション完了時に `outputs/agent-graph.jsonl` へ学習データが追記される
+- セッション完了時に Postgres の agent graph 学習データが増加する（fallback 時は `outputs/agent-graph.jsonl`）
 
 ### 登録系（handler/server catalog）を変更した場合
 
@@ -223,10 +223,9 @@ npm test -- tests/property-based.test.ts
 
 確認対象:
 
-- `outputs/tool-proposals/proposal-feedback.jsonl`
-- `outputs/tool-proposals/proposal-feedback-model.json`
-- `outputs/tool-proposals/query-skill-feedback.jsonl`
-- `outputs/tool-proposals/query-skill-model.json`
+- Postgres `proposal_feedback_entries`
+- Postgres `query_skill_feedback_entries`
+- Postgres `analytics_models`
 
 2. skill rating を投入
 
@@ -248,7 +247,7 @@ npm test -- tests/property-based.test.ts
 
 確認対象:
 
-- `outputs/agent-trust-histories.json`
+- Postgres の agent reputation 系テーブル（fallback 時は `outputs/agent-trust-histories.json`）
 
 4. 反映先を確認
 

@@ -1,22 +1,18 @@
 import {
-  buildTempFilePath,
   cleanupStaleTempFiles,
   removeIfExists,
-  renameOrReplace,
   writeTextFileAtomic
 } from "../persistence/atomic-file.js";
 
+/**
+ * TemporaryFileManager
+ *
+ * Atomic file operations を提供するマネージャー。
+ * write-file-atomic ライブラリを通じて atomic 性を保証。
+ */
 export class TemporaryFileManager {
-  public static buildTempFilePath(targetFile: string): string {
-    return buildTempFilePath(targetFile);
-  }
-
   public static async removeIfExists(targetFile: string): Promise<void> {
     await removeIfExists(targetFile);
-  }
-
-  public static async renameOrReplace(sourceFile: string, targetFile: string): Promise<void> {
-    await renameOrReplace(sourceFile, targetFile);
   }
 
   public static async writeAtomic(targetFile: string, payload: string): Promise<void> {

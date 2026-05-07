@@ -8,7 +8,7 @@ MCP ツールが利用可能な場合は、常に以下の既定動作に従っ�
 2. ユーザーが agents / skills / personas / ファイルパスを明示している場合は、`smart_chat` の代わりに `chat` を使用する。
 3. エージェント間のトリガー動作やオーケストレーションを求められた場合は、`orchestrate_chat` から開始する。
 4. オーケストレーション中は、各エージェント発言後に `evaluate_triggers` を実行し、`dequeue_next_agent` で次の担当を取得する。
-5. マルチエージェントの会話を生成した後は、`parse_and_record_chat` を優先して使用し、やり取りを `outputs/history` に保存する。
+5. マルチエージェントの会話を生成した後は、`parse_and_record_chat` を優先して使用し、やり取りを永続化する。
 6. 再利用できそうなワークフローがあれば、`create_preset` を提案したうえで `run_preset` を使用する。
 
 既定のプリセット:
@@ -29,6 +29,6 @@ MCP ツールが利用可能な場合は、常に以下の既定動作に従っ�
 
 運用上の注意:
 
-- outputs の書き込み先はサーバー側で決定する。複数リポジトリで出力先を共有したい場合は `SF_AI_OUTPUTS_DIR` に絶対パスを指定する。
-- ガバナンス対象ツールが実行されると、サーバーは `outputs/execution-origins.jsonl` に実行元を記録する。
+- 永続データは Postgres を既定保存先として扱う。生成レポートの保存先を共有したい場合のみ `SF_AI_OUTPUTS_DIR` を設定する。
+- ガバナンス対象ツールが実行されると、サーバーは Postgres の `execution_origins` に実行元を記録する（file fallback 時は `outputs/execution-origins.jsonl`）。
 - Copilot と同じ動作が必要な場合は、`.github/copilot-instructions.md` の内容を手動でこのファイルに反映する（OpenCode は自動で読み込まない）。

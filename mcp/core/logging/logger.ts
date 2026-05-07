@@ -1,13 +1,8 @@
 export type LogLevel = "error" | "warn" | "info" | "debug";
 
+import pino from "pino";
+import pretty from "pino-pretty";
 import { maskLogMessage, maskUnknown } from "./pii-masker.js";
-
-const LOG_LEVEL_ORDER: Record<LogLevel, number> = {
-  error: 0,
-  warn: 1,
-  info: 2,
-  debug: 3
-};
 
 function normalizeLogLevel(value: string | undefined): LogLevel {
   const normalized = (value ?? "").toLowerCase();
@@ -17,14 +12,6 @@ function normalizeLogLevel(value: string | undefined): LogLevel {
   return "info";
 }
 
-function shouldLog(current: LogLevel, target: LogLevel): boolean {
-  return LOG_LEVEL_ORDER[target] <= LOG_LEVEL_ORDER[current];
-}
-
-function formatLogPrefix(level: LogLevel, scope: string): string {
-  return `[${level.toUpperCase()}][${scope}]`;
-}
-
 export interface Logger {
   error(message: string, ...args: unknown[]): void;
   warn(message: string, ...args: unknown[]): void;
@@ -32,47 +19,82 @@ export interface Logger {
   debug(message: string, ...args: unknown[]): void;
 }
 
+const rootLoggerCache = new Map<LogLevel, pino.Logger>();
+
+function createDestinationStream() {
+  return pretty({
+    colorize: process.stderr.isTTY,
+    destination: 2,
+    ignore: "pid,hostname",
+    messageFormat: (log, messageKey) => {
+      const scope = typeof log.scope === "string" ? log.scope : "App";
+      const message = typeof log[messageKey] === "string" ? log[messageKey] : "";
+      return `[${scope}] ${message}`;
+    },
+    sync: true,
+    translateTime: "SYS:standard"
+  });
+}
+
+function getRootLogger(level: LogLevel): pino.Logger {
+  const cached = rootLoggerCache.get(level);
+  if (cached) {
+    return cached;
+  }
+
+  const logger = pino(
+    {
+      base: undefined,
+      formatters: {
+        level: (label) => ({ level: label.toUpperCase() })
+      },
+      level,
+      timestamp: pino.stdTimeFunctions.isoTime
+    },
+    createDestinationStream()
+  );
+  rootLoggerCache.set(level, logger);
+  return logger;
+}
+
+function writeLog(logger: pino.Logger, level: LogLevel, message: string, args: unknown[]): void {
+  const maskedMessage = maskLogMessage(message);
+  const maskedArgs = args.map((arg) => maskUnknown(arg));
+
+  if (maskedArgs.length === 0) {
+    logger[level](maskedMessage);
+    return;
+  }
+
+  if (
+    maskedArgs.length === 1 &&
+    typeof maskedArgs[0] === "object" &&
+    maskedArgs[0] !== null &&
+    !Array.isArray(maskedArgs[0])
+  ) {
+    logger[level](maskedArgs[0] as object, maskedMessage);
+    return;
+  }
+
+  logger[level]({ args: maskedArgs }, maskedMessage);
+}
+
 export function createLogger(scope: string, configuredLevel?: string): Logger {
   const level = normalizeLogLevel(configuredLevel ?? process.env.LOG_LEVEL);
+  const scopedLogger = getRootLogger(level).child({ scope });
 
   return {
     error(message: string, ...args: unknown[]): void {
-      if (shouldLog(level, "error")) {
-        console.error(
-          formatLogPrefix("error", scope),
-          maskLogMessage(message),
-          ...args.map((arg) => maskUnknown(arg))
-        );
-      }
+      writeLog(scopedLogger, "error", message, args);
     },
     warn(message: string, ...args: unknown[]): void {
-      if (shouldLog(level, "warn")) {
-        console.warn(
-          formatLogPrefix("warn", scope),
-          maskLogMessage(message),
-          ...args.map((arg) => maskUnknown(arg))
-        );
-      }
+      writeLog(scopedLogger, "warn", message, args);
     },
     info(message: string, ...args: unknown[]): void {
-      if (shouldLog(level, "info")) {
-        // MCP stdio transport では stdout は JSON-RPC 専用のため、
-        // info/debug も必ず stderr (console.error) に出すこと。
-        console.error(
-          formatLogPrefix("info", scope),
-          maskLogMessage(message),
-          ...args.map((arg) => maskUnknown(arg))
-        );
-      }
+      writeLog(scopedLogger, "info", message, args);
     },
     debug(message: string, ...args: unknown[]): void {
-      if (shouldLog(level, "debug")) {
-        console.error(
-          formatLogPrefix("debug", scope),
-          maskLogMessage(message),
-          ...args.map((arg) => maskUnknown(arg))
-        );
-      }
+      writeLog(scopedLogger, "debug", message, args);
     }
   };
 }

@@ -4,7 +4,7 @@ import "./env-loader.js";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { existsSync, promises as fsPromises } from "fs";
-import { join, resolve, relative } from "path";
+import { join, relative } from "path";
 import { AppError } from "./core/errors/messages.js";
 import { initializeServerRuntime as initializeServerRuntimeModule } from "./bootstrap.js";
 import { registerServerTools } from "./tool-registry.js";
@@ -66,17 +66,20 @@ import { createGovernanceEventAutomationManager } from "./core/governance/govern
 import { createDisabledResourceFilter } from "./core/governance/disabled-resource-filter.js";
 import { createDisabledToolsCacheManager } from "./core/governance/disabled-tools-cache.js";
 import { createGovernanceStateManager } from "./core/governance/governance-state-manager.js";
+import { resolveStateBackend } from "./core/persistence/state-store.js";
 import {
   type GovernanceState
 } from "./core/governance/governance-state.js";
 import { createPresetStore } from "./core/context/preset-store.js";
 import { createHistoryStore } from "./core/context/history-store.js";
 import { createOrchestrationSessionStore } from "./core/context/orchestration-session-store.js";
+import { PostgresOrchestrationSessionStore } from "./core/context/postgres-orchestration-session-store.js";
 import { createPromptRenderer } from "./core/context/prompt-rendering.js";
 import { evaluatePseudoHooks as evaluatePseudoHooksCore } from "./core/orchestration/pseudo-hooks.js";
 import { createChatToolRunner, generateSessionId } from "./core/orchestration/chat-tool-runner.js";
 import { orchestrationSessions, clearOrchestrationSessionsForTest } from "./core/orchestration/session-registry.js";
 import { chatInputSchema, triggerRuleSchema } from "./core/orchestration/schemas.js";
+import { getDefaultSchedulesFilePath, loadCleanupSchedules } from "./core/resource/cleanup-scheduler.js";
 import type { OrchestrationSession } from "./core/types/index.js";
 import type { SystemEventType } from "./core/event/event-dispatcher.js";
 import { createLogger } from "./core/logging/logger.js";
@@ -90,6 +93,11 @@ import {
 import { createServerResourceDeps } from "./server-resource-deps.js";
 import { resolveServerRuntimePaths } from "./core/server/server-runtime-paths.js";
 import { createShutdownStatePersistence } from "./core/server/shutdown-state-persistence.js";
+import {
+  createProposalQueueStore,
+  resolveProposalQueueBackend,
+  type ProposalQueueStore
+} from "./core/resource/proposal/proposal-queue-store.js";
 
 const {
   root: ROOT,
@@ -158,8 +166,12 @@ interface AgentMessage {
 
 const agentLog: AgentMessage[] = [];
 const handlersState = initializeHandlersState();
-const OPERATIONS_LOG_FILE = join(OUTPUTS_DIR, "operations-log.jsonl");
-const { loadRecentOperations, appendOperationLog } = createOperationLog({ logFile: OPERATIONS_LOG_FILE, ensureDir });
+// NOTE: Postgres ベースではファイルベースのログは不要（audit_logs テーブル使用）
+const { loadRecentOperations, appendOperationLog } = createOperationLog({
+  logFile: "",
+  ensureDir,
+  databaseUrl: process.env.DATABASE_URL
+});
 const LOW_RELEVANCE_SCORE_THRESHOLD = getLowRelevanceScoreThreshold();
 const DEFAULT_PROTECTED_TOOLS = [
   "apply_resource_actions",
@@ -172,13 +184,18 @@ const DEFAULT_PROTECTED_TOOLS = [
 ];
 const GOVERNANCE_FILE = join(OUTPUTS_DIR, "resource-governance.json");
 const GOVERNANCE_STORAGE_PATH = STATE_DB_PATH;
+const STATE_BACKEND = resolveStateBackend(process.env.SF_AI_STATE_BACKEND);
+const DATABASE_URL = process.env.DATABASE_URL;
+const PROPOSAL_QUEUE_BACKEND = resolveProposalQueueBackend(process.env.SF_AI_PROPOSAL_QUEUE_BACKEND, STATE_BACKEND);
 const TOOL_PROPOSALS_DIR = join(OUTPUTS_DIR, "tool-proposals");
 const CUSTOM_TOOLS_DIR = join(OUTPUTS_DIR, "custom-tools");
 const governanceStateManager = createGovernanceStateManager({
   defaultProtectedTools: DEFAULT_PROTECTED_TOOLS,
   governanceFile: GOVERNANCE_FILE,
-  ensureDir,
-  sqliteDbPath: STATE_DB_PATH
+    ensureDir,
+  sqliteDbPath: STATE_DB_PATH,
+  stateBackend: STATE_BACKEND,
+  databaseUrl: DATABASE_URL
 });
 const buildDefaultGovernanceState = () => governanceStateManager.buildDefaultGovernanceState();
 const loadGovernanceState = () => governanceStateManager.loadGovernanceState();
@@ -189,6 +206,7 @@ const normalizeProtectedTools = (names: string[]) => governanceStateManager.norm
 const { emitSystemEvent, loadSystemEvents, registerToolFailure, getSystemEventLogStatus } = createSystemEventManager({
   rootDir: ROOT,
   outputsDir: OUTPUTS_DIR,
+  databaseUrl: DATABASE_URL,
   ensureDir,
   applyEventAutomation,
   bridgeCoreEvent: async (event: SystemEventName, timestamp: string, payload: Record<string, unknown>) => {
@@ -268,6 +286,7 @@ const { govTool } = createGovernedToolRegistrar({
   },
   normalizeResourceName,
   outputsDir: OUTPUTS_DIR,
+  databaseUrl: DATABASE_URL,
   serverRoot: ROOT,
   emitSystemEvent: emitSystemEventCompat,
   summarizeValue,
@@ -308,6 +327,8 @@ const runChatTool = createChatToolRunner({
 
 const HISTORY_DIR = join(OUTPUTS_DIR, "history");
 const USE_SQLITE_HISTORY = (process.env.SF_AI_HISTORY_SQLITE ?? "false").toLowerCase() === "true";
+// NOTE: Postgres ベースではディレクトリベースの履歴管理は不要
+// すべて Postgres state_records テーブルに保存される
 const PRESETS_DIR = join(OUTPUTS_DIR, "presets");
 const SESSIONS_DIR = join(OUTPUTS_DIR, "sessions");
 const HISTORY_RETENTION_DAYS = 30;
@@ -315,16 +336,16 @@ const HISTORY_MAX_FILES = 200;
 const SESSION_RETENTION_DAYS = 30;
 const SESSION_MAX_FILES = 200;
 
-async function ensureDir(dir: string): Promise<void> {
-  if (!existsSync(dir)) {
-    await fsPromises.mkdir(dir, { recursive: true });
-  }
+// NOTE: Postgres ベースでは ensureDir は不要だが、
+// 既存モジュール互換性のため dummy 実装を提供
+async function ensureDir(_dir: string): Promise<void> {
+  // No-op: Postgres ベースでは dir creation は不要
 }
 
 const { createPreset, listPresetsData, getPreset } = createPresetStore({ presetsDir: PRESETS_DIR, ensureDir });
 const { saveChatHistory, saveSessionHistory, loadChatHistories, restoreChatHistory } = createHistoryStore({
   historyDir: HISTORY_DIR,
-  ensureDir,
+    ensureDir,
   agentLog,
   maxHistoryFiles: HISTORY_MAX_FILES,
   retentionDays: HISTORY_RETENTION_DAYS,
@@ -333,17 +354,67 @@ const { saveChatHistory, saveSessionHistory, loadChatHistories, restoreChatHisto
     dbPath: STATE_DB_PATH
   }
 });
-const { saveOrchestrationSession, restoreOrchestrationSession } = createOrchestrationSessionStore<OrchestrationSession>({
-  sessionsDir: SESSIONS_DIR,
-  ensureDir,
-  getSession: (sessionId: string) => orchestrationSessions.get(sessionId),
-  setSession: (session: OrchestrationSession) => {
-    orchestrationSessions.set(session.id, session);
-  },
-  toRelativePosixPath: (absoluteFilePath: string) => toPosixPath(relative(ROOT, absoluteFilePath)),
-  maxSessionFiles: SESSION_MAX_FILES,
-  retentionDays: SESSION_RETENTION_DAYS
+const orchestrationStore = STATE_BACKEND === "postgres" && DATABASE_URL
+  ? await PostgresOrchestrationSessionStore.open<OrchestrationSession>({
+      databaseUrl: DATABASE_URL,
+      getSession: (sessionId: string) => orchestrationSessions.get(sessionId),
+      setSession: (session: OrchestrationSession) => {
+        orchestrationSessions.set(session.id, session);
+      },
+      maxSessionFiles: SESSION_MAX_FILES,
+      retentionDays: SESSION_RETENTION_DAYS
+    })
+  : createOrchestrationSessionStore<OrchestrationSession>({
+      sessionsDir: SESSIONS_DIR,
+      ensureDir,
+      getSession: (sessionId: string) => orchestrationSessions.get(sessionId),
+      setSession: (session: OrchestrationSession) => {
+        orchestrationSessions.set(session.id, session);
+      },
+      toRelativePosixPath: (absoluteFilePath: string) => toPosixPath(relative(ROOT, absoluteFilePath)),
+      maxSessionFiles: SESSION_MAX_FILES,
+      retentionDays: SESSION_RETENTION_DAYS
+    });
+  const { saveOrchestrationSession, restoreOrchestrationSession, listOrchestrationSessions } = orchestrationStore;
+const proposalQueue: ProposalQueueStore = await createProposalQueueStore({
+  backend: PROPOSAL_QUEUE_BACKEND,
+  outputsDir: OUTPUTS_DIR,
+  databaseUrl: DATABASE_URL
 });
+
+if (
+  PROPOSAL_QUEUE_BACKEND === "pg-boss" &&
+  typeof proposalQueue.scheduleRecurringJob === "function" &&
+  typeof proposalQueue.unscheduleRecurringJob === "function"
+) {
+  try {
+    const cleanupSchedules = await loadCleanupSchedules(getDefaultSchedulesFilePath(ROOT));
+    for (const schedule of cleanupSchedules.schedules) {
+      if (schedule.status !== "active") {
+        await proposalQueue.unscheduleRecurringJob({
+          queue: "governance-auto-cleanup",
+          key: schedule.id
+        });
+        continue;
+      }
+
+      await proposalQueue.scheduleRecurringJob({
+        queue: "governance-auto-cleanup",
+        cron: schedule.cron,
+        key: schedule.id,
+        data: {
+          scheduleId: schedule.id,
+          action: schedule.action,
+          daysUnused: schedule.daysUnused,
+          limit: schedule.limit,
+          requireApproval: schedule.requireApproval
+        }
+      });
+    }
+  } catch (error) {
+    logger.warn(`cleanup schedule startup sync failed: ${summarizeValue(error, 300)}`);
+  }
+}
 
 const { loadedCustomToolNames, registerCustomTool, unregisterCustomTool, loadCustomToolsFromDir } = createCustomToolRegistry({
   govTool,
@@ -396,6 +467,7 @@ registerServerTools({
     saveOrchestrationSession,
     saveSessionHistory,
     restoreOrchestrationSession,
+    listOrchestrationSessions,
     root: ROOT,
     agentLog,
     loadSystemEvents: loadSystemEventsCompat,
@@ -452,7 +524,8 @@ registerServerTools({
     refreshDisabledToolsCache: () => disabledToolsCache.refresh("tool-call"),
     appendOperationLog,
     emitEvent,
-    resourceScore
+    resourceScore,
+    proposalQueue
   });
 
 const { persistShutdownState, registerShutdownHooks } = createShutdownStatePersistence({
@@ -486,6 +559,12 @@ async function main(): Promise<void> {
     await startMcpTransport(server, logger);
   } finally {
     await persistShutdownState("main-finally");
+    if (typeof proposalQueue.close === "function") {
+      await proposalQueue.close();
+    }
+    if ("close" in orchestrationStore && typeof orchestrationStore.close === "function") {
+      await orchestrationStore.close();
+    }
     await observabilityRuntime.stop();
   }
 }

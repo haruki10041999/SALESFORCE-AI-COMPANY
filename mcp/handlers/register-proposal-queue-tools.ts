@@ -1,19 +1,16 @@
 import { z } from "zod";
 import { resolve } from "node:path";
 import { promises as fsPromises } from "node:fs";
+import { PostgresRuntimeLogStore } from "../core/persistence/postgres-runtime-log-store.js";
 import {
-  enqueueProposal,
-  listProposals,
-  getProposal,
-  approveProposal,
-  rejectProposal,
-  approveProposalStage,
-  rejectProposalStage,
-  summarizeProposalQueue,
   type ProposalResourceType,
   type ProposalStatus,
   type ApprovalStage
 } from "../core/resource/proposal/queue.js";
+import {
+  createFileProposalQueueStore,
+  type ProposalQueueStore
+} from "../core/resource/proposal/proposal-queue-store.js";
 import { applyProposal } from "../core/resource/proposal/applier.js";
 import {
   evaluateAutoCreateGate,
@@ -29,6 +26,7 @@ export interface RegisterProposalQueueToolsDeps {
   govTool: GovTool;
   outputsDir?: string;
   repoRoot?: string;
+  proposalQueue?: ProposalQueueStore;
 }
 
 const RESOURCE_TYPE = z.enum(["skills", "tools", "presets"]);
@@ -40,9 +38,28 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
     ? resolve(process.env.SF_AI_OUTPUTS_DIR)
     : resolve("outputs"));
   const repoRoot = deps.repoRoot ?? resolve(".");
+  const proposalQueue = deps.proposalQueue ?? createFileProposalQueueStore(outputsDir);
   const approvalAuditFile = resolve(outputsDir, "audit", "proposal-approvals.jsonl");
+  const runtimeLogStorePromise = process.env.DATABASE_URL
+    ? PostgresRuntimeLogStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
+    : Promise.resolve(null);
 
   async function appendApprovalAudit(event: Record<string, unknown>): Promise<void> {
+    const runtimeLogStore = await runtimeLogStorePromise;
+    if (runtimeLogStore) {
+      try {
+        await runtimeLogStore.appendAuditLog(
+          "proposal_approval",
+          "presets",
+          { recordedAt: new Date().toISOString(), ...event },
+          new Date().toISOString()
+        );
+        return;
+      } catch {
+        // fall back to file logging
+      }
+    }
+
     try {
       await fsPromises.mkdir(resolve(outputsDir, "audit"), { recursive: true });
       await fsPromises.appendFile(
@@ -77,7 +94,7 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
       sourceEvent?: string;
       origin?: string;
     }) => {
-      const record = enqueueProposal(outputsDir, { resourceType, name, content, confidence, sourceEvent, origin });
+      const record = await proposalQueue.enqueue({ resourceType, name, content, confidence, sourceEvent, origin });
       return { content: [{ type: "text", text: JSON.stringify({ enqueued: record }, null, 2) }] };
     }
   );
@@ -100,8 +117,8 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
             feedbackModel.resources.map((row) => [`${row.resourceType}:${row.name}`, row.acceptRate])
           )
         : undefined;
-      const items = listProposals(outputsDir, { status, resourceType, limit, historyAcceptRateByResource });
-      const summary = summarizeProposalQueue(outputsDir);
+      const items = await proposalQueue.list({ status, resourceType, limit, historyAcceptRateByResource });
+      const summary = await proposalQueue.summarize();
       return { content: [{ type: "text", text: JSON.stringify({ summary, items }, null, 2) }] };
     }
   );
@@ -116,7 +133,7 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
       }
     },
     async ({ id }: { id: string }) => {
-      const record = getProposal(outputsDir, id);
+      const record = await proposalQueue.get(id);
       return { content: [{ type: "text", text: JSON.stringify({ found: record !== null, record }, null, 2) }] };
     }
   );
@@ -134,7 +151,7 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
       }
     },
     async ({ id, stage, actor, comment }: { id: string; stage: ApprovalStage; actor: string; comment?: string }) => {
-      const record = approveProposalStage(outputsDir, id, { stage, actor, comment });
+      const record = await proposalQueue.approveStage(id, { stage, actor, comment });
       await appendApprovalAudit({
         event: "proposal_stage_approved",
         proposalId: id,
@@ -170,7 +187,7 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
       }
     },
     async ({ id, stage, actor, reason }: { id: string; stage: ApprovalStage; actor: string; reason: string }) => {
-      const record = rejectProposalStage(outputsDir, id, { stage, actor, reason });
+      const record = await proposalQueue.rejectStage(id, { stage, actor, reason });
       await appendApprovalAudit({
         event: "proposal_stage_rejected",
         proposalId: id,
@@ -206,7 +223,7 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
       }
     },
     async ({ id, apply, overwrite }: { id: string; apply?: boolean; overwrite?: boolean }) => {
-      const pending = getProposal(outputsDir, id);
+      const pending = await proposalQueue.get(id);
       if (!pending) {
         return {
           content: [{ type: "text", text: JSON.stringify({ ok: false, error: `proposal not found: ${id}` }, null, 2) }]
@@ -237,7 +254,15 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
         }
       }
 
-      const record = approveProposal(outputsDir, id);
+      const record = await proposalQueue.approve(id);
+      await appendApprovalAudit({
+        event: "proposal_approved",
+        proposalId: id,
+        actor: "system",
+        status: record.status,
+        applied: shouldApply,
+        ...(applyError !== undefined ? { applyError } : {})
+      });
       return {
         content: [{
           type: "text",
@@ -268,7 +293,14 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
       }
     },
     async ({ id, reason }: { id: string; reason: string }) => {
-      const record = rejectProposal(outputsDir, id, reason);
+      const record = await proposalQueue.reject(id, reason);
+      await appendApprovalAudit({
+        event: "proposal_rejected",
+        proposalId: id,
+        actor: "system",
+        status: record.status,
+        reason
+      });
       return { content: [{ type: "text", text: JSON.stringify({ rejected: record }, null, 2) }] };
     }
   );
@@ -284,7 +316,7 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
       }
     },
     async ({ id, overwrite }: { id: string; overwrite?: boolean }) => {
-      const record = getProposal(outputsDir, id);
+      const record = await proposalQueue.get(id);
       if (!record) {
         return { content: [{ type: "text", text: JSON.stringify({ ok: false, error: `proposal not found: ${id}` }, null, 2) }] };
       }
@@ -292,7 +324,7 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
         return { content: [{ type: "text", text: JSON.stringify({ ok: false, error: `proposal status is ${record.status}; only pending can be applied` }, null, 2) }] };
       }
       const applyResult = applyProposal(record, { repoRoot, outputsDir, overwrite: overwrite === true });
-      const moved = applyResult.applied ? approveProposal(outputsDir, id) : record;
+      const moved = applyResult.applied ? await proposalQueue.approve(id) : record;
       return {
         content: [{ type: "text", text: JSON.stringify({ ok: applyResult.applied, applyResult, record: moved }, null, 2) }]
       };
@@ -331,9 +363,9 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
         tools:   { ...DEFAULT_AUTO_CREATE_CONFIG.tools,   ...(config?.tools   ?? {}) },
         presets: { ...DEFAULT_AUTO_CREATE_CONFIG.presets, ...(config?.presets ?? {}) }
       };
-      const approvedHistory = listProposals(outputsDir, { status: "approved" });
+      const approvedHistory = await proposalQueue.list({ status: "approved" });
       const todayAppliedCount = countTodayApplied(approvedHistory);
-      const pending = listProposals(outputsDir, { status: "pending", limit: limit ?? 50 });
+      const pending = await proposalQueue.list({ status: "pending", limit: limit ?? 50 });
 
       const decisions: Array<{
         id: string;
@@ -368,7 +400,7 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
             entry.applied = r.applied;
             entry.filePath = r.filePath;
             if (r.applied) {
-              approveProposal(outputsDir, proposal.id);
+              await proposalQueue.approve(proposal.id);
               todayAppliedCount[proposal.resourceType] = (todayAppliedCount[proposal.resourceType] ?? 0) + 1;
               appliedCount += 1;
             } else {

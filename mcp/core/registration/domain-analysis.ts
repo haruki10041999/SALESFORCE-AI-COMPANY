@@ -18,7 +18,8 @@ export function registerAnalysisDomain(deps: Deps): void {
     root,
     presetsDir,
     buildChatPrompt,
-    filterDisabledSkills
+    filterDisabledSkills,
+    proposalQueue
   } = deps;
 
   registerCoreAnalysisTools(govTool, {
@@ -26,7 +27,12 @@ export function registerAnalysisDomain(deps: Deps): void {
   });
   registerBranchReviewTools(govTool);
   registerOrgCatalogTools({ govTool, outputsDir: join(root, "outputs") });
-  registerProposalQueueTools({ govTool, outputsDir: join(root, "outputs"), repoRoot: root });
+  registerProposalQueueTools({
+    govTool,
+    outputsDir: join(root, "outputs"),
+    repoRoot: root,
+    proposalQueue
+  });
 
   // Declarative tools (outputs/custom-tools/*.json) を新スキーマで動的登録。
   // 同期 API を維持するため fire-and-forget。loader は例外を内包する。

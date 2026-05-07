@@ -9,7 +9,8 @@
 
 | 変数名 | 何に使うか | 既定値 |
 |---|---|---|
-| `SF_AI_OUTPUTS_DIR` | 実行ログや履歴の保存場所 | `outputs/` |
+| `DATABASE_URL` | 実行ログ・学習ログ・ガバナンス状態の既定保存先となる Postgres 接続文字列 | 未設定 |
+| `SF_AI_OUTPUTS_DIR` | 生成レポートや fallback 生成物の保存場所（任意） | `outputs/` |
 | `SF_AI_HISTORY_SQLITE` | 履歴ストアを SQLite へ切り替える（`true`/`false`） | `false` |
 | `SF_AI_STATE_DB_PATH` | SQLite DB ファイルの保存先（`SF_AI_HISTORY_SQLITE=true` 時） | `outputs/state.sqlite` |
 | `SF_AI_METRICS_REPORTING_HOURS` | 学習ダッシュボード更新時の集計ウィンドウ（時間） | `24` |
@@ -29,20 +30,21 @@
 - 再出力時に元 JSONL 件数と突合する場合は `--verify-source-dir <outputsDir>` を付与（不一致時は終了コード 1）
 - 事前に `node -e "require('node:sqlite'); console.log('node:sqlite OK')"` でランタイム可用性を確認できます
 - `ExperimentalWarning: SQLite is an experimental feature` は既知の警告です（起動失敗ではありません）
+- 観測性の責務分離と削除ゲートは `docs/observability-cleanup-playbook.md` を参照してください
 
 ## よくある利用パターン
 
-### 1. 保存先を別ディスクにしたい
+### 1. 生成レポートの保存先を別ディスクにしたい
 
 ```bash
-SF_AI_OUTPUTS_DIR=D:/sf-ai-data/outputs npm run ai -- dev
+SF_AI_OUTPUTS_DIR=D:/sf-ai-artifacts npm run ai -- dev
 ```
 
 補足:
 
+- `DATABASE_URL` が設定されていれば、実行 provenance / trace / metrics / drift / 学習補助ログは Postgres に保存されます
 - `SF_AI_OUTPUTS_DIR` はサーバープロセス側で解決されます
-- 絶対パスを使えば、別リポジトリから同じ MCP サーバーを使っても出力先を共通化できます
-- 実行 provenance は `outputs/execution-origins.jsonl` に追記されます
+- 絶対パスを使えば、別リポジトリから同じ MCP サーバーを使っても生成レポートの保存先を共通化できます
 
 ### 2. 調査のため詳細ログを出したい
 
@@ -71,7 +73,7 @@ Copy-Item .env.operations.sample .env
 
 | 変数名 | 何に使うか | 既定値 |
 |---|---|---|
-| `SF_AI_OUTPUTS_BACKUP_DIR` | 世代バックアップの保存先 | `outputs/backups` |
+| `SF_AI_OUTPUTS_BACKUP_DIR` | 生成物 snapshot の保存先 | `outputs/backups` |
 | `SF_AI_OUTPUTS_BACKUP_KEEP` | 保持世代数（古い順に削除） | `5` |
 
 関連コマンド:
@@ -90,20 +92,63 @@ Copy-Item .env.operations.sample .env
 | `SF_AI_AUTO_APPLY_MAX_PER_DAY` | 1日の自動作成上限 | `5` |
 | `SF_AI_AUTO_APPLY_MAX_DELETIONS` | 1回の削除上限 | `3` |
 
+## バックエンド切り替え（推奨）
+
+ローカル開発から運用環境へのスケール時は、次のバックエンド変数を利用します。
+
+| 変数名 | 既定値 | 選択肢 | 説明 |
+|---|---|---|---|
+| `SF_AI_STATE_BACKEND` | `sqlite` | `sqlite`, `postgres` | 状態・ガバナンス・ガイダンス情報の保存先。`postgres` で冗長性向上 |
+| `SF_AI_PROPOSAL_QUEUE_BACKEND` | `file` | `file`, `pg-boss` | proposal queue と cleanup schedule の永続化。`pg-boss` で分散トランザクション対応 |
+| `SF_AI_VECTOR_BACKEND` | `tfidf` | `tfidf`, `pgvector` | ベクターストア。`pgvector` で PostgreSQL 統合、大規模検索に対応 |
+| `DATABASE_URL` | 未設定 | `postgres://...` | Postgres 接続文字列（STATE_BACKEND=postgres または PROPOSAL_QUEUE_BACKEND=pg-boss 時） |
+| `DATABASE_POOL_SIZE` | `10` | 整数 | Postgres 接続プール数 |
+| `DATABASE_POOL_IDLE_TIMEOUT_MS` | `30000` | 整数 | アイドル接続タイムアウト（ミリ秒） |
+| `PG_VECTOR_POOL_SIZE` | `10` | 整数 | PGVector 検索用の接続プール数 |
+
+## Postgres & pg-boss（STATE_BACKEND=postgres または PROPOSAL_QUEUE_BACKEND=pg-boss 時）
+
+| 変数名 | 用途 | デフォルト値 |
+|---|---|---|
+| `DATABASE_URL` | Postgres 接続文字列 | 未設定 |
+| `DATABASE_POOL_SIZE` | コネクションプール数 | `10` |
+| `DATABASE_POOL_IDLE_TIMEOUT_MS` | アイドル接続のタイムアウト（ミリ秒） | `30000` |
+| `CLEANUP_SCHEDULER_QUEUE` | pg-boss recurring job 用のキュー名 | `governance-auto-cleanup` |
+
+注記:
+
+- `PROPOSAL_QUEUE_BACKEND=pg-boss` の場合、Postgres は必須です
+- 既定の migration は `npm run db:migrate` で自動実行
+- pg-boss のセットアップは Postgres init 時に自動化されます
+
+## LangSmith（オプション）
+
+| 変数名 | 用途 | デフォルト値 |
+|---|---|---|
+| `SF_AI_LANGSMITH_ENABLED` | LangSmith トレースフレームワークを有効化（`true`/`false`） | `false` |
+| `LANGSMITH_API_KEY` | LangSmith API キー（`SF_AI_LANGSMITH_ENABLED=true` 時に必須） | 未設定 |
+| `LANGSMITH_TRACING_ENABLED` | LangSmith トレースの有効化フラグ | 未設定（`SF_AI_LANGSMITH_ENABLED=true` 時に自動設定） |
+
+注記:
+
+- `SF_AI_LANGSMITH_ENABLED=true` を設定すると `LANGCHAIN_TRACING_V2=true` が自動設定されます
+- ローカル開発では既定 OFF（計装オーバーヘッド削減）
+- 運用環境（`.env.operations.sample`）では推奨 ON
+
 ## フル一覧（管理者向け）
 
 | 変数名 | 用途 | デフォルト値 |
 |---|---|---|
-| `SF_AI_OUTPUTS_DIR` | イベント・履歴・セッション・ガバナンス・生成物の出力ベースディレクトリ | `outputs/` |
+| `SF_AI_OUTPUTS_DIR` | 生成物・互換 file fallback の出力ベースディレクトリ | `outputs/` |
 | `SF_AI_HISTORY_SQLITE` | 履歴ストアを SQLite (`node:sqlite`) に切り替えるフラグ（`true`/`false`） | `false` |
 | `SF_AI_STATE_DB_PATH` | SQLite DB ファイルパス（`SF_AI_HISTORY_SQLITE=true` 時に利用） | `outputs/state.sqlite` |
-| `SF_AI_OUTPUTS_BACKUP_DIR` | outputs 世代バックアップの保存先ディレクトリ | `outputs/backups` |
+| `SF_AI_OUTPUTS_BACKUP_DIR` | 生成物 snapshot の保存先ディレクトリ | `outputs/backups` |
 | `SF_AI_OUTPUTS_BACKUP_KEEP` | 保持する snapshot 世代数（古い世代から削除） | `5` |
 | `SF_AI_MEMORY_FILE` | プロジェクトメモリストアの JSONL ファイルパス | `outputs/memory.jsonl` |
 | `SF_AI_VECTOR_STORE_FILE` | ベクターストア永続化先の JSONL ファイルパス | `outputs/vector-store.jsonl` |
 | `SF_AI_VECTOR_MAX_RECORDS` | メモリ/ディスク上に保持するベクターレコードの最大件数（LRU） | `5000` |
-| `SF_AI_TRACE_FILE` | トレース履歴の永続化先 JSONL ファイルパス | `outputs/events/trace-log.jsonl` |
-| `SF_AI_METRICS_FILE` | メトリクスサンプルの永続化先 JSONL ファイルパス | `outputs/events/metrics-samples.jsonl` |
+| `SF_AI_TRACE_FILE` | トレース履歴の互換 JSONL 保存先。`DATABASE_URL` 未設定時や test override 時に利用 | `outputs/events/trace-log.jsonl` |
+| `SF_AI_METRICS_FILE` | メトリクスサンプルの互換 JSONL 保存先。`DATABASE_URL` 未設定時や test override 時に利用 | `outputs/events/metrics-samples.jsonl` |
 | `SF_AI_METRICS_REPORTING_HOURS` | 学習ダッシュボード更新時の集計ウィンドウ（時間） | `24` |
 | `SF_AI_METRICS_WITH_DRIFT` | `metrics:update` 実行時に drift / regression 検知を同時実行するか | `false` |
 | `SF_AI_DRIFT_BASELINE_HOURS` | drift 比較の baseline ウィンドウ（時間） | `168` |
@@ -112,7 +157,7 @@ Copy-Item .env.operations.sample .env
 | `SF_AI_DRIFT_MIN_REPUTATION_SAMPLES` | regression 判定に必要な agent reputation の最小件数（各窓） | `3` |
 | `SF_AI_DRIFT_THRESHOLD` | reward drift 判定しきい値（平均シフト/スコア） | `0.15` |
 | `SF_AI_REGRESSION_THRESHOLD` | agent regression 判定しきい値 | `0.1` |
-| `SF_AI_DRIFT_REPORT_PATH` | drift / regression レポート JSONL の保存先 | `outputs/reports/drift-regression.jsonl` |
+| `SF_AI_DRIFT_REPORT_PATH` | drift / regression レポートの互換 JSONL 保存先。`DATABASE_URL` 未設定時や test override 時に利用 | `outputs/reports/drift-regression.jsonl` |
 | `SF_AI_AUTO_MEMORY` | チャット/ツール実行のたびに input/output サマリを `memory.jsonl` と `vector-store.jsonl` へ自動追記する。`1`/`true`/`on`/`yes` で有効。memory/vector 系ツール自身は再帰防止のため除外 | `false` |
 | `SF_AI_PROGRESS_BANNER` | ツール応答テキストの先頭に進捗タイムライン (フェーズ別開始時刻・所要時間) を追加表示する。`false`/`0`/`off`/`no` で無効。`get_tool_progress` / `ping` は対象外 | `true` |
 | `LOG_LEVEL` | ログ出力レベル（`error` / `warn` / `info` / `debug`） | `info` |
@@ -123,6 +168,7 @@ Copy-Item .env.operations.sample .env
 | `OTEL_ENABLED` | OTel SDK を有効化する (`true` で有効) | `false` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP HTTP エンドポイント（`/v1/traces` は自動補完） | 未設定 |
 | `OTEL_SERVICE_NAME` | OTel のサービス名（Jaeger 上の識別名） | `salesforce-ai-company` |
+| `SF_AI_LANGSMITH_ENABLED` | LangSmith 連携の有効化フラグ（`true` で `LANGCHAIN_TRACING_V2=true` を設定） | `false` |
 | `PROMETHEUS_METRICS_PORT` | `/metrics` を公開する HTTP ポート（`0` で無効） | `0` |
 | `OLLAMA_INIT_MODELS` | docker compose の `ollama-init` が pull するモデル一覧（空白区切り） | `qwen2.5:3b nomic-embed-text:latest` |
 | `PROMPT_CACHE_MAX_ENTRIES` | メモリ上にキャッシュするプロンプトの最大件数 | `100` |
@@ -141,15 +187,27 @@ Copy-Item .env.operations.sample .env
 | `SF_AI_AUTO_APPLY_MIN_SCORE` | 自動 apply を実行する最低品質スコア（0〜100） | `70` |
 | `SF_AI_AUTO_APPLY_MAX_PER_DAY` | 1日あたりの自動リソース作成上限件数 | `5` |
 | `SF_AI_AUTO_APPLY_MAX_DELETIONS` | 1回の閾値ハンドリングで許可する削除件数の上限 | `3` |
+| `SF_AI_STATE_BACKEND` | 状態・ガバナンス・ガイダンス情報の保存先（`sqlite` / `postgres`） | `sqlite` |
+| `SF_AI_PROPOSAL_QUEUE_BACKEND` | proposal queue と cleanup schedule の永続化（`file` / `pg-boss`） | `file` |
+| `SF_AI_VECTOR_BACKEND` | ベクターストア（`tfidf` / `pgvector`） | `tfidf` |
+| `DATABASE_URL` | Postgres 接続文字列（`STATE_BACKEND=postgres` または `PROPOSAL_QUEUE_BACKEND=pg-boss` 時） | 未設定 |
+| `DATABASE_POOL_SIZE` | Postgres コネクションプール数 | `10` |
+| `DATABASE_POOL_IDLE_TIMEOUT_MS` | アイドル接続のタイムアウト（ミリ秒） | `30000` |
+| `CLEANUP_SCHEDULER_QUEUE` | pg-boss recurring job 用のキュー名 | `governance-auto-cleanup` |
+| `PG_VECTOR_POOL_SIZE` | PGVector 検索用の接続プール数 | `10` |
+| `SF_AI_LANGSMITH_ENABLED` | LangSmith トレースフレームワークを有効化（`true`/`false`） | `false` |
+| `LANGSMITH_API_KEY` | LangSmith API キー | 未設定 |
+| `LANGSMITH_TRACING_ENABLED` | LangSmith トレースの有効化フラグ | 未設定 |
 | `OLLAMA_REQUIRED` | `true` の場合、Ollama が利用不可なら起動を中断する | `false` |
 | `SF_AI_BENCHMARK_TRACE_LIMIT` | `benchmark-suite` が参照する直近 trace 件数 | `300` |
 | `EVENT_HISTORY_MAX` | EventDispatcher がメモリ上に保持するイベントの最大件数 | `1000` |
 | `TRACE_HISTORY_MAX` | メモリ上に保持する完了トレースの最大件数 | `500` |
 | `METRICS_SAMPLES_MAX` | メモリ上に保持するメトリクスサンプルの最大件数 | `2000` |
 
-## outputs provenance
+## provenance / trace 保存
 
-- `outputs/execution-origins.jsonl` には、各ツール実行について `toolName`, `status`, `serverRoot`, `processCwd`, `repoRoots`, `inputPathHints` が追記されます
+- `DATABASE_URL` が設定されていれば、execution origin / trace / metrics / drift report は Postgres に保存されます
+- `outputs/execution-origins.jsonl` は互換 file fallback または test override 時のみ利用されます
 - `repoRoots` は `repoPath`, `rootDir`, `filePath`, `filePaths` などの入力から近傍 `.git` をたどって推定されます
 - 入力に repo 情報がない軽量ツールでは、server 側 repo root とカレント作業ディレクトリが主な手がかりになります
 

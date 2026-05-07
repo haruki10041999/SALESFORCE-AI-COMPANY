@@ -38,6 +38,22 @@ docker compose ps
 Copy-Item .env.operations.sample .env
 ```
 
+バックエンド設定の確認（オプション）:
+
+```powershell
+# Postgres + pg-boss + PGVector を使う場合
+# .env 内で以下を設定
+SF_AI_STATE_BACKEND=postgres
+SF_AI_PROPOSAL_QUEUE_BACKEND=pg-boss
+SF_AI_VECTOR_BACKEND=pgvector
+DATABASE_URL=postgres://sfai:sfai@localhost:5432/sfai
+
+# または既定のまま（SQLite + file-based queue + tfidf）
+# SF_AI_STATE_BACKEND=sqlite
+# SF_AI_PROPOSAL_QUEUE_BACKEND=file
+# SF_AI_VECTOR_BACKEND=tfidf
+```
+
 3. MCP サーバ起動
 
 ```bash
@@ -62,7 +78,18 @@ curl http://localhost:9464/metrics
 # Jaeger services
 curl http://localhost:16686/api/services
 ```
+バックエンド接続確認（Postgres 利用時）:
 
+```bash
+# psql で接続確認（PostgreSQL client 必須）
+psql -U sfai -d sfai -h localhost -c "SELECT version();"
+
+# pg-boss queue テーブル確認
+psql -U sfai -d sfai -h localhost -c "SELECT * FROM pgboss.job LIMIT 5;"
+
+# PGVector index 確認（VECTOR_BACKEND=pgvector 時）
+psql -U sfai -d sfai -h localhost -c "SELECT COUNT(*) FROM pgboss.migration WHERE id = 'create-vector-index';"
+```
 5. 停止手順
 
 ```bash
@@ -81,6 +108,8 @@ docker compose down
 - Prometheus は `host.docker.internal:9464/metrics` を scrape する構成
 - `npm run ai -- dev` は stdio 接続が切れるとプロセス終了するため、`/metrics` は MCP クライアント接続中のみ利用可能
 - 複数リポジトリで同時運用する場合は `PROMETHEUS_METRICS_PORT` と `OTEL_SERVICE_NAME` を分離する
+- Grafana ダッシュボード JSON は `infra/observability/grafana-dashboards/` で管理する
+- LangSmith は `SF_AI_LANGSMITH_ENABLED=true` の明示指定時のみ有効
 
 ## 毎日の確認（5分）
 
@@ -158,7 +187,7 @@ npm run metrics:update:drift
 見るポイント:
 
 - `outputs/dashboards/learning-progress.json` が更新されること
-- drift 同時実行時は `outputs/reports/drift-regression.jsonl` が追記されること
+- drift 同時実行時は Postgres に drift report が保存されること（file fallback 時は `outputs/reports/drift-regression.jsonl`）
 
 運用向けダッシュボード再生成:
 
@@ -193,16 +222,27 @@ npm run ai -- outputs:version -- wipe --keep-backups
 
 見るポイント:
 
-- `wipe` は `backups/` を残して `outputs/` を空にする
+- `wipe` は `backups/` を残して生成物 artifacts を整理する
 - 既定では wipe 前に snapshot が 1 つ追加で作られる
-- どのリポジトリ起点の実行だったかは `outputs/execution-origins.jsonl` を見る
+- どのリポジトリ起点の実行だったかは Postgres の `execution_origins` を確認する
+
+4. ベンチマークの記録
+
+```bash
+npm run benchmark:run -- --limit 200
+```
+
+見るポイント:
+
+- `outputs/reports/benchmark-suite.json` が更新されること（レポート生成物）
+- 前回結果と比較して有意な劣化がないこと
 
 4. オーケストレーション学習ログの確認（F14）
 
 確認ポイント:
 
-- `outputs/agent-graph.jsonl` が増加していること（セッション完了時に追記）
-- `outputs/audit/tool-executions.jsonl` に実行監査が出ていること
+- Postgres の agent graph 学習データが増加していること（fallback 時は `outputs/agent-graph.jsonl`）
+- Postgres の audit logs に tool execution が記録されていること（fallback 時は `outputs/audit/tool-executions.jsonl`）
 - `dequeue_next_agent` 実行結果に `graphRecommendation` が含まれることがある（学習データ依存）
 
 4. SQLite 履歴モードを使う場合の整合チェック
@@ -219,6 +259,9 @@ node -e "require('node:sqlite'); console.log('node:sqlite OK')"
 - `node:sqlite OK` が出ること
 - `npm config get ignore-scripts` が `true` でも動作する（native addon 不要）
 - 実行時に `ExperimentalWarning: SQLite is an experimental feature` が出ても、動作自体は継続可能
+
+削除ゲート（旧 SQLite / JSONL 実装の安全な撤去条件）は
+`docs/observability-cleanup-playbook.md` を参照してください。
 
 ```bash
 # JSONL/history -> state.sqlite
@@ -244,8 +287,8 @@ npm run ai -- doctor
 
 2. ログ確認
 
-- `outputs/events/system-events.jsonl`
-- `outputs/execution-origins.jsonl`
+- Postgres の `system_events`
+- Postgres の `execution_origins`
 
 3. 必要なら復元
 
@@ -269,9 +312,9 @@ npm run ai -- doctor
 
 - 出力全体の意味: `outputs-structure.md`
 - 設定値: `configuration.md`
-- 実行 provenance: `../outputs/execution-origins.jsonl`
-- Agent graph 学習ログ: `../outputs/agent-graph.jsonl`
-- ツール実行監査ログ: `../outputs/audit/tool-executions.jsonl`
+- 実行 provenance: Postgres `execution_origins`
+- Agent graph 学習ログ: Postgres の analytics データ（fallback 時は `../outputs/agent-graph.jsonl`）
+- ツール実行監査ログ: Postgres の audit logs（fallback 時は `../outputs/audit/tool-executions.jsonl`）
 - 変更履歴: `CHANGELOG.md`
 
 ## 補足: 統一CLIでの代表コマンド

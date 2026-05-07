@@ -6,7 +6,6 @@ type ResourceType = "skills" | "agents" | "personas" | "presets";
 export type ResourceDependencyGraphInput = {
   rootDir: string;
   presetsDir: string;
-  outputsDir: string;
   includeTypes?: ResourceType[];
   includeIsolated?: boolean;
   impactTarget?: {
@@ -52,6 +51,8 @@ export type ResourceDependencyGraphResult = {
   impact?: ResourceImpact;
   reportJsonPath: string;
   reportMarkdownPath: string;
+  persisted: boolean;
+  persistenceNotice: string;
 };
 
 type PresetFileShape = {
@@ -231,10 +232,7 @@ export async function buildResourceDependencyGraph(
 ): Promise<ResourceDependencyGraphResult> {
   const rootDir = resolve(input.rootDir);
   const presetsDir = resolve(input.presetsDir);
-  const outputsDir = resolve(input.outputsDir);
-  const reportDir = input.reportOutputDir
-    ? resolve(input.reportOutputDir)
-    : join(outputsDir, "reports", "resource-graph");
+  const reportDir = input.reportOutputDir ? resolve(input.reportOutputDir) : null;
   const includeTypes = new Set<ResourceType>(input.includeTypes ?? ["skills", "agents", "personas", "presets"]);
   const includeIsolated = input.includeIsolated !== false;
   const maxImpacts = Number.isFinite(input.maxImpacts) ? Math.max(1, Math.floor(input.maxImpacts ?? 50)) : 50;
@@ -390,10 +388,9 @@ export async function buildResourceDependencyGraph(
   const impact = impactTargetId ? findImpact(impactTargetId, nodesById, outgoing, incoming, maxImpacts) : undefined;
   const mermaid = buildMermaid(nodes, allEdges);
 
-  await fsPromises.mkdir(reportDir, { recursive: true });
   const timestamp = new Date().toISOString().replace(/[.:]/g, "-");
-  const reportJsonPath = join(reportDir, `resource-dependency-graph-${timestamp}.json`);
-  const reportMarkdownPath = join(reportDir, `resource-dependency-graph-${timestamp}.md`);
+  const reportJsonPath = reportDir ? join(reportDir, `resource-dependency-graph-${timestamp}.json`) : "";
+  const reportMarkdownPath = reportDir ? join(reportDir, `resource-dependency-graph-${timestamp}.md`) : "";
 
   const result: ResourceDependencyGraphResult = {
     generatedAt: new Date().toISOString(),
@@ -403,21 +400,28 @@ export async function buildResourceDependencyGraph(
     mermaid,
     impact,
     reportJsonPath,
-    reportMarkdownPath
+    reportMarkdownPath,
+    persisted: reportDir !== null,
+    persistenceNotice: reportDir
+      ? `report files were written to ${reportDir}`
+      : "reportOutputDir is not provided; file persistence is skipped"
   };
 
-  await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
-  await fsPromises.writeFile(
-    reportMarkdownPath,
-    toMarkdown({
-      summary,
-      nodes,
-      edges: allEdges,
-      mermaid,
-      impact
-    }),
-    "utf-8"
-  );
+  if (reportDir) {
+    await fsPromises.mkdir(reportDir, { recursive: true });
+    await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
+    await fsPromises.writeFile(
+      reportMarkdownPath,
+      toMarkdown({
+        summary,
+        nodes,
+        edges: allEdges,
+        mermaid,
+        impact
+      }),
+      "utf-8"
+    );
+  }
 
   return result;
 }

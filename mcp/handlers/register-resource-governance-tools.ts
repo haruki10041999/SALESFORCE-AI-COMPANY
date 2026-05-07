@@ -28,7 +28,10 @@ import {
   type HandlerScheduleRule
 } from "../core/governance/handler-schedule.js";
 import { suggestRefactors } from "../tools/refactor-suggest.js";
-import { enqueueProposal } from "../core/resource/proposal/queue.js";
+import {
+  createFileProposalQueueStore,
+  type ProposalQueueStore
+} from "../core/resource/proposal/proposal-queue-store.js";
 import {
   getDefaultSchedulesFilePath,
   getDueAutoRefactorSchedules,
@@ -59,6 +62,7 @@ interface RegisterResourceGovernanceToolsDeps extends RegisterGovToolDeps {
   listToolsCatalog: (state: GovernanceState) => string[];
   resourceScore: (usage: number, bugs: number) => number;
   emitSystemEvent: (event: string, payload: Record<string, unknown>) => Promise<void>;
+  proposalQueue?: ProposalQueueStore;
 }
 
 export function registerResourceGovernanceTools(deps: RegisterResourceGovernanceToolsDeps): void {
@@ -77,6 +81,7 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
   const outputsDir = process.env.SF_AI_OUTPUTS_DIR
     ? resolve(process.env.SF_AI_OUTPUTS_DIR)
     : resolve("outputs");
+  const proposalQueue = deps.proposalQueue ?? createFileProposalQueueStore(outputsDir);
   const proposalFeedbackLog = join(outputsDir, "tool-proposals", "proposal-feedback.jsonl");
   const proposalFeedbackModel = join(outputsDir, "tool-proposals", "proposal-feedback-model.json");
   const querySkillFeedbackLog = join(outputsDir, "tool-proposals", "query-skill-feedback.jsonl");
@@ -182,7 +187,7 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
           "```"
         ].join("\n");
 
-        const record = enqueueProposal(outputsDir, {
+        const record = await proposalQueue.enqueue({
           resourceType: "skills",
           name: row.skill,
           content,
@@ -832,7 +837,7 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
     "render_governance_ui",
     {
       title: "Governance ルール簡易 Web UI",
-      description: "Governance 状態から HTML / Markdown ダッシュボードを生成し、必要に応じて outputs/dashboards/governance.* に保存します。",
+      description: "Governance 状態から HTML / Markdown ダッシュボードを生成します。必要時のみ write=true で保存します。",
       inputSchema: {
         format: z.enum(["html", "markdown", "json"]).optional(),
         topPerType: z.number().int().min(1).max(100).optional(),
@@ -850,7 +855,7 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
       const report = renderGovernanceUi(state, { topPerType, title });
 
       const dashboardsDir = join(outputsDir, "dashboards");
-      const shouldWrite = write !== false;
+      const shouldWrite = write === true;
       if (shouldWrite) {
         await fsPromises.mkdir(dashboardsDir, { recursive: true });
         await fsPromises.writeFile(join(dashboardsDir, "governance.html"), report.html, "utf-8");
@@ -876,7 +881,11 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
             thresholds: report.thresholds,
             sections: report.sections,
             totals: report.totals,
-            writtenTo: shouldWrite ? dashboardsDir : null
+            writtenTo: shouldWrite ? dashboardsDir : null,
+            persisted: shouldWrite,
+            persistenceNotice: shouldWrite
+              ? `dashboard files were written to ${dashboardsDir}`
+              : "write=true is not provided; dashboard file persistence is skipped"
           }, null, 2);
 
       return { content: [{ type: "text", text }] };

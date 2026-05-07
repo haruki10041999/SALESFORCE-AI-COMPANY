@@ -65,6 +65,8 @@ export type AgentAbTestResult = {
   reportJsonPath: string;
   reportMarkdownPath: string;
   summary: string;
+  persisted: boolean;
+  persistenceNotice: string;
   trustStoreApplied?: {
     filePath: string;
     winnerAgent: string;
@@ -154,14 +156,8 @@ export async function runAgentAbTest(
     outputsDir: string;
   }
 ): Promise<AgentAbTestResult> {
-  // 保存方針 (集約型):
-  //   <reportDir>/runs.jsonl    ← 全実行を 1 行 = 1 結果で append (履歴永続)
-  //   <reportDir>/latest.json   ← 直近 1 件 (上書き)
-  //   <reportDir>/latest.md     ← 直近 1 件 (上書き)
-  // 旧来の `agent-ab-test-<stamp>.{json,md}` 形式は廃止。
-  const reportDir = input.reportOutputDir
-    ? resolve(input.reportOutputDir)
-    : join(resolve(deps.outputsDir), "reports", "agent-ab-test");
+  // 既定はメモリ返却のみ。必要時のみ reportOutputDir へ保存する。
+  const reportDir = input.reportOutputDir ? resolve(input.reportOutputDir) : null;
 
   const [agentA, agentB] = await Promise.all([
     runSingle(deps.runChatTool, deps.evaluatePromptMetrics, input, input.agentA),
@@ -173,10 +169,9 @@ export async function runAgentAbTest(
   const overall = byQuality === byLatency ? byQuality : byQuality;
   const generatedAt = new Date().toISOString();
 
-  await fsPromises.mkdir(reportDir, { recursive: true });
-  const runsJsonlPath = join(reportDir, "runs.jsonl");
-  const reportJsonPath = join(reportDir, "latest.json");
-  const reportMarkdownPath = join(reportDir, "latest.md");
+  const runsJsonlPath = reportDir ? join(reportDir, "runs.jsonl") : "";
+  const reportJsonPath = reportDir ? join(reportDir, "latest.json") : "";
+  const reportMarkdownPath = reportDir ? join(reportDir, "latest.md") : "";
 
   const result: AgentAbTestResult = {
     generatedAt,
@@ -193,6 +188,10 @@ export async function runAgentAbTest(
     },
     reportJsonPath,
     reportMarkdownPath,
+    persisted: reportDir !== null,
+    persistenceNotice: reportDir
+      ? `report files were written to ${reportDir}`
+      : "reportOutputDir is not provided; file persistence is skipped",
     summary: [
       `comparison: ${input.agentA} vs ${input.agentB}`,
       `winner: ${overall}`,
@@ -201,10 +200,12 @@ export async function runAgentAbTest(
     ].join("\n")
   };
 
-  // append 1 行 (履歴) → latest を上書き
-  await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
-  await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
-  await fsPromises.writeFile(reportMarkdownPath, buildMarkdown(result), "utf-8");
+  if (reportDir) {
+    await fsPromises.mkdir(reportDir, { recursive: true });
+    await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
+    await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
+    await fsPromises.writeFile(reportMarkdownPath, buildMarkdown(result), "utf-8");
+  }
 
   if (input.applyOutcomeToTrustStore && overall && agentA.agent !== agentB.agent) {
     const trustStorePath = input.trustStoreFilePath

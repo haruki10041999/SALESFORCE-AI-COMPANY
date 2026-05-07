@@ -9,6 +9,7 @@
  */
 
 import { OllamaClient, getDefaultOllamaClient } from "./ollama-client.js";
+import { LRUCache } from "lru-cache";
 
 export type OllamaAvailability =
   | { status: "available"; models: string[]; checkedAt: number }
@@ -27,41 +28,49 @@ export interface OllamaHealthOptions {
 
 const DEFAULT_TTL_MS = 30000;
 
-let CACHED: OllamaAvailability | null = null;
+const ollamaHealthCache = new LRUCache<string, OllamaAvailability>({
+  max: 1,
+  updateAgeOnGet: true
+});
 
 export function _resetOllamaHealthCache(): void {
-  CACHED = null;
+  ollamaHealthCache.clear();
 }
 
 export async function checkOllamaAvailability(options: OllamaHealthOptions = {}): Promise<OllamaAvailability> {
   const ttl = options.cacheTtlMs ?? DEFAULT_TTL_MS;
   const now = Date.now();
-  if (!options.force && CACHED && now - CACHED.checkedAt < ttl) {
-    return CACHED;
+
+  if (!options.force) {
+    const cached = ollamaHealthCache.get("ollama-health");
+    if (cached && now - cached.checkedAt < ttl) return cached;
   }
 
   const client = options.client ?? getDefaultOllamaClient();
   const result = await client.health();
   if (!result.ok) {
-    CACHED = { status: "unavailable", reason: result.error ?? "unknown", checkedAt: now };
-    return CACHED;
+    const resultWithTime: OllamaAvailability = { status: "unavailable", reason: result.error ?? "unknown", checkedAt: now };
+    ollamaHealthCache.set("ollama-health", resultWithTime, { ttl });
+    return resultWithTime;
   }
 
   // 必須モデル不足チェック
   if (options.requiredModels && options.requiredModels.length > 0) {
     const missing = options.requiredModels.filter((m) => !result.models.some((avail) => avail.startsWith(m)));
     if (missing.length > 0) {
-      CACHED = {
+      const resultWithTime: OllamaAvailability = {
         status: "unavailable",
         reason: `required models missing: ${missing.join(", ")}`,
         checkedAt: now
       };
-      return CACHED;
+      ollamaHealthCache.set("ollama-health", resultWithTime, { ttl });
+      return resultWithTime;
     }
   }
 
-  CACHED = { status: "available", models: result.models, checkedAt: now };
-  return CACHED;
+  const resultWithTime: OllamaAvailability = { status: "available", models: result.models, checkedAt: now };
+  ollamaHealthCache.set("ollama-health", resultWithTime, { ttl });
+  return resultWithTime;
 }
 
 export interface OllamaPolicyEnvSource {

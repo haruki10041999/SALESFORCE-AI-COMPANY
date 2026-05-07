@@ -2,36 +2,36 @@
 import type { RegisterGovToolDeps } from "./types.js";
 
 interface RegisterMemoryToolsDeps extends RegisterGovToolDeps {
-  addMemory: (text: string) => void;
-  searchMemory: (query: string) => string[];
-  listMemory: () => string[];
-  clearMemory: () => void;
+  addMemory: (text: string) => Promise<void>;
+  searchMemory: (query: string) => Promise<string[]>;
+  listMemory: () => Promise<string[]>;
+  clearMemory: () => Promise<void>;
   recordFailureMemory: (input: {
     pattern: string;
     reason: string;
     preventiveAction: string;
     tags?: string[];
-  }) => {
-    pattern: string;
-    reason: string;
-    preventiveAction: string;
-    tags: string[];
-    recordedAt: string;
-  };
-  searchFailureMemory: (query: string, limit?: number) => Array<{
+  }) => Promise<{
     pattern: string;
     reason: string;
     preventiveAction: string;
     tags: string[];
     recordedAt: string;
   }>;
-  listFailureMemory: (limit?: number) => Array<{
+  searchFailureMemory: (query: string, limit?: number) => Promise<Array<{
     pattern: string;
     reason: string;
     preventiveAction: string;
     tags: string[];
     recordedAt: string;
-  }>;
+  }>>;
+  listFailureMemory: (limit?: number) => Promise<Array<{
+    pattern: string;
+    reason: string;
+    preventiveAction: string;
+    tags: string[];
+    recordedAt: string;
+  }>>;
 }
 
 export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
@@ -56,7 +56,7 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
       }
     },
     async ({ text }: { text: string }) => {
-      addMemory(text);
+      await addMemory(text);
       return {
         content: [{ type: "text", text: `保存しました: ${text.slice(0, 80)}${text.length > 80 ? "..." : ""}` }]
       };
@@ -73,7 +73,7 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
       }
     },
     async ({ query }: { query: string }) => {
-      const results = searchMemory(query);
+      const results = await searchMemory(query);
       return {
         content: [
           {
@@ -93,7 +93,7 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
       inputSchema: {}
     },
     async () => {
-      const items = listMemory();
+      const items = await listMemory();
       return {
         content: [
           {
@@ -113,7 +113,7 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
       inputSchema: {}
     },
     async () => {
-      clearMemory();
+      await clearMemory();
       return {
         content: [{ type: "text", text: "Memory cleared." }]
       };
@@ -138,7 +138,7 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
       preventiveAction: string;
       tags?: string[];
     }) => {
-      const recorded = recordFailureMemory({
+      const recorded = await recordFailureMemory({
         pattern,
         reason,
         preventiveAction,
@@ -166,7 +166,7 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
       }
     },
     async ({ query, limit }: { query: string; limit?: number }) => {
-      const results = searchFailureMemory(query, limit ?? 10);
+      const results = await searchFailureMemory(query, limit ?? 10);
       return {
         content: [
           {
@@ -188,7 +188,7 @@ export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
       }
     },
     async ({ limit }: { limit?: number }) => {
-      const items = listFailureMemory(limit ?? 50);
+      const items = await listFailureMemory(limit ?? 50);
       return {
         content: [
           {

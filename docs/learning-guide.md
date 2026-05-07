@@ -40,8 +40,8 @@
 
 保存先:
 
-- `outputs/tool-proposals/proposal-feedback.jsonl`
-- `outputs/tool-proposals/proposal-feedback-model.json`
+- Postgres（`proposal_feedback_entries`, `analytics_models`）
+- file fallback: `outputs/tool-proposals/proposal-feedback.jsonl`, `outputs/tool-proposals/proposal-feedback-model.json`
 
 仕組み:
 
@@ -69,8 +69,8 @@
 
 保存先:
 
-- `outputs/tool-proposals/query-skill-feedback.jsonl`
-- `outputs/tool-proposals/query-skill-model.json`
+- Postgres（`query_skill_feedback_entries`, `analytics_models`）
+- file fallback: `outputs/tool-proposals/query-skill-feedback.jsonl`, `outputs/tool-proposals/query-skill-model.json`
 
 仕組み:
 
@@ -116,7 +116,8 @@
 
 保存先:
 
-- `outputs/agent-trust-histories.json`
+- Postgres（agent reputation 系テーブル）
+- file fallback: `outputs/agent-trust-histories.json`
 
 仕組み:
 
@@ -137,8 +138,8 @@
 
 保存先:
 
-- `outputs/memory.jsonl`
-- `outputs/vector-store.jsonl`
+- Postgres（project memory）と vector backend（`pgvector` 推奨）
+- file fallback: `outputs/memory.jsonl`, `outputs/vector-store.jsonl`
 
 仕組み:
 
@@ -191,16 +192,16 @@
 - 推薦補正: `outputs/tool-proposals/proposal-feedback-model.json`
 - query と skill の相性: `outputs/tool-proposals/query-skill-model.json`
 - スキル満足度: `outputs/reports/skill-rating.md`
-- エージェント信頼: `outputs/agent-trust-histories.json`
-- 自動蓄積メモリ: `outputs/memory.jsonl`, `outputs/vector-store.jsonl`
-- どの repo 起点か: `outputs/execution-origins.jsonl`
+- エージェント信頼: Postgres（file fallback: `outputs/agent-trust-histories.json`）
+- 自動蓄積メモリ: Postgres / PGVector（file fallback: `outputs/memory.jsonl`, `outputs/vector-store.jsonl`）
+- どの repo 起点か: Postgres `execution_origins`（file fallback: `outputs/execution-origins.jsonl`）
 
 ## 9. 運用上の注意
 
 - これは foundation model の再学習ではなく、ローカルなスコア補正・履歴更新・ランキング改善です
 - フィードバックが少ない間は補正が弱く、誤学習の影響も限定されるように上限がかかっています
-- `SF_AI_OUTPUTS_DIR` を共通化すると、複数リポジトリをまたいだ学習ログを 1 箇所で管理できます
-- リポジトリごとに学習を分けたい場合は、outputs を分離した方が安全です
+- `DATABASE_URL` を共通化すると、複数リポジトリをまたいだ学習ログを 1 箇所で管理できます
+- リポジトリごとに学習を分けたい場合は、DB を分離するかスキーマ分離を使います
 
 ## 10. 学習ダッシュボード自動更新とドリフト検知（Task 8）
 
@@ -220,7 +221,7 @@ npm run metrics:update:drift
 出力先:
 
 - `outputs/dashboards/learning-progress.json`
-- `outputs/reports/drift-regression.jsonl`
+- drift report: Postgres（file fallback: `outputs/reports/drift-regression.jsonl`）
 
 主な設定:
 

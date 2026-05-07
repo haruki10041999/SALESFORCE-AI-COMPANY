@@ -1,14 +1,12 @@
 import { existsSync, readdirSync, statSync, unlinkSync } from "node:fs";
-import { basename, join, relative } from "node:path";
+import { join } from "node:path";
 import { createLogger } from "../logging/logger.js";
 
 const logger = createLogger("OutputsCleanup");
-const PROTECTED_EVENT_FILES = new Set(["system-events.jsonl", "trace-log.jsonl", "metrics-samples.jsonl"]);
 
 type CleanupTarget = {
   dirPath: string;
   recursive?: boolean;
-  keepFile?: (filePath: string, dirPath: string) => boolean;
 };
 
 export type CleanupOptions = {
@@ -85,16 +83,11 @@ function listFiles(dirPath: string, recursive: boolean): string[] {
   return files;
 }
 
-function keepEventFile(filePath: string, dirPath: string): boolean {
-  const rel = relative(dirPath, filePath);
-  return !rel.includes("/") && !rel.includes("\\") && PROTECTED_EVENT_FILES.has(basename(filePath));
-}
-
 export function cleanupDirectory(
   dirPath: string,
   thresholdDays: number,
   dryRun: boolean,
-  target: Pick<CleanupTarget, "recursive" | "keepFile"> = {}
+  target: Pick<CleanupTarget, "recursive"> = {}
 ): CleanupDirectoryResult {
   if (!existsSync(dirPath)) {
     return { scanned: 0, removed: 0, skippedMissing: true };
@@ -105,10 +98,6 @@ export function cleanupDirectory(
   let removed = 0;
 
   for (const filePath of files) {
-    if (target.keepFile?.(filePath, dirPath)) {
-      continue;
-    }
-
     scanned += 1;
     let stat;
     try {
@@ -147,8 +136,7 @@ export function cleanupOutputs(outputsDir: string, options: CleanupOptions): Cle
     { dirPath: join(outputsDir, "reports"), recursive: true },
     { dirPath: join(outputsDir, "dashboards"), recursive: true },
     { dirPath: join(outputsDir, "benchmark"), recursive: true },
-    { dirPath: join(outputsDir, "debug"), recursive: true },
-    { dirPath: join(outputsDir, "events"), keepFile: keepEventFile }
+    { dirPath: join(outputsDir, "debug"), recursive: true }
   ];
 
   let totalScanned = 0;

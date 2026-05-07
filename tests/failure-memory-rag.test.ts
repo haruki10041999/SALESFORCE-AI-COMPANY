@@ -30,19 +30,19 @@ async function setupTest(): Promise<void> {
   await fsPromises.writeFile(FAILURE_MEMORY_PATH, "");
   configureFailureMemoryStorageForTest(FAILURE_MEMORY_PATH);
 
-  recordFailureMemory({
+  await recordFailureMemory({
     pattern: "Module has no exported member RewardRecord",
     reason: "Type not exported from module",
     preventiveAction: "Add export keyword to interface definition",
     tags: ["typescript", "reward-aggregator", "architect", "type-check", "build"]
   });
-  recordFailureMemory({
+  await recordFailureMemory({
     pattern: "Module declares RewardRecord locally but it is not exported",
     reason: "Missing export statement",
     preventiveAction: "Ensure export keyword precedes interface",
     tags: ["typescript", "feedback-manager", "debug-specialist", "import", "dev"]
   });
-  recordFailureMemory({
+  await recordFailureMemory({
     pattern: "assert.ok(rolled) failed",
     reason: "Field not initialized in constructor",
     preventiveAction: "Ensure previousVersion field is set during proposal creation",

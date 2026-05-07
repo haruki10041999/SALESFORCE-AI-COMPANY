@@ -13,7 +13,17 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve, relative, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import Ajv from "ajv";
 import { parseToolSpec } from "../mcp/core/declarative/tool-spec.js";
+import {
+  createProgressBar,
+  createSpinner,
+  formatError,
+  formatSuccess,
+  formatWarn,
+  renderJsonPatch
+} from "./support/cli-output.js";
+import { t } from "./support/i18n.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..");
@@ -24,6 +34,19 @@ interface Schema {
   allowedDirectories: string[];
   allowedFiles: string[];
 }
+
+const schemaValidator = (() => {
+  const ajv = new Ajv();
+  return ajv.compile({
+    type: "object",
+    properties: {
+      allowedDirectories: { type: "array", items: { type: "string" } },
+      allowedFiles: { type: "array", items: { type: "string" } }
+    },
+    required: ["allowedDirectories", "allowedFiles"],
+    additionalProperties: true
+  });
+})();
 
 /**
  * Allow timestamped gzip archives for known top-level jsonl files.
@@ -41,13 +64,21 @@ async function loadSchema(): Promise<Schema | null> {
   try {
     const raw = await readFile(schemaPath, "utf8");
     const parsed = JSON.parse(raw);
-    return {
-      allowedDirectories: Array.isArray(parsed.allowedDirectories) ? parsed.allowedDirectories : [],
-      allowedFiles: Array.isArray(parsed.allowedFiles) ? parsed.allowedFiles : []
-    };
+    // Validate against JSON Schema using ajv
+    if (!schemaValidator(parsed)) {
+      throw new Error(
+        t("lintOutputs.fail.invalidSchema", {
+          details:
+            schemaValidator.errors
+              ?.map((e) => `${("instancePath" in e ? e.instancePath : "") || "/"} ${e.message ?? "invalid"}`)
+              .join(", ") || "unknown error"
+        })
+      );
+    }
+    return parsed as Schema;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      console.warn("WARN: outputs/.schema.json not found; skip top-level schema validation.");
+      console.warn(formatWarn(t("lintOutputs.warn.schemaMissing")));
       return null;
     }
     throw error;
@@ -56,16 +87,18 @@ async function loadSchema(): Promise<Schema | null> {
 
 async function main(): Promise<void> {
   const fix = process.argv.includes("--fix");
+  const spinner = createSpinner(t("lintOutputs.spinner.scan"));
   const schema = await loadSchema();
   if (!schema) {
     const declViolations = await lintDeclarativeTools();
+    spinner?.stop();
     if (declViolations.length > 0) {
-      console.error(`FAIL: ${declViolations.length} invalid DeclarativeToolSpec file(s) under outputs/custom-tools/`);
+      console.error(formatError(t("lintOutputs.fail.invalidDeclarativeTools", { count: declViolations.length })));
       for (const v of declViolations) console.error(`  - ${v}`);
       process.exitCode = 1;
       return;
     }
-    console.log("OK: outputs schema validation skipped (.schema.json missing).");
+    console.log(formatSuccess(t("lintOutputs.ok.skipped")));
     return;
   }
   const dirSet = new Set(schema.allowedDirectories);
@@ -79,6 +112,8 @@ async function main(): Promise<void> {
   const newFiles: string[] = [];
   const seenDirNames = new Set<string>();
   const seenFileNames = new Set<string>();
+  const progress = createProgressBar(entries.length);
+  let processed = 0;
   for (const entry of entries) {
     if (entry.isDirectory()) {
       seenDirNames.add(entry.name);
@@ -93,37 +128,52 @@ async function main(): Promise<void> {
         else violations.push(`unexpected file: outputs/${entry.name}`);
       }
     }
+    processed += 1;
+    progress?.update(processed);
   }
+  progress?.stop();
 
   // Stale エントリ (schema 側に残っているが実体が消えたもの) を警告。
   const staleDirs = schema.allowedDirectories.filter((d) => !seenDirNames.has(d));
   const staleFiles = schema.allowedFiles.filter((f) => !seenFileNames.has(f));
-  for (const d of staleDirs) console.warn(`WARN: stale schema entry (directory not present): ${d}`);
-  for (const f of staleFiles) console.warn(`WARN: stale schema entry (file not present): ${f}`);
+  for (const d of staleDirs) console.warn(formatWarn(t("lintOutputs.warn.staleDirectory", { name: d })));
+  for (const f of staleFiles) console.warn(formatWarn(t("lintOutputs.warn.staleFile", { name: f })));
 
   if (fix && (newDirs.length > 0 || newFiles.length > 0)) {
+    const before = await readFile(schemaPath, "utf8");
     const updated = {
-      ...(JSON.parse(await readFile(schemaPath, "utf8")) as Record<string, unknown>),
+      ...(JSON.parse(before) as Record<string, unknown>),
       allowedDirectories: [...new Set([...schema.allowedDirectories, ...newDirs])].sort(),
       allowedFiles: [...new Set([...schema.allowedFiles, ...newFiles])].sort()
     };
-    await writeFile(schemaPath, JSON.stringify(updated, null, 2) + "\n", "utf8");
-    console.log(`FIXED: appended ${newDirs.length} dir(s), ${newFiles.length} file(s) to schema.`);
+    const after = JSON.stringify(updated, null, 2) + "\n";
+    await writeFile(schemaPath, after, "utf8");
+    console.log(formatSuccess(t("lintOutputs.ok.fixed", { dirs: newDirs.length, files: newFiles.length })));
+    console.log(renderJsonPatch(before, after, relative(repoRoot, schemaPath)));
   }
 
   if (violations.length === 0) {
     const declViolations = await lintDeclarativeTools();
+    spinner?.stop();
     if (declViolations.length > 0) {
-      console.error(`FAIL: ${declViolations.length} invalid DeclarativeToolSpec file(s) under outputs/custom-tools/`);
+      console.error(formatError(t("lintOutputs.fail.invalidDeclarativeTools", { count: declViolations.length })));
       for (const v of declViolations) console.error(`  - ${v}`);
       process.exitCode = 1;
       return;
     }
-    console.log(`OK: outputs/ matches schema (${entries.length} entries).`);
+    console.log(formatSuccess(t("lintOutputs.ok.schemaMatches", { count: entries.length })));
     return;
   }
 
-  console.error(`FAIL: ${violations.length} unexpected outputs/ entry(ies). Update '${relative(repoRoot, schemaPath)}' if intentional, or rerun with --fix to auto-append.`);
+  spinner?.stop();
+  console.error(
+    formatError(
+      t("lintOutputs.fail.unexpectedEntries", {
+        count: violations.length,
+        schemaPath: relative(repoRoot, schemaPath)
+      })
+    )
+  );
   for (const v of violations) console.error(`  - ${v}`);
   process.exitCode = 1;
 }
@@ -157,7 +207,7 @@ async function lintDeclarativeTools(): Promise<string[]> {
 const invokedDirectly = import.meta.url === pathToFileURL(process.argv[1] ?? "").href;
 if (invokedDirectly) {
   main().catch((err) => {
-    console.error("lint-outputs failed:", err);
+    console.error(formatError(`${t("lintOutputs.fail.fatal")}: ${err instanceof Error ? err.message : String(err)}`));
     process.exit(1);
   });
 }

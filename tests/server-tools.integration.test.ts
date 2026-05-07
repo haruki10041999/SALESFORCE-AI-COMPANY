@@ -170,6 +170,8 @@ test("run_deployment_verification returns structured decision and report paths",
     decision: { recommendedAction: "rollback" | "continue" | "monitor"; shouldRollback: boolean };
     reportJsonPath: string;
     reportMarkdownPath: string;
+    persisted: boolean;
+    persistenceNotice: string;
   }>(await callTool("run_deployment_verification", {
     targetOrg: "qa-org",
     dryRun: false,
@@ -189,8 +191,10 @@ test("run_deployment_verification returns structured decision and report paths",
   assert.ok(payload.smokeTestCommand.includes("sf apex run test"));
   assert.ok(["rollback", "continue", "monitor"].includes(payload.decision.recommendedAction));
   assert.equal(typeof payload.decision.shouldRollback, "boolean");
-  assert.ok(payload.reportJsonPath.length > 0);
-  assert.ok(payload.reportMarkdownPath.length > 0);
+  assert.equal(payload.persisted, false);
+  assert.equal(payload.reportJsonPath, "");
+  assert.equal(payload.reportMarkdownPath, "");
+  assert.ok(payload.persistenceNotice.includes("file persistence is skipped"));
 });
 
 test("suggest_flow_test_cases returns uncovered path suggestions with report outputs", async () => {
@@ -2040,6 +2044,8 @@ test("analyze_test_coverage_gap returns CI-gate compatible result", async () => 
       ciGate: { pass: boolean; suggestedExitCode: number };
       reportJsonPath: string;
       reportMarkdownPath: string;
+      persisted: boolean;
+      persistenceNotice: string;
     }>(await callTool("analyze_test_coverage_gap", {
       repoPath,
       baseBranch: "main",
@@ -2050,8 +2056,10 @@ test("analyze_test_coverage_gap returns CI-gate compatible result", async () => 
     assert.equal(typeof payload.gapCount, "number");
     assert.equal(typeof payload.ciGate.pass, "boolean");
     assert.ok([0, 1].includes(payload.ciGate.suggestedExitCode));
-    assert.ok(payload.reportJsonPath.length > 0);
-    assert.ok(payload.reportMarkdownPath.length > 0);
+    assert.equal(payload.persisted, false);
+    assert.equal(payload.reportJsonPath, "");
+    assert.equal(payload.reportMarkdownPath, "");
+    assert.ok(payload.persistenceNotice.includes("file persistence is skipped"));
   } finally {
     rmSync(repoPath, { recursive: true, force: true });
   }

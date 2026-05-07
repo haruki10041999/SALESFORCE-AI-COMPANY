@@ -55,6 +55,8 @@ export type SuggestFlowTestCasesResult = {
   reportJsonPath: string;
   reportMarkdownPath: string;
   summary: string;
+  persisted: boolean;
+  persistenceNotice: string;
 };
 
 function extractTag(block: string, tagName: string): string | null {
@@ -388,14 +390,10 @@ export async function suggestFlowTestCases(input: SuggestFlowTestCasesInput): Pr
   }
 
   const generatedAt = new Date().toISOString();
-  const defaultOutputsDir = process.env.SF_AI_OUTPUTS_DIR
-    ? resolve(process.env.SF_AI_OUTPUTS_DIR)
-    : join(process.cwd(), "outputs");
-  const reportDir = resolve(input.reportOutputDir ?? join(defaultOutputsDir, "reports", "flow-test-cases"));
-  await fsPromises.mkdir(reportDir, { recursive: true });
-  const runsJsonlPath = join(reportDir, "runs.jsonl");
-  const reportJsonPath = join(reportDir, "latest.json");
-  const reportMarkdownPath = join(reportDir, "latest.md");
+  const reportDir = input.reportOutputDir ? resolve(input.reportOutputDir) : null;
+  const runsJsonlPath = reportDir ? join(reportDir, "runs.jsonl") : "";
+  const reportJsonPath = reportDir ? join(reportDir, "latest.json") : "";
+  const reportMarkdownPath = reportDir ? join(reportDir, "latest.md") : "";
 
   const result: SuggestFlowTestCasesResult = {
     flowName,
@@ -409,6 +407,10 @@ export async function suggestFlowTestCases(input: SuggestFlowTestCasesInput): Pr
     suggestedCases: suggestions,
     reportJsonPath,
     reportMarkdownPath,
+    persisted: reportDir !== null,
+    persistenceNotice: reportDir
+      ? `report files were written to ${reportDir}`
+      : "reportOutputDir is not provided; file persistence is skipped",
     summary: [
       `flowName: ${flowName}`,
       `totalPathCount: ${allPaths.length}`,
@@ -417,9 +419,12 @@ export async function suggestFlowTestCases(input: SuggestFlowTestCasesInput): Pr
     ].join("\n")
   };
 
-  await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
-  await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
-  await fsPromises.writeFile(reportMarkdownPath, toMarkdown(result), "utf-8");
+  if (reportDir) {
+    await fsPromises.mkdir(reportDir, { recursive: true });
+    await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
+    await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
+    await fsPromises.writeFile(reportMarkdownPath, toMarkdown(result), "utf-8");
+  }
 
   return result;
 }

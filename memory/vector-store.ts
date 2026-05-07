@@ -1,7 +1,24 @@
 import { JsonlVectorStoreAdapter } from "./adapters/jsonl-vector-store.js";
+import { PgvectorVectorStoreAdapter } from "./adapters/pgvector-vector-store.js";
 import type { EmbeddingProvider, MemoryRecord } from "./vector-store-adapter.js";
 
-const defaultAdapter = new JsonlVectorStoreAdapter();
+let defaultAdapter = buildAdapter();
+
+function resolveVectorBackend(): string {
+  return (process.env.SF_AI_VECTOR_BACKEND ?? "tfidf").trim().toLowerCase();
+}
+
+function buildAdapter() {
+  const backend = resolveVectorBackend();
+  if (backend === "pgvector") {
+    try {
+      return new PgvectorVectorStoreAdapter();
+    } catch {
+      return new JsonlVectorStoreAdapter();
+    }
+  }
+  return new JsonlVectorStoreAdapter();
+}
 
 export type { MemoryRecord, EmbeddingProvider };
 
@@ -38,4 +55,5 @@ export async function searchByKeywordAsync(
 
 export function resetVectorBackendForTest(): void {
   defaultAdapter.resetBackendForTest();
+  defaultAdapter = buildAdapter();
 }

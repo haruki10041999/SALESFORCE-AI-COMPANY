@@ -16,6 +16,7 @@
  */
 
 import { getDefaultOllamaClient, type OllamaChatRequest, type OllamaChatResponse } from "./ollama-client.js";
+import { getDefaultLangChainLlmClient } from "./langchain-llm.js";
 
 export type RubricJudgeProvider = "ollama" | "heuristic";
 
@@ -26,6 +27,7 @@ export interface RubricJudgeChatClient {
 export interface RubricProviderEnvSource {
   AI_LLM_PROVIDER?: string;
   SF_AI_LLM_PROVIDER?: string;
+  SF_AI_LLM_CLIENT?: string;
 }
 
 export function getRubricJudgeProvider(
@@ -36,6 +38,21 @@ export function getRubricJudgeProvider(
     return "heuristic";
   }
   return "ollama";
+}
+
+function getRubricJudgeClient(options: EvaluateRubricOptions): RubricJudgeChatClient {
+  if (options.client) {
+    return options.client;
+  }
+
+  const llmClient = (options.envSource?.SF_AI_LLM_CLIENT ?? process.env.SF_AI_LLM_CLIENT ?? "native")
+    .trim()
+    .toLowerCase();
+  if (llmClient === "langchain") {
+    return getDefaultLangChainLlmClient();
+  }
+
+  return getDefaultOllamaClient();
 }
 
 export interface QualityCriterion {
@@ -410,7 +427,7 @@ export async function evaluateQualityRubric(
     return evaluateHeuristicRubric(response, criteria);
   }
 
-  const client = options.client ?? getDefaultOllamaClient();
+  const client = getRubricJudgeClient(options);
   const model = options.model ?? "qwen2.5:3b";
   const prompt = buildJudgePrompt(response, criteria, options.topic);
   const systemPrompt = [

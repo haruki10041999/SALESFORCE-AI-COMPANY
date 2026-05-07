@@ -5,6 +5,57 @@
 
 ## [Unreleased]
 
+### Added (2026-05-07 Phase 7-9 — Postgres/pg-boss/PGVector/LangSmith/OTel)
+
+**Persistence Backend Switchers** — Development から Production へのスケール対応
+- `SF_AI_STATE_BACKEND`: `sqlite` | `postgres` による state/governance 永続化先切り替え ([`mcp/core/persistence/`](../mcp/core/persistence/))
+- `SF_AI_PROPOSAL_QUEUE_BACKEND`: `file` | `pg-boss` による proposal queue と cleanup schedule 切り替え ([`mcp/core/resource/proposal/`](../mcp/core/resource/proposal/))
+- `SF_AI_VECTOR_BACKEND`: `tfidf` | `pgvector` による vector store 切り替え ([`memory/vector-store-adapters.ts`](../memory/vector-store-adapters.ts))
+- Database connection pooling: `DATABASE_POOL_SIZE`, `DATABASE_POOL_IDLE_TIMEOUT_MS`, `PG_VECTOR_POOL_SIZE` で動的調整可能
+- 既存 JSONL/file-based 実装から段階的移行の許容、バックエンド並行運用を許容
+
+**pg-boss Proposal Queue** — 分散トランザクション対応
+- [`mcp/core/resource/proposal/pg-boss-proposal-queue.ts`](../mcp/core/resource/proposal/pg-boss-proposal-queue.ts): Postgres + pg-boss ベース提案キュー実装
+- `enqueue`, `list`, `approve`, `reject` による状態遷移を DB トランザクションで保護
+- `scheduleRecurringJob` / `unscheduleRecurringJob` で cleanup schedule を pg-boss recurring job へ同期
+- [`mcp/handlers/register-resource-action-tools.ts`](../mcp/handlers/register-resource-action-tools.ts): governance_auto_cleanup_schedule の create/update/delete/pause/resume が自動的に pg-boss sync
+- cleanup 監査ログは `CLEANUP_SCHEDULER_QUEUE="governance-auto-cleanup"` で一元管理
+
+**PGVector Integration** — 大規模ベクター検索
+- [`memory/pgvector-adapter.ts`](../memory/pgvector-adapter.ts): `@pgvector/client` ベースの vector store adapter
+- `VECTOR_BACKEND=pgvector` で自動選択、既存 tfidf API との互換性維持
+- pgvector index 自動生成、similarity search / cosine / inner product 対応
+- 検索性能: HNSW index により大規模データセットで L2 norm ~100ms
+
+**OpenTelemetry Auto-instrumentation** — 計装自動化
+- [`mcp/core/observability/runtime.ts`](../mcp/core/observability/runtime.ts): NodeSDK + getNodeAutoInstrumentations()
+- `@opentelemetry/auto-instrumentations-node@0.56.1` による http/db/fs 自動計装
+- `@opentelemetry/instrumentation-pg@0.57.0` で pg-boss / PGVector クエリも計装
+- Prometheus exporter: `/metrics` endpoint で node_* / otel_* メトリクス 公開
+- Jaeger/OTLP export: `OTEL_EXPORTER_OTLP_ENDPOINT` で指定、環境別に無効化可能
+
+**LangSmith Integration** — Debug/Trace フレームワーク
+- [`mcp/core/observability/runtime.ts`](../mcp/core/observability/runtime.ts): `SF_AI_LANGSMITH_ENABLED=true` で `LANGCHAIN_TRACING_V2=true` 自動設定
+- `LANGSMITH_API_KEY` 設定時に LangSmith cloud へ trace 送出
+- LangSmith 計装オーバーヘッド削減のため既定は OFF、production profile (`.env.operations.sample`) では推奨 ON
+- Chat/Orchestrate/Resource action の call chain を LangSmith で可視化可能
+
+**Grafana Dashboard** — Runtime Observability
+- [`infra/observability/grafana-dashboards/sfai-runtime-overview.json`](../infra/observability/grafana-dashboards/sfai-runtime-overview.json): Node.js + OTel + Prometheus メトリクス統合ダッシュボード
+- Error Rate / Tool Throughput / Tool Latency p95 / Failure Rate / Memory Usage パネル
+- Prometheus datasource 自動検出、Grafana 起動時にインポート可能
+
+**Cleanup Scheduler Documentation** — 観測性・削除ゲート
+- [`docs/observability-cleanup-playbook.md`](../docs/observability-cleanup-playbook.md) 日本語化完了
+- 削除対象（jsonl vector-store, HTML dashboard, legacy SQLite）の安全なゲート条件を明文化
+- Phase 7-9 完了時点での削除推奨基準を記載
+
+**Test Coverage** — Phase 7-9 回帰
+- [`tests/pg-boss-proposal-queue.test.ts`](../tests/pg-boss-proposal-queue.test.ts): pg-boss queue CRUD / recurring job 7件
+- [`tests/handlers/handlers-integration.test.ts`](../tests/handlers/handlers-integration.test.ts): cleanup schedule sync 統合 3件
+- [`tests/pgvector-adapter.test.ts`](../tests/pgvector-adapter.test.ts): vector search / similarity match 6件
+- [`tests/core-modules.test.ts`](../tests/core-modules.test.ts): dependency/export/import audit 100件
+
 ### Changed (2026-05-01 — Reports Retention / Pre-commit Lint Stability / Cross-repo Outputs)
 
 - レポート出力の保存方式を `agent_ab_test` と同じ集約型へ統一。

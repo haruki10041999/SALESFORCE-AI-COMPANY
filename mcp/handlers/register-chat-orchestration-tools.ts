@@ -1,5 +1,4 @@
-﻿import { existsSync } from "node:fs";
-import { join } from "node:path";
+﻿import { join } from "node:path";
 import { z } from "zod";
 import type { TriggerRule, AgentMessage, OrchestrationSession } from "../core/types/index.js";
 import type { RegisterGovToolDeps } from "./types.js";
@@ -61,9 +60,15 @@ interface RegisterChatOrchestrationToolsDeps extends RegisterGovToolDeps {
   saveOrchestrationSession: (sessionId: string) => Promise<{ sessionId: string; filePath: string; historyCount: number } | null>;
   saveSessionHistory: (topic: string, entries: AgentMessage[]) => Promise<string>;
   restoreOrchestrationSession: (sessionId: string) => Promise<OrchestrationSession | null>;
-  sessionsDir: string;
-  readDir: (path: string) => Promise<string[]>;
-  readFile: (path: string, encoding: BufferEncoding) => Promise<string>;
+  outputsDir: string;
+  listOrchestrationSessions: () => Promise<Array<{
+    id: string;
+    topic: string;
+    agents: string[];
+    queueLength: number;
+    historyCount: number;
+    firedRuleCount: number;
+  }>>;
 }
 
 export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationToolsDeps): void {
@@ -81,12 +86,11 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     saveOrchestrationSession,
     saveSessionHistory,
     restoreOrchestrationSession,
-    sessionsDir,
-    readDir,
-    readFile
+    outputsDir,
+    listOrchestrationSessions
   } = deps;
-  const agentGraphFile = join(sessionsDir, "..", "agent-graph.jsonl");
-  const agentReputationFile = join(sessionsDir, "..", "agent-reputation.jsonl");
+  const agentGraphFile = join(outputsDir, "agent-graph.jsonl");
+  const agentReputationFile = join(outputsDir, "agent-reputation.jsonl");
 
   async function prioritizeQueueByPolicy(queue: string[], topic: string): Promise<string[]> {
     if (queue.length <= 1) {
@@ -735,39 +739,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
       inputSchema: {}
     },
     async () => {
-      if (!existsSync(sessionsDir)) {
-        return {
-          content: [{ type: "text", text: JSON.stringify([], null, 2) }]
-        };
-      }
-
-      const files = await readDir(sessionsDir);
-      const sessions: Array<{
-        id: string;
-        topic: string;
-        agents: string[];
-        queueLength: number;
-        historyCount: number;
-        firedRuleCount: number;
-      }> = [];
-
-      for (const file of files) {
-        if (!file.endsWith(".json")) continue;
-        try {
-          const raw = await readFile(join(sessionsDir, file), "utf-8");
-          const s = JSON.parse(raw) as OrchestrationSession;
-          sessions.push({
-            id: s.id,
-            topic: s.topic,
-            agents: s.agents,
-            queueLength: s.queue.length,
-            historyCount: s.history.length,
-            firedRuleCount: s.firedRules.length
-          });
-        } catch {
-          // ignore corrupted session files
-        }
-      }
+      const sessions = await listOrchestrationSessions();
 
       return {
         content: [{ type: "text", text: JSON.stringify(sessions, null, 2) }]

@@ -6,6 +6,7 @@ import { registerResourceDomain } from "./domain-resource.js";
 import type { GovTool } from "@mcp/tool-types.js";
 import type { GovernanceState } from "../governance/governance-state.js";
 import type { SystemEventName, SystemEventRecord } from "../event/system-event-manager.js";
+import type { ProposalQueueStore } from "../resource/proposal/proposal-queue-store.js";
 import type {
   AgentMessage,
   ChatSession,
@@ -57,6 +58,14 @@ interface RegisterAllToolsDeps {
   saveOrchestrationSession: (sessionId: string) => Promise<{ sessionId: string; filePath: string; historyCount: number } | null>;
   saveSessionHistory: (topic: string, entries: AgentMessage[]) => Promise<string>;
   restoreOrchestrationSession: (sessionId: string) => Promise<OrchestrationSession | null>;
+  listOrchestrationSessions: () => Promise<Array<{
+    id: string;
+    topic: string;
+    agents: string[];
+    queueLength: number;
+    historyCount: number;
+    firedRuleCount: number;
+  }>>;
   root: string;
   agentLog: AgentMessage[];
   loadSystemEvents: (limit?: number, event?: SystemEventName) => Promise<SystemEventRecord[]>;
@@ -90,36 +99,36 @@ interface RegisterAllToolsDeps {
   exportStatisticsAsCsv: (stats: ExportStatistics) => string;
   exportStatisticsAsJson: (stats: ExportStatistics) => string;
   ensureDir: (path: string) => Promise<void>;
-  addMemory: (text: string) => void;
-  searchMemory: (query: string) => string[];
-  listMemory: () => string[];
-  clearMemory: () => void;
+  addMemory: (text: string) => Promise<void>;
+  searchMemory: (query: string) => Promise<string[]>;
+  listMemory: () => Promise<string[]>;
+  clearMemory: () => Promise<void>;
   recordFailureMemory: (input: {
     pattern: string;
     reason: string;
     preventiveAction: string;
     tags?: string[];
-  }) => {
-    pattern: string;
-    reason: string;
-    preventiveAction: string;
-    tags: string[];
-    recordedAt: string;
-  };
-  searchFailureMemory: (query: string, limit?: number) => Array<{
+  }) => Promise<{
     pattern: string;
     reason: string;
     preventiveAction: string;
     tags: string[];
     recordedAt: string;
   }>;
-  listFailureMemory: (limit?: number) => Array<{
+  searchFailureMemory: (query: string, limit?: number) => Promise<Array<{
     pattern: string;
     reason: string;
     preventiveAction: string;
     tags: string[];
     recordedAt: string;
-  }>;
+  }>>;
+  listFailureMemory: (limit?: number) => Promise<Array<{
+    pattern: string;
+    reason: string;
+    preventiveAction: string;
+    tags: string[];
+    recordedAt: string;
+  }>>;
   findMdFilesRecursive: (dir: string) => string[];
   toPosixPath: (pathValue: string) => string;
   addRecord: (record: { id: string; text: string; tags: string[] }) => void;
@@ -179,6 +188,7 @@ interface RegisterAllToolsDeps {
   appendOperationLog: (operation: ResourceOperation) => Promise<void>;
   emitEvent: (event: { type: string; timestamp: string; payload: Record<string, unknown> }) => Promise<void>;
   resourceScore: (usage: number, bugSignals: number) => number;
+  proposalQueue: ProposalQueueStore;
 }
 
 export function registerAllTools(deps: RegisterAllToolsDeps): void {

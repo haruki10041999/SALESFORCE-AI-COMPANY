@@ -19,6 +19,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { config as loadDotenv } from "dotenv";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -28,9 +29,7 @@ function loadEnvFile() {
   const envPath = join(ROOT, ".env");
   if (!existsSync(envPath)) return;
   try {
-    if (typeof process.loadEnvFile === "function") {
-      process.loadEnvFile.call(process, envPath);
-    }
+    loadDotenv({ path: envPath, override: false, processEnv: process.env });
   } catch {
     // ignore
   }

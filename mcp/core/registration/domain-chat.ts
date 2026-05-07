@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import { promises as fsPromises } from "node:fs";
 import { registerChatOrchestrationTools } from "../../handlers/register-chat-orchestration-tools.js";
 import { registerSmartChatTools } from "../../handlers/index.js";
 import { registerPresetTools } from "../../handlers/register-preset-tools.js";
@@ -25,6 +24,7 @@ export function registerChatDomain(deps: Deps): void {
     saveOrchestrationSession,
     saveSessionHistory,
     restoreOrchestrationSession,
+    listOrchestrationSessions,
     root,
     createPreset,
     listPresetsData,
@@ -51,9 +51,8 @@ export function registerChatDomain(deps: Deps): void {
     saveOrchestrationSession,
     saveSessionHistory,
     restoreOrchestrationSession,
-    sessionsDir: join(root, "outputs", "sessions"),
-    readDir: (path: string) => fsPromises.readdir(path),
-    readFile: (path: string, encoding: BufferEncoding) => fsPromises.readFile(path, encoding)
+    outputsDir: join(root, "outputs"),
+    listOrchestrationSessions
   });
 
   registerSmartChatTools({

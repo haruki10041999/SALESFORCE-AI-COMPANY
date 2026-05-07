@@ -31,6 +31,18 @@ function normalizeOtlpTraceUrl(endpoint: string): string {
   return `${trimmed}/v1/traces`;
 }
 
+function applyLangSmithToggle(logger: Logger): void {
+  const enabled = isTruthy(process.env.SF_AI_LANGSMITH_ENABLED);
+  if (enabled) {
+    process.env.LANGCHAIN_TRACING_V2 = "true";
+    logger.info("LangSmith tracing enabled (SF_AI_LANGSMITH_ENABLED=true)");
+    return;
+  }
+
+  // Keep LangSmith explicitly opt-in so default runs remain local-only.
+  process.env.LANGCHAIN_TRACING_V2 = "false";
+}
+
 async function initOtelSdk(logger: Logger): Promise<NodeSdkLike | null> {
   if (!isTruthy(process.env.OTEL_ENABLED)) {
     return null;
@@ -39,14 +51,21 @@ async function initOtelSdk(logger: Logger): Promise<NodeSdkLike | null> {
   try {
     const sdkMod = await import("@opentelemetry/sdk-node");
     const exporterMod = await import("@opentelemetry/exporter-trace-otlp-http");
+    const autoMod = await import("@opentelemetry/auto-instrumentations-node");
+    const pgMod = await import("@opentelemetry/instrumentation-pg");
 
     const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "http://localhost:4318";
     const traceUrl = normalizeOtlpTraceUrl(endpoint);
     const exporter = new exporterMod.OTLPTraceExporter({ url: traceUrl });
+    const instrumentations = [
+      autoMod.getNodeAutoInstrumentations(),
+      new pgMod.PgInstrumentation()
+    ];
 
     const sdk = new sdkMod.NodeSDK({
       serviceName: process.env.OTEL_SERVICE_NAME ?? "salesforce-ai-company",
-      traceExporter: exporter
+      traceExporter: exporter,
+      instrumentations
     }) as unknown as NodeSdkLike;
     await sdk.start();
     logger.info(`OTel SDK started (otlp=${traceUrl})`);
@@ -121,6 +140,8 @@ export async function startObservabilityRuntime(logger: Logger): Promise<Runtime
   if (activeRuntime) {
     return activeRuntime;
   }
+
+  applyLangSmithToggle(logger);
 
   const otelSdk = await initOtelSdk(logger);
   let metricsServer: Awaited<ReturnType<typeof initPrometheusHttp>> | null = null;

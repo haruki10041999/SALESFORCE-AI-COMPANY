@@ -1,3 +1,7 @@
+import pRetry from "p-retry";
+
+import { AbortError } from "p-retry";
+
 /**
  * T-OLLAMA-01: Ollama HTTP Client
  *
@@ -126,9 +130,6 @@ function isRetriableStatus(status: number): boolean {
   return status === 408 || status === 429 || (status >= 500 && status < 600);
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 export class OllamaClient {
   private readonly baseUrl: string;
@@ -276,62 +277,66 @@ export class OllamaClient {
 
   private async requestJson<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
     const url = `${this.baseUrl}${path}`;
-    let lastError: unknown;
-    const totalAttempts = this.maxRetries + 1;
 
-    for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-      try {
-        const init: RequestInit = {
-          method,
-          signal: controller.signal,
-          headers: body !== undefined ? { "content-type": "application/json" } : undefined,
-          body: body !== undefined ? JSON.stringify(body) : undefined
-        };
-        const res = await this.fetchImpl(url, init);
-        clearTimeout(timer);
+      return await pRetry(
+        async () => {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+          try {
+            const init: RequestInit = {
+              method,
+              signal: controller.signal,
+              headers: body !== undefined ? { "content-type": "application/json" } : undefined,
+              body: body !== undefined ? JSON.stringify(body) : undefined
+            };
+            const res = await this.fetchImpl(url, init);
+            clearTimeout(timer);
 
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          const retriable = isRetriableStatus(res.status);
-          const error = new OllamaError(
-            `E_OLLAMA_HTTP_${res.status}`,
-            `Ollama HTTP ${res.status}${text ? `: ${text.slice(0, 200)}` : ""}`,
-            { status: res.status, retriable }
-          );
-          if (retriable && attempt < totalAttempts - 1) {
-            lastError = error;
-            await delay(this.retryBaseDelayMs * Math.pow(2, attempt));
-            continue;
+            if (!res.ok) {
+              const text = await res.text().catch(() => "");
+              const retriable = isRetriableStatus(res.status);
+              const error = new OllamaError(
+                `E_OLLAMA_HTTP_${res.status}`,
+                `Ollama HTTP ${res.status}${text ? `: ${text.slice(0, 200)}` : ""}`,
+                { status: res.status, retriable }
+              );
+              // Abort non-retriable errors immediately
+              if (!retriable) {
+                  throw new AbortError(error);
+              }
+              throw error;
+            }
+
+            return (await res.json()) as T;
+          } catch (err) {
+            clearTimeout(timer);
+              if (err instanceof AbortError) throw err;
+            if (err instanceof OllamaError) {
+              // Abort non-retriable OllamaError
+              if (!err.retriable) {
+                  throw new AbortError(err);
+              }
+              throw err;
+            }
+
+            // AbortError or network error (both retriable)
+            const isAbort = (err as { name?: string } | null)?.name === "AbortError";
+            const wrapped = new OllamaError(
+              isAbort ? "E_OLLAMA_TIMEOUT" : "E_OLLAMA_NETWORK",
+              isAbort
+                ? `Ollama request timed out after ${this.timeoutMs}ms`
+                : `Ollama network error: ${(err as Error)?.message ?? String(err)}`,
+              { cause: err, retriable: true }
+            );
+            throw wrapped;
           }
-          throw error;
+        },
+        {
+          retries: this.maxRetries,
+          minTimeout: this.retryBaseDelayMs,
+          maxTimeout: this.retryBaseDelayMs * Math.pow(2, this.maxRetries)
         }
-
-        return (await res.json()) as T;
-      } catch (err) {
-        clearTimeout(timer);
-        if (err instanceof OllamaError) throw err;
-
-        // AbortError or network error
-        const isAbort = (err as { name?: string } | null)?.name === "AbortError";
-        const code = isAbort ? "E_OLLAMA_TIMEOUT" : "E_OLLAMA_NETWORK";
-        const retriable = true;
-        const wrapped = new OllamaError(
-          code,
-          isAbort ? `Ollama request timed out after ${this.timeoutMs}ms` : `Ollama network error: ${(err as Error)?.message ?? String(err)}`,
-          { cause: err, retriable }
-        );
-        if (attempt < totalAttempts - 1) {
-          lastError = wrapped;
-          await delay(this.retryBaseDelayMs * Math.pow(2, attempt));
-          continue;
-        }
-        throw wrapped;
-      }
-    }
-    // unreachable, but keeps TS happy
-    throw (lastError as Error) ?? new OllamaError("E_OLLAMA_UNKNOWN", "unknown ollama error");
+      );
   }
 }
 

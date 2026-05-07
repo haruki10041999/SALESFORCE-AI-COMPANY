@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PostgresAnalyticsStore } from "../mcp/core/persistence/postgres-analytics-store.js";
 import { atomicWriteFileSync } from "../mcp/core/io/atomic-write.js";
 
 export interface FailureMemoryEntry {
@@ -16,6 +17,13 @@ const DEFAULT_FAILURE_MEMORY_FILE = join(ROOT, "outputs", "failure-memory.jsonl"
 
 let storageFilePath = process.env.SF_AI_FAILURE_MEMORY_FILE ?? DEFAULT_FAILURE_MEMORY_FILE;
 const entries: FailureMemoryEntry[] = [];
+const analyticsStorePromise = process.env.DATABASE_URL
+  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
+  : Promise.resolve(null);
+
+function shouldUseDatabase(): boolean {
+  return Boolean(process.env.DATABASE_URL) && resolve(storageFilePath) === resolve(DEFAULT_FAILURE_MEMORY_FILE);
+}
 
 function loadFromDisk(): void {
   entries.length = 0;
@@ -63,7 +71,36 @@ function saveAll(): void {
   }
 }
 
+async function loadFromDatabase(): Promise<void> {
+  const analyticsStore = await analyticsStorePromise;
+  if (!analyticsStore || !shouldUseDatabase()) {
+    return;
+  }
+
+  try {
+    const rows = await analyticsStore.listFailureMemory();
+    entries.length = 0;
+    entries.push(...rows);
+  } catch {
+    // ignore database read failure and continue with in-memory mode
+  }
+}
+
+async function persistToDatabase(): Promise<void> {
+  const analyticsStore = await analyticsStorePromise;
+  if (!analyticsStore || !shouldUseDatabase()) {
+    return;
+  }
+
+  try {
+    await analyticsStore.replaceFailureMemory(entries);
+  } catch {
+    // keep API non-throwing for tool stability
+  }
+}
+
 loadFromDisk();
+void loadFromDatabase();
 
 export function configureFailureMemoryStorageForTest(filePath: string): void {
   storageFilePath = filePath;
@@ -75,7 +112,7 @@ export function recordFailureMemory(input: {
   reason: string;
   preventiveAction: string;
   tags?: string[];
-}): FailureMemoryEntry {
+}): Promise<FailureMemoryEntry> {
   const entry: FailureMemoryEntry = {
     pattern: input.pattern,
     reason: input.reason,
@@ -85,11 +122,17 @@ export function recordFailureMemory(input: {
   };
 
   entries.push(entry);
+  if (shouldUseDatabase()) {
+    return persistToDatabase().then(() => entry);
+  }
   saveAll();
-  return entry;
+  return Promise.resolve(entry);
 }
 
-export function searchFailureMemory(query: string, limit = 10): FailureMemoryEntry[] {
+export async function searchFailureMemory(query: string, limit = 10): Promise<FailureMemoryEntry[]> {
+  if (shouldUseDatabase()) {
+    await loadFromDatabase();
+  }
   const normalized = query.trim().toLowerCase();
   if (normalized.length === 0) {
     return [];
@@ -106,6 +149,9 @@ export function searchFailureMemory(query: string, limit = 10): FailureMemoryEnt
     .reverse();
 }
 
-export function listFailureMemory(limit = 50): FailureMemoryEntry[] {
+export async function listFailureMemory(limit = 50): Promise<FailureMemoryEntry[]> {
+  if (shouldUseDatabase()) {
+    await loadFromDatabase();
+  }
   return entries.slice(-Math.max(1, limit)).reverse();
 }

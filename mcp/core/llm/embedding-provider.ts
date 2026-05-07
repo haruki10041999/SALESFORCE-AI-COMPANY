@@ -10,6 +10,7 @@
  */
 
 import { OllamaClient, getDefaultOllamaClient } from "./ollama-client.js";
+import pLimit from "p-limit";
 import { readOllamaPolicy, type OllamaPolicyEnvSource } from "./ollama-health.js";
 import {
   createTextTokenizer,
@@ -143,18 +144,10 @@ export class OllamaEmbeddingProvider implements VectorEmbeddingProvider {
   }
 
   async embedBatch(texts: ReadonlyArray<string>): Promise<number[][]> {
-    const results: number[][] = new Array(texts.length);
-    let nextIndex = 0;
-
-    const workers = Array.from({ length: Math.min(this.concurrency, texts.length) }, async () => {
-      while (true) {
-        const i = nextIndex++;
-        if (i >= texts.length) break;
-        results[i] = await this.embed(texts[i] ?? "");
-      }
-    });
-    await Promise.all(workers);
-    return results;
+      const limit = pLimit(this.concurrency);
+      return Promise.all(
+        texts.map(text => limit(() => this.embed(text)))
+      );
   }
 }
 

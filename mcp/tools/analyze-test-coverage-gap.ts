@@ -40,14 +40,15 @@ export type AnalyzeTestCoverageGapResult = {
   reportJsonPath: string;
   reportMarkdownPath: string;
   summary: string;
+  persisted: boolean;
+  persistenceNotice: string;
   ciGate: {
     pass: boolean;
     suggestedExitCode: number;
   };
   /** Debug info for output directory resolution */
   debugInfo?: {
-    envSF_AI_OUTPUTS_DIR: string | undefined;
-    resolvedOutputsDir: string;
+    reportOutputDir: string | null;
     processWorkingDir: string;
   };
 };
@@ -104,17 +105,8 @@ function renderMarkdown(result: AnalyzeTestCoverageGapResult): string {
   return lines.join("\n");
 }
 
-function getDefaultOutputsDir(): string {
-  if (process.env.SF_AI_OUTPUTS_DIR) {
-    return resolve(process.env.SF_AI_OUTPUTS_DIR);
-  }
-  return join(process.cwd(), "outputs");
-}
-
 export async function analyzeTestCoverageGap(input: AnalyzeTestCoverageGapInput): Promise<AnalyzeTestCoverageGapResult> {
-  // Debug: log environment variable resolution
-  const envOutputsDir = process.env.SF_AI_OUTPUTS_DIR;
-  const resolvedDir = getDefaultOutputsDir();
+  // Debug: keep minimal runtime context without touching outputs paths.
   const cwd = process.cwd();
   
   const estimate = estimateChangedCoverage(input);
@@ -162,12 +154,10 @@ export async function analyzeTestCoverageGap(input: AnalyzeTestCoverageGapInput)
   );
 
   const hasCoverageGap = gaps.length > 0;
-  const reportDir = resolve(input.reportOutputDir ?? join(getDefaultOutputsDir(), "reports", "coverage-gap"));
-  await fsPromises.mkdir(reportDir, { recursive: true });
-
-  const runsJsonlPath = join(reportDir, "runs.jsonl");
-  const reportJsonPath = join(reportDir, "latest.json");
-  const reportMarkdownPath = join(reportDir, "latest.md");
+  const reportDir = input.reportOutputDir ? resolve(input.reportOutputDir) : null;
+  const runsJsonlPath = reportDir ? join(reportDir, "runs.jsonl") : "";
+  const reportJsonPath = reportDir ? join(reportDir, "latest.json") : "";
+  const reportMarkdownPath = reportDir ? join(reportDir, "latest.md") : "";
 
   const summary = [
     `comparison: ${estimate.comparison}`,
@@ -188,9 +178,12 @@ export async function analyzeTestCoverageGap(input: AnalyzeTestCoverageGapInput)
     reportJsonPath,
     reportMarkdownPath,
     summary,
+    persisted: reportDir !== null,
+    persistenceNotice: reportDir
+      ? `report files were written to ${reportDir}`
+      : "reportOutputDir is not provided; file persistence is skipped",
     debugInfo: {
-      envSF_AI_OUTPUTS_DIR: envOutputsDir,
-      resolvedOutputsDir: resolvedDir,
+      reportOutputDir: reportDir,
       processWorkingDir: cwd
     },
     ciGate: {
@@ -199,9 +192,12 @@ export async function analyzeTestCoverageGap(input: AnalyzeTestCoverageGapInput)
     }
   };
 
-  await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
-  await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
-  await fsPromises.writeFile(reportMarkdownPath, renderMarkdown(result), "utf-8");
+  if (reportDir) {
+    await fsPromises.mkdir(reportDir, { recursive: true });
+    await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
+    await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
+    await fsPromises.writeFile(reportMarkdownPath, renderMarkdown(result), "utf-8");
+  }
 
   return result;
 }

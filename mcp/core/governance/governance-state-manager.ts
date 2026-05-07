@@ -1,5 +1,7 @@
 import type { GovernanceState } from "./governance-state.js";
 import { SQLiteStateStore } from "../persistence/sqlite-store.js";
+import { PostgresStateStore } from "../persistence/postgres-store.js";
+import { resolveStateBackend, type StateBackend, type StateStore } from "../persistence/state-store.js";
 import {
   normalizeDisabledEntries as _normalizeDisabledEntries,
   normalizeProtectedTools as _normalizeProtectedTools,
@@ -13,6 +15,8 @@ export interface GovernanceStateManagerDeps {
   governanceFile: string;
   ensureDir: (dir: string) => Promise<void>;
   sqliteDbPath?: string;
+  stateBackend?: StateBackend;
+  databaseUrl?: string;
 }
 
 export interface GovernanceStateManager {
@@ -28,7 +32,17 @@ export interface GovernanceStateManager {
  * Encapsulates governance initialization and state management with proper dependencies.
  */
 export function createGovernanceStateManager(deps: GovernanceStateManagerDeps): GovernanceStateManager {
-  const { defaultProtectedTools, governanceFile, ensureDir, sqliteDbPath } = deps;
+  const {
+    defaultProtectedTools,
+    governanceFile,
+    ensureDir,
+    sqliteDbPath,
+    stateBackend,
+    databaseUrl
+  } = deps;
+  const backend = stateBackend ?? resolveStateBackend(process.env.SF_AI_STATE_BACKEND);
+
+  let storePromise: Promise<StateStore | null> | null = null;
 
   function mergeStateWithDefaults(parsed: unknown): GovernanceState {
     const defaults = _buildDefaultGovernanceState(defaultProtectedTools);
@@ -97,17 +111,51 @@ export function createGovernanceStateManager(deps: GovernanceStateManagerDeps): 
     };
   }
 
-  async function loadFromSqlite(): Promise<GovernanceState> {
-    if (!sqliteDbPath) {
-      return _loadGovernanceState(governanceFile, ensureDir, defaultProtectedTools);
+  async function createStateStore(): Promise<StateStore | null> {
+    if (backend === "postgres") {
+      if (!databaseUrl || databaseUrl.trim().length === 0) {
+        return null;
+      }
+
+      const postgresStore = await PostgresStateStore.open({ databaseUrl });
+      return postgresStore;
     }
 
-    const store = await SQLiteStateStore.open({ dbPath: sqliteDbPath });
-    try {
-      const row = store.getGovernanceStateRow();
+    if (!sqliteDbPath) {
+      return null;
+    }
+
+    const sqliteStore = await SQLiteStateStore.open({ dbPath: sqliteDbPath });
+    return {
+      async getGovernanceStateRow() {
+        return sqliteStore.getGovernanceStateRow();
+      },
+      async upsertGovernanceStateRow(stateJson: string, updatedAt: string) {
+        sqliteStore.upsertGovernanceStateRow(stateJson, updatedAt);
+      },
+      async close() {
+        sqliteStore.close();
+      }
+    };
+  }
+
+  async function withStateStore<T>(work: (store: StateStore) => Promise<T>): Promise<T | null> {
+    if (!storePromise) {
+      storePromise = createStateStore();
+    }
+    const store = await storePromise;
+    if (!store) {
+      return null;
+    }
+    return work(store);
+  }
+
+  async function loadFromSqlite(): Promise<GovernanceState> {
+    const loaded = await withStateStore(async (store) => {
+      const row = await store.getGovernanceStateRow();
       if (!row) {
         const legacy = await _loadGovernanceState(governanceFile, ensureDir, defaultProtectedTools);
-        store.upsertGovernanceStateRow(JSON.stringify(legacy), legacy.updatedAt);
+        await store.upsertGovernanceStateRow(JSON.stringify(legacy), legacy.updatedAt);
         return legacy;
       }
 
@@ -116,27 +164,35 @@ export function createGovernanceStateManager(deps: GovernanceStateManagerDeps): 
         return mergeStateWithDefaults(parsed);
       } catch {
         const legacy = await _loadGovernanceState(governanceFile, ensureDir, defaultProtectedTools);
-        store.upsertGovernanceStateRow(JSON.stringify(legacy), legacy.updatedAt);
+        await store.upsertGovernanceStateRow(JSON.stringify(legacy), legacy.updatedAt);
         return legacy;
       }
-    } finally {
-      store.close();
+    });
+
+    if (loaded) {
+      return loaded;
     }
+
+    return _loadGovernanceState(governanceFile, ensureDir, defaultProtectedTools);
   }
 
   async function saveToSqlite(state: GovernanceState): Promise<void> {
-    if (!sqliteDbPath) {
+    state.updatedAt = new Date().toISOString();
+
+    const saved = await withStateStore(async (store) => {
+      await store.upsertGovernanceStateRow(JSON.stringify(state), state.updatedAt);
+    });
+
+    if (saved !== null) {
+      return;
+    }
+
+    if (!sqliteDbPath && backend === "postgres") {
       await _saveGovernanceState(governanceFile, state);
       return;
     }
 
-    state.updatedAt = new Date().toISOString();
-    const store = await SQLiteStateStore.open({ dbPath: sqliteDbPath });
-    try {
-      store.upsertGovernanceStateRow(JSON.stringify(state), state.updatedAt);
-    } finally {
-      store.close();
-    }
+    await _saveGovernanceState(governanceFile, state);
   }
 
   return {

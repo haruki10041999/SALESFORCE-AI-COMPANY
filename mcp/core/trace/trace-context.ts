@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createLogger } from "../logging/logger.js";
+import { PostgresRuntimeLogStore } from "../persistence/postgres-runtime-log-store.js";
 
 const logger = createLogger("TraceContext");
 
@@ -66,8 +67,45 @@ const completedTraces: TraceEntry[] = [];
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const DEFAULT_TRACE_FILE = join(ROOT, "outputs", "events", "trace-log.jsonl");
 let traceFilePath = process.env.SF_AI_TRACE_FILE ?? DEFAULT_TRACE_FILE;
+const runtimeStorePromise = process.env.DATABASE_URL
+  ? PostgresRuntimeLogStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
+  : Promise.resolve(null);
+
+function shouldUseDatabaseTraceStorage(): boolean {
+  return Boolean(process.env.DATABASE_URL) && resolve(traceFilePath) === resolve(DEFAULT_TRACE_FILE);
+}
+
+async function loadTracesFromStore(): Promise<void> {
+  const runtimeStore = await runtimeStorePromise;
+  if (!runtimeStore || !shouldUseDatabaseTraceStorage()) {
+    return;
+  }
+
+  try {
+    const rows = await runtimeStore.listTraces(MAX_COMPLETED);
+    completedTraces.length = 0;
+    completedTraces.push(...rows.map((row) => ({
+      traceId: row.traceId,
+      toolName: row.toolName,
+      startedAt: row.startedAt,
+      endedAt: row.endedAt,
+      durationMs: row.durationMs,
+      status: row.status,
+      errorMessage: row.errorMessage,
+      metadata: row.metadata,
+      phases: Array.isArray(row.phases) ? (row.phases as TracePhaseEntry[]) : undefined
+    })));
+  } catch {
+    // keep runtime resilient even if trace store is unreadable
+  }
+}
 
 function loadTracesFromDisk(): void {
+  if (shouldUseDatabaseTraceStorage()) {
+    void loadTracesFromStore();
+    return;
+  }
+
   completedTraces.length = 0;
   if (!existsSync(traceFilePath)) {
     return;
@@ -111,6 +149,21 @@ function loadTracesFromDisk(): void {
 }
 
 function persistTracesToDisk(): void {
+  if (shouldUseDatabaseTraceStorage()) {
+    void runtimeStorePromise.then(async (runtimeStore) => {
+      if (!runtimeStore) {
+        return;
+      }
+      try {
+        const normalized = completedTraces.slice(-MAX_COMPLETED);
+        await Promise.all(normalized.map((entry) => runtimeStore.upsertTrace(entry)));
+      } catch {
+        // keep runtime resilient even if trace store is unwritable
+      }
+    });
+    return;
+  }
+
   try {
     mkdirSync(dirname(traceFilePath), { recursive: true });
     const normalized = completedTraces.slice(-MAX_COMPLETED);

@@ -3,27 +3,22 @@
  *
  * ファイルをアトミックに書き込むユーティリティ。
  *
- * 方式:
- *   1. 対象と同ディレクトリに `.tmp.<pid>.<random>` ファイルを書く
- *   2. renameSync でターゲットに置き換える
- *
- * NTFS / ext4 とも同一ドライブ/マウントポイント内の rename は
- * writeFileSync の「切り詰め → 書き込み」よりはるかに安全。
- * 万が一 rename が失敗した場合は tmp を削除してエラーを再スロー。
+ * write-file-atomic ライブラリを使用してアトミックな書き込みを実現する。
+ * このライブラリは以下を保証する:
+ *   - 一時ファイルへの書き込み
+ *   - 原子的な rename で置き換え
+ *   - エラー時の自動クリーンアップ
+ *   - プロセス終了時の cleanup ハンドラ登録
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { dirname, join } from "node:path";
+import writeFileAtomic from "write-file-atomic";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 
 /**
  * `content` を `targetPath` にアトミックに書き込む。
- * 書き込み失敗時は tmp ファイルを削除し、エラーを再スローする。
+ * write-file-atomic の sync API を使用。
+ * 書き込み失敗時は自動的に tmp ファイルが削除される。
  */
 export function atomicWriteFileSync(
   targetPath: string,
@@ -33,19 +28,5 @@ export function atomicWriteFileSync(
   const dir = dirname(targetPath);
   mkdirSync(dir, { recursive: true });
 
-  const rand = Math.floor(Math.random() * 0xffff).toString(16).padStart(4, "0");
-  const tmp = join(dir, `.tmp.${process.pid}.${rand}`);
-
-  try {
-    writeFileSync(tmp, content, encoding);
-    renameSync(tmp, targetPath);
-  } catch (err) {
-    // tmp が残っていれば後処理
-    try {
-      if (existsSync(tmp)) unlinkSync(tmp);
-    } catch {
-      // ignore cleanup failure
-    }
-    throw err;
-  }
+  writeFileAtomic.sync(targetPath, content, { encoding });
 }

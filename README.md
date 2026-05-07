@@ -19,7 +19,7 @@ docker compose up -d postgres ollama
 
 `npm run init` で次を自動実行します。
 
-- `outputs/` 配下の初期ディレクトリ作成
+- `outputs/setup/` 配下の初期ディレクトリ作成
 - `.env` 未作成時に `.env.local.sample` から雛形をコピー
 - Docker 起動ラッパー付きの OpenCode 用 MCP 設定例を `outputs/setup/opencode-mcp.local.json` に生成
 - Git 管理下なら `pre-commit` フックを自動導入
@@ -56,17 +56,28 @@ npm run ai -- outputs:cleanup -- --dry-run
 - **[context/README.md](context/README.md)** — プロンプト構築・コンテキスト注入
 
 ### 📖 詳細ドキュメント
-- 非エンジニア向け用語集: [docs/non-engineer-glossary.md](docs/non-engineer-glossary.md)
-- 設定項目: [docs/configuration.md](docs/configuration.md)
-- 全体像: [docs/system-architecture-with-uml.md](docs/system-architecture-with-uml.md)
-- 詳細索引: [docs/documentation-map.md](docs/documentation-map.md)
-- 削除したスクリプト: [docs/deprecated-scripts.md](docs/deprecated-scripts.md)
+- 観測性/クリーンアップ運用: [docs/observability-cleanup-playbook.md](docs/observability-cleanup-playbook.md)
 
 ## 🏗️ システム構成
 
-```
-MCP クライアント
-    ↓ (MCP プロトコル)
+### Backend Switchers（環境別切り替え）
+
+| 機能 | ローカル開発（既定） | 運用環境 | 環境変数 |
+|---|---|---|---|
+| **State/Governance** | SQLite | Postgres | `SF_AI_STATE_BACKEND=sqlite│postgres` |
+| **Proposal Queue** | File-based | pg-boss | `SF_AI_PROPOSAL_QUEUE_BACKEND=file│pg-boss` |
+| **Vector Store** | TF-IDF | PGVector | `SF_AI_VECTOR_BACKEND=tfidf│pgvector` |
+
+`.env.local.sample` で SQLite/file/tfidf、`.env.operations.sample` で Postgres/pg-boss/PGVector が既定値。
+
+### Observability Stack
+
+- **OTel Auto-instrumentation**: NodeSDK + 自動計装（http/db/fs）+ Prometheus exporter
+- **LangSmith**: `SF_AI_LANGSMITH_ENABLED=true` のときのみ有効化（既定は無効）
+- **Grafana Dashboard**: `infra/observability/grafana-dashboards/sfai-runtime-overview.json` で runtime メトリクス可視化
+- **Prometheus**: `/metrics` endpoint で node_* / otel_* メトリクス 公開（`PROMETHEUS_METRICS_PORT` で指定）
+
+### MCP Server Architecture
 mcp/server.ts
     ├─→ ツール群（113+ 個 / Code 層 + Declarative 層）
     ├─→ mcp/core/ （コアロジック）
@@ -84,13 +95,12 @@ mcp/server.ts
     │   ├─ personas/ (15個)
     │   ├─ context/ (全プロンプトに自動注入)
     │   └─ prompt-engine/ (プロンプト構築)
-    └─→ outputs/ （永続化）
-        ├─ presets/
-        ├─ history/
-        ├─ sessions/
-        ├─ custom-tools/
-        ├─ resource-governance.json
-        └─ events/
+    └─→ Postgres（既定） + outputs/（生成物/fallback）
+        ├─ outputs/presets/
+        ├─ outputs/custom-tools/
+        ├─ outputs/reports/
+        ├─ outputs/dashboards/
+        └─ outputs/setup/
 ```
 
 ## 🚀 クイックスタート
@@ -159,13 +169,12 @@ npm run ai -- scaffold -- preset release-readiness-check --agents release-manage
 
 ### outputs 運用の要点
 
-- **🔴 重要**: `SF_AI_OUTPUTS_DIR` を絶対パスで**必ず**指定してください。複数リポジトリから起動する場合、指定がないと各リポジトリの cwd ベースで outputs が分散します
-  - 設定方法: `.env` ファイル、`claude_desktop_config.json` の `env.SF_AI_DOTENV_PATH`, または OS 環境変数
-  - 詳細: [docs/outputs-structure.md#⚠️-重要sf_ai_outputs_dir-設定](docs/outputs-structure.md#⚠️-重要sf_ai_outputs_dir-設定)
+- **🔴 重要**: `DATABASE_URL` を設定して Postgres を既定保存先にしてください
+- `SF_AI_OUTPUTS_DIR` は生成物と fallback ファイルの保存先です。複数リポジトリで生成物を共通化する場合のみ絶対パスで指定してください
 - `npm run ai -- outputs:cleanup -- --dry-run` は古い生成物だけを整理します
 - `npm run ai -- outputs:version -- backup` は現在の `outputs/` を世代バックアップします
 - `npm run ai -- outputs:version -- wipe --keep-backups` は `backups/` を残して `outputs/` を空にします
-- `outputs/execution-origins.jsonl` には、どのリポジトリ起点の実行かが JSONL で追記されます
+- 実行 provenance は Postgres `execution_origins` で確認します（file fallback 時は `outputs/execution-origins.jsonl`）
 - 履歴保存を SQLite へ切り替える場合は `SF_AI_HISTORY_SQLITE=true` を指定します（実装は `node:sqlite` ベース）
 - SQLite ファイルの保存先は `SF_AI_STATE_DB_PATH` で変更できます（既定: `outputs/state.sqlite`）
 - 既定の運用 DB 名は `state.sqlite` に統一されています
@@ -188,9 +197,10 @@ npm run state:export-jsonl -- --out-dir outputs/exported-jsonl --verify-source-d
 ```text
 フィードバック / rating / A/B結果
     ↓
-outputs/tool-proposals/*.jsonl
-outputs/reports/skill-rating.*
-outputs/agent-trust-histories.json
+Postgres
+  - proposal_feedback_entries / query_skill_feedback_entries
+  - analytics_models / reward_records / feedback_records
+  - agent_reputation_records
     ↓
 proposal-feedback model / query-skill model / trust history 更新
     ↓

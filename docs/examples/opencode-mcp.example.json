@@ -7,8 +7,7 @@
       ],
       "cwd": "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor",
       "env": {
-        "SF_AI_OUTPUTS_DIR": "D:/shared/sf-ai-outputs",
-        "SF_AI_OUTPUTS_BACKUP_DIR": "D:/shared/sf-ai-outputs/backups"
+        "DATABASE_URL": "postgres://sfai:sfai@localhost:5432/sfai"
       }
     }
   }

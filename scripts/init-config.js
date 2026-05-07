@@ -3,6 +3,7 @@
  * init-config.js
  *
  * outputs/ 配下の初期ディレクトリ構造を作成します。
+ * Docker + PostgreSQL のセットアップとDB初期化も行います。
  * 実行: npm run init  または  node scripts/init-config.js
  *
  * 環境変数 SF_AI_OUTPUTS_DIR を設定すると出力先を変更できます。
@@ -10,7 +11,7 @@
  */
 
 import { mkdirSync, existsSync, writeFileSync, copyFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawnSync, execSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -26,17 +27,10 @@ const ENV_TARGET = join(ROOT, ".env");
 const LOCAL_ENV_SAMPLE = join(ROOT, ".env.local.sample");
 const DEFAULT_ENV_SAMPLE = join(ROOT, ".env.sample");
 
+// NOTE: Postgres ベース設計では outputs フォルダを使用しません
+// (すべてのデータは Docker Postgres に保存)
+// setup ディレクトリのみ必要（OpenCode MCP config など）
 const SUBDIRS = [
-  "history",
-  "presets",
-  "sessions",
-  "events",
-  "audit",
-  "tool-proposals",
-  "custom-tools",
-  "dashboards",
-  "reports",
-  "backups",
   "setup",
 ];
 
@@ -74,7 +68,6 @@ function writeOpencodeConfig(outputsDir) {
         ],
         cwd: normalizePathForJson(ROOT),
         env: {
-          SF_AI_OUTPUTS_DIR: normalizePathForJson(outputsDir),
           SF_AI_DOCKER_SERVICES: "postgres,ollama",
           SF_AI_WAIT_FOR_PORTS: "5432,11434"
         }
@@ -106,6 +99,106 @@ function installGitHooks() {
   }
   return true;
 }
+
+function isCommandAvailable(cmd) {
+  try {
+    if (process.platform === "win32") {
+      execSync(`where ${cmd}`, { stdio: "ignore" });
+    } else {
+      execSync(`command -v ${cmd}`, { stdio: "ignore", shell: "/bin/bash" });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function setupDocker() {
+  console.log("\n[init-config] Docker セットアップ");
+
+  if (!isCommandAvailable("docker")) {
+    console.warn(`  WARN: docker コマンドが見つかりません。スキップします。`);
+    console.warn(`       Docker Desktop または Docker Engine をインストールしてください。`);
+    return false;
+  }
+
+  if (!isCommandAvailable("docker-compose")) {
+    console.warn(`  WARN: docker-compose コマンドが見つかりません。スキップします。`);
+    return false;
+  }
+
+  try {
+    console.log("  docker-compose up -d postgres ollama を実行中...");
+    execSync("docker-compose up -d postgres ollama", {
+      cwd: ROOT,
+      stdio: "inherit",
+      encoding: "utf-8"
+    });
+    console.log("  ✓ Docker コンテナを起動しました");
+
+    // ヘルスチェック
+    console.log("  Postgres ヘルスチェック中...");
+    let retries = 30;
+    while (retries > 0) {
+      try {
+        execSync("docker-compose exec -T postgres pg_isready -U sfai", {
+          cwd: ROOT,
+          stdio: "ignore"
+        });
+        console.log("  ✓ Postgres が起動しました");
+        return true;
+      } catch {
+        retries--;
+        if (retries % 10 === 0) {
+          process.stdout.write(".");
+        }
+      }
+    }
+
+    console.warn("  WARN: Postgres ヘルスチェック タイムアウト");
+    return false;
+  } catch (error) {
+    console.warn(`  WARN: Docker セットアップ失敗: ${String(error)}`);
+    return false;
+  }
+}
+
+function setupDatabase() {
+  console.log("\n[init-config] データベース初期化");
+
+  if (!isCommandAvailable("npm")) {
+    console.warn(`  WARN: npm コマンドが見つかりません。スキップします。`);
+    return false;
+  }
+
+  try {
+    console.log("  npm run db:migrate を実行中...");
+    execSync("npm run db:migrate", {
+      cwd: ROOT,
+      stdio: "inherit",
+      encoding: "utf-8"
+    });
+    console.log("  ✓ DB スキーマを作成しました");
+
+    console.log("  npm run db:push を実行中...");
+    execSync("npm run db:push", {
+      cwd: ROOT,
+      stdio: "inherit",
+      encoding: "utf-8"
+    });
+    console.log("  ✓ DB スキーマをプッシュしました");
+
+    return true;
+  } catch (error) {
+    console.warn(`  WARN: DB セットアップ失敗: ${String(error)}`);
+    console.warn(`       後でもう一度 'npm run db:migrate' と 'npm run db:push' を実行してください`);
+    return false;
+  }
+}
+
+// ============================================================================
+// メイン処理
+// ============================================================================
 
 console.log(`[init-config] outputs dir: ${OUTPUTS_DIR}`);
 
@@ -167,12 +260,26 @@ if (!existsSync(governanceFile)) {
 const opencodeConfigPath = writeOpencodeConfig(OUTPUTS_DIR);
 installGitHooks();
 
-console.log("[init-config] done.");
-console.log("[init-config] next steps:");
-console.log("  1. docker compose up -d postgres ollama");
-console.log("  2. npm run build");
-console.log("  3. npm run ai -- doctor");
-console.log(`  4. OpenCode MCP config: ${opencodeConfigPath}`);
+// Docker とデータベースのセットアップを試みる
+const dockerSetupSuccess = setupDocker();
+const dbSetupSuccess = dockerSetupSuccess ? setupDatabase() : false;
+
+console.log("\n[init-config] 完了");
+console.log("[init-config] 次のステップ:");
+if (!dockerSetupSuccess) {
+  console.log("  1. docker compose up -d postgres ollama");
+  console.log("  2. npm run db:migrate");
+  console.log("  3. npm run db:push");
+} else if (!dbSetupSuccess) {
+  console.log("  1. npm run db:migrate");
+  console.log("  2. npm run db:push");
+} else {
+  console.log("  1. ✓ Docker と DB はセットアップ済み");
+}
+console.log("  ─");
+console.log("  • npm run build");
+console.log("  • npm run ai -- doctor");
+console.log(`  • OpenCode MCP config: ${opencodeConfigPath}`);
 if (envCreated) {
-  console.log("  5. Review .env if you need Docker profile / telemetry / shared outputs settings");
+  console.log("  • .env を確認・編集（DATABASE_URL など）");
 }

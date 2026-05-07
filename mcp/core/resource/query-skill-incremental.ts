@@ -1,6 +1,11 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname } from "node:path";
+import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
 import { appendTextFileAtomic, writeTextFileAtomic } from "../persistence/unit-of-work.js";
+
+const analyticsStorePromise = process.env.DATABASE_URL
+  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
+  : Promise.resolve(null);
 
 export const QUERY_SKILL_MODEL_VERSION = "query-skill-v1";
 
@@ -52,12 +57,24 @@ export async function appendQuerySkillFeedback(
   entries: QuerySkillFeedbackEntry[]
 ): Promise<void> {
   if (entries.length === 0) return;
+
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    await analyticsStore.appendQuerySkillFeedbackEntries(entries);
+    return;
+  }
+
   await fsPromises.mkdir(dirname(logFilePath), { recursive: true });
   const lines = entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
   await appendTextFileAtomic(logFilePath, lines);
 }
 
 export async function loadQuerySkillFeedbackLog(logFilePath: string): Promise<QuerySkillFeedbackEntry[]> {
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    return analyticsStore.listQuerySkillFeedbackEntries();
+  }
+
   if (!existsSync(logFilePath)) {
     return [];
   }
@@ -162,6 +179,12 @@ export async function saveQuerySkillIncrementalModel(
   modelFilePath: string,
   model: QuerySkillIncrementalModel
 ): Promise<void> {
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    await analyticsStore.saveNamedModel("query-skill-model", model as unknown as Record<string, unknown>);
+    return;
+  }
+
   await fsPromises.mkdir(dirname(modelFilePath), { recursive: true });
   await writeTextFileAtomic(modelFilePath, JSON.stringify(model, null, 2));
 }
@@ -169,6 +192,11 @@ export async function saveQuerySkillIncrementalModel(
 export async function loadQuerySkillIncrementalModel(
   modelFilePath: string
 ): Promise<QuerySkillIncrementalModel | null> {
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    return analyticsStore.loadQuerySkillIncrementalModel();
+  }
+
   if (!existsSync(modelFilePath)) {
     return null;
   }

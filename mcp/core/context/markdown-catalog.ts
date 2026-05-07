@@ -1,6 +1,7 @@
 import { existsSync, promises as fsPromises, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import fg from "fast-glob";
 import { shouldSkipScanDir } from "../quality/scan-exclusions.js";
 import { countTokens } from "../prompt/token-counter.js";
 import { AgentFrontmatterSchema, parseFrontmatter } from "../declarative/frontmatter.js";
@@ -41,6 +42,32 @@ export function resolveProjectRootFromFile(fileUrl: string): string {
 
 export function findMdFilesRecursive(dir: string): string[] {
   if (!existsSync(dir)) return [];
+  
+  try {
+    // fast-glob で .md ファイルを検索。cwd を指定して、相対的に ** パターンを使用
+    const files = fg.sync("**/*.md", {
+      cwd: dir,
+      absolute: true,  // 絶対パスを返す
+      ignore: [
+        "**/node_modules/**",
+        "**/.git/**",
+        "**/dist/**",
+        "**/build/**",
+        "**/.vscode/**"
+      ]
+    });
+    return files;
+  } catch {
+    // glob パターンエラーは、カスタムスキャンにフォールバック
+    return legacyFindMdFilesRecursive(dir);
+  }
+}
+
+/**
+ * レガシー実装（fast-glob が失敗した場合）
+ */
+function legacyFindMdFilesRecursive(dir: string): string[] {
+  if (!existsSync(dir)) return [];
   const entries = readdirSync(dir);
   const files: string[] = [];
 
@@ -49,7 +76,7 @@ export function findMdFilesRecursive(dir: string): string[] {
     const stat = statSync(fullPath);
     if (stat.isDirectory()) {
       if (shouldSkipScanDir(entry)) continue;
-      files.push(...findMdFilesRecursive(fullPath));
+      files.push(...legacyFindMdFilesRecursive(fullPath));
       continue;
     }
     if (entry.endsWith(".md")) {

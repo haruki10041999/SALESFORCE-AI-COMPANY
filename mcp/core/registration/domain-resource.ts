@@ -8,8 +8,48 @@ import { registerResourceSearchTools } from "../../handlers/register-resource-se
 import type { GovernanceState } from "../governance/governance-state.js";
 import type { SystemEventName } from "../event/system-event-manager.js";
 import type { registerAllTools } from "./register-all-tools.js";
+import type { CleanupSchedule } from "../resource/cleanup-scheduler.js";
 
 type Deps = Parameters<typeof registerAllTools>[0];
+const CLEANUP_SCHEDULER_QUEUE = "governance-auto-cleanup";
+
+function buildCleanupScheduleSync(proposalQueue: Deps["proposalQueue"]): {
+  upsert: (schedule: CleanupSchedule) => Promise<void>;
+  remove: (scheduleId: string) => Promise<void>;
+} | undefined {
+  if (typeof proposalQueue.scheduleRecurringJob !== "function" || typeof proposalQueue.unscheduleRecurringJob !== "function") {
+    return undefined;
+  }
+  return {
+    upsert: async (schedule: CleanupSchedule) => {
+      if (schedule.status !== "active") {
+        await proposalQueue.unscheduleRecurringJob?.({
+          queue: CLEANUP_SCHEDULER_QUEUE,
+          key: schedule.id
+        });
+        return;
+      }
+      await proposalQueue.scheduleRecurringJob?.({
+        queue: CLEANUP_SCHEDULER_QUEUE,
+        cron: schedule.cron,
+        key: schedule.id,
+        data: {
+          scheduleId: schedule.id,
+          action: schedule.action,
+          daysUnused: schedule.daysUnused,
+          limit: schedule.limit,
+          requireApproval: schedule.requireApproval
+        }
+      });
+    },
+    remove: async (scheduleId: string) => {
+      await proposalQueue.unscheduleRecurringJob?.({
+        queue: CLEANUP_SCHEDULER_QUEUE,
+        key: scheduleId
+      });
+    }
+  };
+}
 
 /** Resource search / governance / actions / analytics を登録する。 */
 export function registerResourceDomain(deps: Deps): void {
@@ -54,7 +94,8 @@ export function registerResourceDomain(deps: Deps): void {
     appendOperationLog,
     emitEvent,
     toPosixPath,
-    resourceScore
+    resourceScore,
+    proposalQueue
   } = deps;
 
   registerResourceSearchTools({
@@ -98,7 +139,8 @@ export function registerResourceDomain(deps: Deps): void {
     listPresetsCatalog,
     listToolsCatalog,
     resourceScore,
-    emitSystemEvent
+    emitSystemEvent,
+    proposalQueue
   });
 
   registerResourceActionTools({
@@ -126,6 +168,7 @@ export function registerResourceDomain(deps: Deps): void {
     appendOperationLog,
     emitEvent,
     toPosixPath,
+    cleanupScheduleSync: buildCleanupScheduleSync(proposalQueue),
     loadSystemEvents: (limit?: number, event?: string) => loadSystemEvents(limit, event as SystemEventName | undefined),
     handlersStatistics: {
       created: handlersState.createdTracker,

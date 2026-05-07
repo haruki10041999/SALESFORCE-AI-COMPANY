@@ -13,7 +13,7 @@ async function touchFile(filePath: string, ageDays: number): Promise<void> {
   await utimes(filePath, past, past);
 }
 
-test("cleanupOutputs removes old generated outputs recursively but preserves protected state files", async () => {
+test("cleanupOutputs removes old generated outputs recursively but preserves non-target files", async () => {
   const root = await mkdtemp(join(tmpdir(), "outputs-cleanup-"));
   const outputsDir = join(root, "outputs");
 
@@ -22,11 +22,8 @@ test("cleanupOutputs removes old generated outputs recursively but preserves pro
   const oldReport = join(outputsDir, "reports", "agent-ab-test", "old-run.json");
   const oldDashboard = join(outputsDir, "dashboards", "observability.md");
   const oldBenchmark = join(outputsDir, "benchmark", "2026-03-01.json");
-  const oldRotatedEvent = join(outputsDir, "events", "system-events.2026-03-01.abcd.jsonl");
 
-  const protectedEventLog = join(outputsDir, "events", "system-events.jsonl");
-  const protectedTraceLog = join(outputsDir, "events", "trace-log.jsonl");
-  const protectedMetricsLog = join(outputsDir, "events", "metrics-samples.jsonl");
+  const eventLog = join(outputsDir, "events", "system-events.jsonl");
   const protectedGovernance = join(outputsDir, "resource-governance.json");
   const freshReport = join(outputsDir, "reports", "fresh.json");
 
@@ -37,28 +34,22 @@ test("cleanupOutputs removes old generated outputs recursively but preserves pro
       touchFile(oldReport, 40),
       touchFile(oldDashboard, 40),
       touchFile(oldBenchmark, 40),
-      touchFile(oldRotatedEvent, 40),
-      touchFile(protectedEventLog, 40),
-      touchFile(protectedTraceLog, 40),
-      touchFile(protectedMetricsLog, 40),
+      touchFile(eventLog, 40),
       touchFile(protectedGovernance, 40),
       touchFile(freshReport, 2)
     ]);
 
     const summary = cleanupOutputs(outputsDir, { days: 30, dryRun: false });
 
-    assert.equal(summary.totalRemoved, 6);
+    assert.equal(summary.totalRemoved, 5);
 
     await assert.rejects(stat(oldHistory));
     await assert.rejects(stat(oldSession));
     await assert.rejects(stat(oldReport));
     await assert.rejects(stat(oldDashboard));
     await assert.rejects(stat(oldBenchmark));
-    await assert.rejects(stat(oldRotatedEvent));
 
-    await stat(protectedEventLog);
-    await stat(protectedTraceLog);
-    await stat(protectedMetricsLog);
+    await stat(eventLog);
     await stat(protectedGovernance);
     await stat(freshReport);
   } finally {

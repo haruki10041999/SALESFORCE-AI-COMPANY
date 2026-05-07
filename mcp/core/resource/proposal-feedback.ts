@@ -1,6 +1,11 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname } from "node:path";
+import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
 import { appendTextFileAtomic, writeTextFileAtomic } from "../persistence/unit-of-work.js";
+
+const analyticsStorePromise = process.env.DATABASE_URL
+  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
+  : Promise.resolve(null);
 
 export type FeedbackResourceType = "skills" | "tools" | "presets";
 export type FeedbackDecision =
@@ -81,12 +86,23 @@ function toAdjustment(accepted: number, rejected: number): number {
 export async function appendProposalFeedback(logFilePath: string, entries: ProposalFeedbackEntry[]): Promise<void> {
   if (entries.length === 0) return;
 
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    await analyticsStore.appendProposalFeedbackEntries(entries);
+    return;
+  }
+
   await fsPromises.mkdir(dirname(logFilePath), { recursive: true });
   const lines = entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n";
   await appendTextFileAtomic(logFilePath, lines);
 }
 
 export async function loadProposalFeedbackLog(logFilePath: string): Promise<ProposalFeedbackEntry[]> {
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    return analyticsStore.listProposalFeedbackEntries();
+  }
+
   if (!existsSync(logFilePath)) {
     return [];
   }
@@ -207,11 +223,22 @@ export function buildProposalFeedbackModel(
 }
 
 export async function saveProposalFeedbackModel(modelFilePath: string, model: ProposalFeedbackModel): Promise<void> {
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    await analyticsStore.saveNamedModel("proposal-feedback-model", model as unknown as Record<string, unknown>);
+    return;
+  }
+
   await fsPromises.mkdir(dirname(modelFilePath), { recursive: true });
   await writeTextFileAtomic(modelFilePath, JSON.stringify(model, null, 2));
 }
 
 export async function loadProposalFeedbackModel(modelFilePath: string): Promise<ProposalFeedbackModel | null> {
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    return analyticsStore.loadProposalFeedbackModel();
+  }
+
   if (!existsSync(modelFilePath)) {
     return null;
   }

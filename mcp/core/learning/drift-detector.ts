@@ -8,11 +8,17 @@ import { dirname, resolve } from "path";
 import { randomUUID } from "crypto";
 import type { RewardRecord } from "../types/feedback.js";
 import type { AgentReputationRecord } from "./agent-reputation.js";
+import { loadAllRewards } from "./reward-aggregator.js";
+import { loadAgentReputationRecords } from "./agent-reputation.js";
+import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
 import { appendTextFileAtomic } from "../persistence/unit-of-work.js";
 
 const DEFAULT_REWARD_PATH = resolve("outputs", "learning", "rewards.jsonl");
 const DEFAULT_REPUTATION_PATH = resolve("outputs", "agent-reputation.jsonl");
 const DEFAULT_REPORT_PATH = resolve("outputs", "reports", "drift-regression.jsonl");
+const analyticsStorePromise = process.env.DATABASE_URL
+  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
+  : Promise.resolve(null);
 
 export interface RewardDriftResult {
   baselineHours: number;
@@ -104,6 +110,9 @@ function stdDev(values: number[]): number {
 }
 
 async function loadRewardRecords(filePath = DEFAULT_REWARD_PATH): Promise<RewardRecord[]> {
+  if (filePath === DEFAULT_REWARD_PATH && process.env.DATABASE_URL) {
+    return loadAllRewards();
+  }
   try {
     const raw = await fsPromises.readFile(filePath, "utf-8");
     return raw
@@ -125,6 +134,9 @@ async function loadRewardRecords(filePath = DEFAULT_REWARD_PATH): Promise<Reward
 }
 
 async function loadReputationRecords(filePath = DEFAULT_REPUTATION_PATH): Promise<AgentReputationRecord[]> {
+  if (filePath === DEFAULT_REPUTATION_PATH && process.env.DATABASE_URL) {
+    return loadAgentReputationRecords();
+  }
   try {
     const raw = await fsPromises.readFile(filePath, "utf-8");
     return raw
@@ -353,6 +365,12 @@ export async function saveDriftReport(
   report: DriftReport,
   reportPath: string = DEFAULT_REPORT_PATH
 ): Promise<void> {
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore && reportPath === DEFAULT_REPORT_PATH) {
+    await analyticsStore.insertDriftReport(report);
+    return;
+  }
+
   await fsPromises.mkdir(dirname(reportPath), { recursive: true });
   await appendTextFileAtomic(reportPath, `${JSON.stringify(report)}\n`);
 }
@@ -361,6 +379,11 @@ export async function loadDriftReports(
   reportPath: string = DEFAULT_REPORT_PATH,
   limit = 50
 ): Promise<DriftReport[]> {
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore && reportPath === DEFAULT_REPORT_PATH) {
+    return analyticsStore.listDriftReports(limit);
+  }
+
   try {
     const raw = await fsPromises.readFile(reportPath, "utf-8");
     const parsed = raw

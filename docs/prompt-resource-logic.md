@@ -300,35 +300,35 @@ synergy_score = (successCount + 1) / (totalCount + 2)  [Laplace 平滑化]
 
 ---
 
-## 6. 記録内容と管理 (`outputs/`, `core/event/`)
+## 6. 記録内容と管理 (Postgres first, `core/event/`)
 
 ### 6-1. 記録される情報の種類と保存先
 
-| 記録種別 | ファイル | 内容 | 頻度 |
+| 記録種別 | 保存先 | 内容 | 頻度 |
 |---|---|---|---|
-| **Chat 履歴** | `outputs/history/YYYY-MM-DD/<historyId>.json` | ユーザー質問 + エージェント応答 + 選択リソース | 毎 chat 実行 |
-| **Trace ログ** | `outputs/events/trace-log.jsonl` | input/plan/execute/render フェーズの計測 | 毎 tool 実行 |
-| **System Events** | `outputs/events/system-events.jsonl` | session_start / turn_complete / threshold_exceeded など | イベント発火時 |
-| **Orchestration セッション** | `outputs/sessions/<sessionId>.json` | オーケストレーション実行時の state / agents queue / 履歴 | session 作成・更新時 |
-| **Proposal 記録** | `outputs/tool-proposals/{pending,approved,rejected}/` | リソース自動作成提案と採否 | proposal 生成時 |
-| **Agent 信頼履歴** | `outputs/agent-trust-histories.json` | 各エージェントの accepted/rejected 累計 | agent 実行後 |
-| **Skill 評価** | `outputs/reports/skill-rating/*.json` | ユーザーの 1-5 スター評価・trend 分析 | rating 記録時 |
-| **Governance 状態** | `outputs/resource-governance.json` | disable リスト、quota 使用量、threshold 設定 | 状態変更時 |
-| **ベクトルストア** | `outputs/vector-store.jsonl` | memory 内容の embedding + 全文検索用インデックス | memory 追加時 |
-| **メトリクス サンプル** | `outputs/events/metrics-samples.jsonl` | 応答時間・トークン数・エラー率の時系列 | 定期的に記録 |
+| **Chat 履歴** | Postgres（history store。file backend 時は `outputs/history/YYYY-MM-DD/<historyId>.json`） | ユーザー質問 + エージェント応答 + 選択リソース | 毎 chat 実行 |
+| **Trace ログ** | Postgres `trace_logs`（fallback: `outputs/events/trace-log.jsonl`） | input/plan/execute/render フェーズの計測 | 毎 tool 実行 |
+| **System Events** | Postgres `system_events`（fallback: `outputs/events/system-events.jsonl`） | session_start / turn_complete / threshold_exceeded など | イベント発火時 |
+| **Orchestration セッション** | Postgres（queue/session store。file backend 時は `outputs/sessions/<sessionId>.json`） | オーケストレーション実行時の state / agents queue / 履歴 | session 作成・更新時 |
+| **Proposal 記録** | pg-boss / Postgres（file backend 時は `outputs/tool-proposals/{pending,approved,rejected}/`） | リソース自動作成提案と採否 | proposal 生成時 |
+| **Agent 信頼履歴** | Postgres（fallback: `outputs/agent-trust-histories.json`） | 各エージェントの accepted/rejected 累計 | agent 実行後 |
+| **Skill 評価** | Postgres + 生成レポート (`outputs/reports/skill-rating.*`) | ユーザーの 1-5 スター評価・trend 分析 | rating 記録時 |
+| **Governance 状態** | Postgres（fallback: `outputs/resource-governance.json`） | disable リスト、quota 使用量、threshold 設定 | 状態変更時 |
+| **ベクトルストア** | PGVector / Postgres（fallback: `outputs/vector-store.jsonl`） | memory 内容の embedding + 全文検索用インデックス | memory 追加時 |
+| **メトリクス サンプル** | Postgres `metrics_samples`（fallback: `outputs/events/metrics-samples.jsonl`） | 応答時間・トークン数・エラー率の時系列 | 定期的に記録 |
 
 ### 6-2. 記録フロー（詳細）
 
 ```
 turn 実行中
-  ├─ turn_complete イベント → system-events.jsonl に記録
-  ├─ auto_select_resources → agent-trust-histories.json を参照・更新
+  ├─ turn_complete イベント → Postgres system_events に記録
+  ├─ auto_select_resources → Postgres agent reputation を参照・更新
   ├─ agent × skill trace → synergy-model 재계산
-  ├─ chat 履歴 → history/<date>/<id>.json に保存
-  └─ trace 計測情報 → trace-log.jsonl に append
+  ├─ chat 履歴 → Postgres history store に保存
+  └─ trace 計測情報 → Postgres trace_logs に upsert
 
 proposal_feedback イベント
-  └─ 승인/거부 → agent-trust-histories.json + proposal feedback model 갱신
+  └─ 승인/거부 → Postgres proposal_feedback + analytics_models 갱신
 
 record_skill_rating 호출
   └─ 평가 → skill-rating 모델 + bandit state 갱신
@@ -339,11 +339,13 @@ record_skill_rating 호출
 #### Chat 履歴の読み取り
 
 ```typescript
-// 指定日時のチャット一覧を取得
+// 指定日時のチャット一覧を取得（既定は Postgres 経由）
 const historyId = "chat-20260428-abc123";
-const historyPath = `outputs/history/2026-04-28/${historyId}.json`;
-const history: ChatHistory = await fsPromises.readFile(historyPath, "utf-8")
-  .then(JSON.parse);
+const history: ChatHistory = await loadChatHistory(historyId);
+
+// file backend の場合のみ JSON を直接読む
+// const historyPath = `outputs/history/2026-04-28/${historyId}.json`;
+// const history: ChatHistory = await fsPromises.readFile(historyPath, "utf-8").then(JSON.parse);
 
 // 含まれる情報
 history.turns[0] = {
@@ -459,7 +461,7 @@ trace から synergy を学習し続けることで：
 
 ### 7-5. 記録の利用例：ダッシュボード
 
-`outputs/dashboards/` に HTML/Markdown として定期生成される observability ダッシュボードには：
+Postgres に蓄積されたデータを元に、`outputs/dashboards/` へ生成される observability ダッシュボードには：
 
 - **agent 信頼スコアの推移**: 過去 7 日間の avg score 折れ線グラフ
 - **synergy heatmap**: agent × skill マトリクスで成功率を色分け表示
@@ -654,7 +656,7 @@ promotion 後、新しい production が低下した場合：
 
 ### 11-1. タイムラインデータ
 
-`outputs/dashboards/feedback-timeline.md` に日別の accept/reject を可視化。
+日別の accept/reject は Postgres の feedback 系データを集計して可視化する。
 
 ```
 2026-04-28: ████░░░░  85% (17 accepted, 3 rejected)
@@ -723,7 +725,7 @@ Flow構築    ×         ×       ✓✓✓✓✓
    - 過去の成功率
    - ユーザーの明示的なピン留め
 
-④ 提案を outputs/tool-proposals/pending/ に追加
+④ 提案を queue store（Postgres / pg-boss）へ追加
 ⑤ ユーザーが approve_proposal で承認
 ⑥ approve_cleanup で実削除
 
@@ -852,7 +854,7 @@ const candidates = allSkills
 
 ### 14-1. 自動生成レポート
 
-`outputs/reports/` に定期的に生成されるレポート：
+Postgres の集計結果を元に `outputs/reports/` に生成されるレポート：
 
 | レポート | 生成頻度 | 内容 |
 |---|---|---|
@@ -883,7 +885,7 @@ Metrics = {
 
 ### 14-3. ダッシュボード統合
 
-`outputs/dashboards/observability.html` に以下を統合：
+`outputs/dashboards/observability.html`（生成物）に以下を統合：
 
 - **システムヘルス**: tool 成功率・エラー分布・応答時間 P50/P95/P99
 - **リソース成長**: 過去 30 日の新規 skills / tools / presets 数

@@ -1,6 +1,7 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { join } from "node:path";
 import { maskUnknown } from "../logging/pii-masker.js";
+import { PostgresRuntimeLogStore } from "../persistence/postgres-runtime-log-store.js";
 import { appendTextFileAtomic } from "../persistence/unit-of-work.js";
 
 export type SystemEventName =
@@ -36,6 +37,7 @@ export interface SystemEventLogStatus {
 interface CreateSystemEventManagerDeps {
   rootDir: string;
   outputsDir?: string;
+  databaseUrl?: string;
   maxLogFileBytes?: number;
   maxArchivedFiles?: number;
   retentionDays?: number;
@@ -59,10 +61,20 @@ export function summarizeValue(value: unknown, maxChars = 400): string {
   }
 }
 
+function toRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
 export function createSystemEventManager(deps: CreateSystemEventManagerDeps) {
   const outputsDir = deps.outputsDir ?? join(deps.rootDir, "outputs");
   const eventDir = join(outputsDir, "events");
   const eventLogFile = join(eventDir, "system-events.jsonl");
+  const runtimeStorePromise = deps.databaseUrl
+    ? PostgresRuntimeLogStore.open({ databaseUrl: deps.databaseUrl }).catch(() => null)
+    : Promise.resolve(null);
   const maxLogFileBytes = Math.max(1024, deps.maxLogFileBytes ?? 2 * 1024 * 1024);
   const maxArchivedFiles = Math.max(1, deps.maxArchivedFiles ?? 30);
   const retentionMs = Math.max(1, deps.retentionDays ?? 30) * 24 * 60 * 60 * 1000;
@@ -158,6 +170,12 @@ export function createSystemEventManager(deps: CreateSystemEventManagerDeps) {
   }
 
   async function appendSystemEvent(record: SystemEventRecord): Promise<void> {
+    const runtimeStore = await runtimeStorePromise;
+    if (runtimeStore) {
+      await runtimeStore.appendSystemEvent(record.id, record.event, toRecord(maskUnknown(record.payload)), record.timestamp);
+      return;
+    }
+
     const line = JSON.stringify(maskUnknown(record)) + "\n";
     await rotateEventLogIfNeeded(line);
     await appendTextFileAtomic(eventLogFile, line);
@@ -223,6 +241,30 @@ export function createSystemEventManager(deps: CreateSystemEventManagerDeps) {
       return fromMemory;
     }
 
+    const runtimeStore = await runtimeStorePromise;
+    if (runtimeStore) {
+      try {
+        const stored = await runtimeStore.listSystemEvents(limit, event);
+        const deduped = new Map<string, SystemEventRecord>();
+        for (const record of [
+          ...stored
+            .map((item) => ({
+              id: item.id,
+              event: item.event as SystemEventName,
+              timestamp: item.timestamp,
+              payload: item.payload
+            }))
+            .reverse(),
+          ...fromMemory
+        ]) {
+          deduped.set(record.id, record);
+        }
+        return [...deduped.values()].slice(-limit);
+      } catch {
+        return fromMemory;
+      }
+    }
+
     try {
       await deps.ensureDir(eventDir);
       const files = await fsPromises.readdir(eventDir);
@@ -272,6 +314,20 @@ export function createSystemEventManager(deps: CreateSystemEventManagerDeps) {
   }
 
   async function getSystemEventLogStatus(): Promise<SystemEventLogStatus> {
+    const runtimeStore = await runtimeStorePromise;
+    if (runtimeStore) {
+      const recent = await runtimeStore.listSystemEvents(1);
+      return {
+        eventDir: "postgres:system_events",
+        activeLogPath: "postgres://system_events",
+        activeLogExists: recent.length > 0,
+        activeLogSizeBytes: 0,
+        archiveCount: 0,
+        archiveTotalSizeBytes: 0,
+        archives: []
+      };
+    }
+
     await deps.ensureDir(eventDir);
 
     let activeLogExists = false;

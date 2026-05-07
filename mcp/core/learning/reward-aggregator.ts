@@ -9,9 +9,13 @@ import { resolve, dirname } from "path";
 import { randomUUID } from "crypto";
 import type { RewardRecord, RewardAggregatorConfig, UserFeedback } from "../types/feedback.js";
 import { recordUserFeedback, loadAllFeedback } from "./feedback-manager.js";
+import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
 import { appendTextFileAtomic } from "../persistence/unit-of-work.js";
 
 const REWARD_JSONL_PATH = resolve("outputs", "learning", "rewards.jsonl");
+const analyticsStorePromise = process.env.DATABASE_URL
+  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
+  : Promise.resolve(null);
 
 /**
  * Default reward aggregator configuration
@@ -42,14 +46,20 @@ async function ensureLearningDir(): Promise<void> {
 export async function recordReward(
   reward: Omit<RewardRecord, "rewardId" | "timestamp">
 ): Promise<RewardRecord> {
-  await ensureLearningDir();
-
   const record: RewardRecord = {
     rewardId: randomUUID(),
     timestamp: new Date().toISOString(),
     ...reward,
     confidence: reward.confidence ?? 1.0
   };
+
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    await analyticsStore.insertReward(record);
+    return record;
+  }
+
+  await ensureLearningDir();
 
   try {
     await appendTextFileAtomic(REWARD_JSONL_PATH, JSON.stringify(record) + "\n");
@@ -64,6 +74,11 @@ export async function recordReward(
  * Load all reward records from outputs/learning/rewards.jsonl
  */
 export async function loadAllRewards(): Promise<RewardRecord[]> {
+  const analyticsStore = await analyticsStorePromise;
+  if (analyticsStore) {
+    return analyticsStore.listRewards();
+  }
+
   try {
     const content = await fsPromises.readFile(REWARD_JSONL_PATH, "utf-8");
     return content

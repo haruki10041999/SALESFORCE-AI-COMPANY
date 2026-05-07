@@ -10,11 +10,43 @@
 
 ## ローカル開発
 
+### 最小セットアップ（SQLite + file-based queue）
+
 ```bash
-npm install
+npm ci
 npm run init
 npm run build
 npm run ai -- dev
+```
+
+### Postgres + pg-boss + PGVector セットアップ（Docker）
+
+```bash
+# 依存サービス起動
+docker compose up -d postgres ollama
+
+# .env を操作環境向けに切り替え
+Copy-Item .env.operations.sample .env
+
+# MCP サーバ起動
+npm run ai -- dev
+```
+
+### Backend 切り替え方法
+
+`.env` で以下を組み合わせ可能:
+
+```bash
+# ローカル開発（既定）
+SF_AI_STATE_BACKEND=sqlite
+SF_AI_PROPOSAL_QUEUE_BACKEND=file
+SF_AI_VECTOR_BACKEND=tfidf
+
+# 運用環境
+SF_AI_STATE_BACKEND=postgres
+SF_AI_PROPOSAL_QUEUE_BACKEND=pg-boss
+SF_AI_VECTOR_BACKEND=pgvector
+DATABASE_URL=postgres://sfai:sfai@localhost:5432/sfai
 ```
 
 ## 品質チェック
@@ -25,6 +57,19 @@ npm test
 npm run metrics:update
 npm run metrics:update:drift
 npm run ai -- doctor
+```
+
+### Backend テスト実行
+
+```bash
+# SQLite + file-based queue テスト
+npm test -- tests/sqlite-state-store.test.ts tests/persistence-unit-of-work.test.ts
+
+# pg-boss + PGVector テスト（Docker Postgres 起動時のみ）
+npm test -- tests/pg-boss-proposal-queue.test.ts tests/pgvector-adapter.test.ts
+
+# 統合テスト（handlers）
+npm test -- tests/handlers/handlers-integration.test.ts
 ```
 
 ## 統一CLI（運用・開発共通）

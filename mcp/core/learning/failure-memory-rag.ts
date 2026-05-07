@@ -124,8 +124,8 @@ export function calculateErrorSimilarity(
   return maxScore > 0 ? score / maxScore : 0;
 }
 
-export function searchSimilarFailures(errorSignature: ErrorSignature, topK: number = 5): SimilarFailure[] {
-  const matches = listFailureMemory(200);
+export async function searchSimilarFailures(errorSignature: ErrorSignature, topK: number = 5): Promise<SimilarFailure[]> {
+  const matches = await listFailureMemory(200);
 
   const scored = matches.map((entry: FailureMemoryEntry): { record: FailureMemoryEntry; relevanceScore: number; tagMatchCount: number; recencyScore: number } => {
     const similarity = calculateErrorSimilarity(errorSignature, entry);
@@ -208,7 +208,7 @@ export async function injectFailureContext(errorData: {
   };
 }): Promise<RAGInjectionResult> {
   const errorSignature = extractErrorSignature(errorData);
-  const similarFailures = searchSimilarFailures(errorSignature, 5);
+  const similarFailures = await searchSimilarFailures(errorSignature, 5);
   const { prompt: injectionPrompt, confidence } = generateRAGInjectionPrompt(similarFailures);
 
   let recommendationLevel: "critical" | "high" | "medium" | "low" | "none" = "none";
