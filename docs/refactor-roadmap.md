@@ -42,6 +42,13 @@ docker compose --profile observability up -d
 - ホスト ↔ コンテナの接続は `localhost:5432`（Postgres）/ `localhost:11434`（Ollama）
 - Prometheus → ホスト MCP は `host.docker.internal:9464`（既存設定踏襲）
 
+### 永続化ポリシー
+
+- Postgres データは Docker の named volume に保持する
+- `docker compose stop` / `docker compose down` では DB データを残す前提とする
+- `docker compose down -v` は DB データを削除する破壊操作として扱い、通常運用手順から外す
+- compose 追加時は `postgres` コンテナのデータディレクトリを named volume に必ずマウントする
+
 ### CI
 
 GitHub Actions の `services:` に `pgvector/pgvector:pg17` を指定し、開発と同イメージで実行。
@@ -105,6 +112,7 @@ Phase X2: LangGraph 再評価 ── self-refine 等で複雑ループが必要�
 
 - [ ] `feature/refactor-postgres` ブランチを切る
 - [ ] [docker-compose.yml](../docker-compose.yml) に `postgres`（`pgvector/pgvector:pg17`）追加 + `profiles` 整備
+- [ ] `postgres` のデータディレクトリを named volume にマウントし、`down -v` の扱いを運用手順に明記する
 - [ ] `infra/postgres/init/01-extensions.sql`（`CREATE EXTENSION IF NOT EXISTS vector;`）
 - [ ] `.env.local.sample` に `DATABASE_URL=postgres://sfai:sfai@localhost:5432/sfai` 追記
 - [ ] env スイッチ
