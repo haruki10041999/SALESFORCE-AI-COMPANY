@@ -246,7 +246,8 @@ test("prompt-builder includes base, agent, task, and reasoning framework", () =>
       name: "qa-engineer",
       content: "Focus on regression risk and edge cases."
     },
-    "Review changed Apex classes and propose tests"
+    "Review changed Apex classes and propose tests",
+    { variant: "default" }
   );
 
   assert.ok(prompt.includes(base.trim()));

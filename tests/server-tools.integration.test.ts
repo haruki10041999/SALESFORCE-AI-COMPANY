@@ -9,6 +9,7 @@ import { execFileSync } from "node:child_process";
 
 const serverTestOutputsDir = mkdtempSync(join(tmpdir(), "sf-ai-server-outputs-"));
 process.env.SF_AI_OUTPUTS_DIR = serverTestOutputsDir;
+process.env.SF_AI_STATE_DB_PATH = join(serverTestOutputsDir, "server-tools-state.sqlite");
 
 const {
   clearOrchestrationSessionsForTest,
@@ -16,8 +17,20 @@ const {
   listRegisteredToolNamesForTest
 } = await import("../mcp/server.js");
 
-after(() => {
-  rmSync(serverTestOutputsDir, { recursive: true, force: true });
+after(async () => {
+  try {
+    await fsPromises.rm(serverTestOutputsDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100
+    });
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "EPERM" && code !== "EBUSY") {
+      throw error;
+    }
+  }
 });
 
 type ToolResult = {

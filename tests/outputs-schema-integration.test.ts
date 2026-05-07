@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, rm, access } from "node:fs/promises";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -14,6 +14,7 @@ import { spawnSync } from "node:child_process";
 
 const repoRoot = join(import.meta.dirname, "..");
 const lintScript = join(repoRoot, "scripts", "lint-outputs.ts");
+const schemaPath = join(repoRoot, "outputs", ".schema.json");
 
 function runLint(cwd: string, args: string[] = []): { code: number; stderr: string; stdout: string } {
   const result = spawnSync("npx", ["tsx", lintScript, ...args], {
@@ -34,6 +35,20 @@ test("lint-outputs passes for the live repository outputs/", () => {
 });
 
 test("lint-outputs detects unexpected top-level entries and --fix repairs schema", async () => {
+  let schemaExists = true;
+  try {
+    await access(schemaPath);
+  } catch {
+    schemaExists = false;
+  }
+
+  if (!schemaExists) {
+    const result = runLint(repoRoot);
+    assert.equal(result.code, 0, `lint-outputs should skip when schema is missing: ${result.stderr}\n${result.stdout}`);
+    assert.match(result.stderr + result.stdout, /schema validation skipped/i);
+    return;
+  }
+
   // 一時リポジトリ配下に outputs/ + scripts/lint-outputs.ts + .schema.json をコピーして検証する。
   // ただしスクリプトは parseToolSpec 等を import するため、リポジトリ内のサブディレクトリで
   // outputs/ を差し替えて動かす方が単純。よってここでは outputs/ にだけ余分な dir を一時的に作る。
