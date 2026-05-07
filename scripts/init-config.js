@@ -10,13 +10,28 @@
  * 例: SF_AI_OUTPUTS_DIR=/data/sf-ai/outputs node scripts/init-config.js
  */
 
-import { mkdirSync, existsSync, writeFileSync, copyFileSync } from "node:fs";
+import { mkdirSync, existsSync, writeFileSync, copyFileSync, readFileSync } from "node:fs";
 import { spawnSync, execSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = resolve(__dirname, "..");
+
+// .env を早期ロードして OLLAMA_INIT_MODELS 等を process.env に反映
+const dotenvPath = join(ROOT, ".env");
+if (existsSync(dotenvPath)) {
+  const lines = readFileSync(dotenvPath, "utf-8").split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx < 0) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    const val = trimmed.slice(eqIdx + 1).trim();
+    if (!(key in process.env)) process.env[key] = val;
+  }
+}
 
 const OUTPUTS_DIR = process.env.SF_AI_OUTPUTS_DIR
   ? resolve(process.env.SF_AI_OUTPUTS_DIR)
@@ -122,14 +137,9 @@ function setupDocker() {
     return false;
   }
 
-  if (!isCommandAvailable("docker-compose")) {
-    console.warn(`  WARN: docker-compose コマンドが見つかりません。スキップします。`);
-    return false;
-  }
-
   try {
-    console.log("  docker-compose up -d postgres ollama を実行中...");
-    execSync("docker-compose up -d postgres ollama", {
+    console.log("  docker compose up -d postgres ollama を実行中...");
+    execSync("docker compose up -d --force-recreate postgres ollama", {
       cwd: ROOT,
       stdio: "inherit",
       encoding: "utf-8"
@@ -141,7 +151,7 @@ function setupDocker() {
     let retries = 30;
     while (retries > 0) {
       try {
-        execSync("docker-compose exec -T postgres pg_isready -U sfai", {
+        execSync("docker compose exec -T postgres pg_isready -U sfai", {
           cwd: ROOT,
           stdio: "ignore"
         });
@@ -172,16 +182,19 @@ function setupDatabase() {
   }
 
   try {
-    console.log("  npm run db:migrate を実行中...");
-    execSync("npm run db:migrate", {
-      cwd: ROOT,
-      stdio: "inherit",
-      encoding: "utf-8"
-    });
-    console.log("  ✓ DB スキーマを作成しました");
+    // マイグレーションファイルが未生成の場合は生成してから push
+    const drizzleDir = join(ROOT, "drizzle");
+    if (!existsSync(drizzleDir)) {
+      console.log("  npm run db:generate を実行中...");
+      execSync("npm run db:generate", {
+        cwd: ROOT,
+        stdio: "inherit",
+        encoding: "utf-8"
+      });
+    }
 
     console.log("  npm run db:push を実行中...");
-    execSync("npm run db:push", {
+    execSync("npm run db:push -- --force", {
       cwd: ROOT,
       stdio: "inherit",
       encoding: "utf-8"
@@ -191,9 +204,36 @@ function setupDatabase() {
     return true;
   } catch (error) {
     console.warn(`  WARN: DB セットアップ失敗: ${String(error)}`);
-    console.warn(`       後でもう一度 'npm run db:migrate' と 'npm run db:push' を実行してください`);
+    console.warn(`       後でもう一度 'npm run db:push -- --force' を実行してください`);
     return false;
   }
+}
+
+function pullOllamaModels() {
+  const modelsEnv = process.env.OLLAMA_INIT_MODELS ?? "";
+  const models = modelsEnv.split(/\s+/).filter(Boolean);
+  if (models.length === 0) {
+    console.log("  OLLAMA_INIT_MODELS が未設定のためスキップします");
+    return true;
+  }
+
+  console.log("\n[init-config] Ollama モデル pull");
+  let allOk = true;
+  for (const model of models) {
+    try {
+      console.log(`  ollama pull ${model} ...`);
+      execSync(`docker exec sfai-ollama ollama pull ${model}`, {
+        cwd: ROOT,
+        stdio: "inherit",
+        encoding: "utf-8"
+      });
+      console.log(`  ✓ ${model}`);
+    } catch (error) {
+      console.warn(`  WARN: ${model} の pull に失敗しました: ${String(error)}`);
+      allOk = false;
+    }
+  }
+  return allOk;
 }
 
 // ============================================================================
@@ -263,6 +303,7 @@ installGitHooks();
 // Docker とデータベースのセットアップを試みる
 const dockerSetupSuccess = setupDocker();
 const dbSetupSuccess = dockerSetupSuccess ? setupDatabase() : false;
+const ollamaSetupSuccess = dockerSetupSuccess ? pullOllamaModels() : false;
 
 console.log("\n[init-config] 完了");
 console.log("[init-config] 次のステップ:");
@@ -273,8 +314,10 @@ if (!dockerSetupSuccess) {
 } else if (!dbSetupSuccess) {
   console.log("  1. npm run db:migrate");
   console.log("  2. npm run db:push");
+} else if (!ollamaSetupSuccess) {
+  console.log("  1. docker exec sfai-ollama ollama pull <model>");
 } else {
-  console.log("  1. ✓ Docker と DB はセットアップ済み");
+  console.log("  1. ✓ Docker・DB・Ollama モデルはセットアップ済み");
 }
 console.log("  ─");
 console.log("  • npm run build");

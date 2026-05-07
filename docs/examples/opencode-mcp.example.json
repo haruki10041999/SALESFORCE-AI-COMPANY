@@ -3,11 +3,16 @@
     "salesforce-ai-company": {
       "command": "node",
       "args": [
-        "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor/dist/mcp/server.js"
+        "D:/Projects/mult-agent-ai/salesforce-ai-company/scripts/start-mcp-with-docker.mjs",
+        "--",
+        "npx",
+        "tsx",
+        "mcp/server.ts"
       ],
-      "cwd": "D:/Projects/mult-agent-ai/SALESFORCE-AI-COMPANY_refactor",
+      "cwd": "D:/Projects/mult-agent-ai/salesforce-ai-company",
       "env": {
-        "DATABASE_URL": "postgres://sfai:sfai@localhost:5432/sfai"
+        "SF_AI_DOCKER_SERVICES": "postgres,ollama",
+        "SF_AI_WAIT_FOR_PORTS": "5432,11434"
       }
     }
   }
