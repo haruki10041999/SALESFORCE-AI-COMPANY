@@ -112,7 +112,14 @@ npm run mcp:dev
 
 # ビルド済みで起動
 npm run mcp:start
+
+# Docker 依存サービスを先に起動してから MCP を起動
+npm run mcp:start:docker
 ```
+
+MCP クライアントから Docker 依存サービスも含めて自動起動したい場合は、
+[scripts/start-mcp-with-docker.mjs](scripts/start-mcp-with-docker.mjs) を MCP 設定の `command` / `args`
+から呼び出します。OpenCode 例は [docs/opencode-setup.md](docs/opencode-setup.md) を参照してください。
 
 ### 統一 CLI
 

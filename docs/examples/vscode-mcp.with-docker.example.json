@@ -1,0 +1,15 @@
+{
+  "servers": {
+    "salesforce-ai-company": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/scripts/start-mcp-with-docker.mjs",
+        "--",
+        "node",
+        "dist/mcp/server.js"
+      ],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}

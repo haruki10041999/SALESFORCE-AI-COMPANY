@@ -1,16 +1,18 @@
-# OpenCode セットアップ
+# OpenCode / VS Code セットアップ
 
-このドキュメントは、OpenCode にこのリポジトリの MCP サーバーを登録する手順を、
+このドキュメントは、OpenCode または VS Code にこのリポジトリの MCP サーバーを登録する手順を、
 「どのファイルを開いて」「どこへ貼るか」が分かる形でまとめたものです。
 
 ## 1. 先に見るファイル
 
-まず、このリポジトリ内では次の 2 ファイルを開いておきます。
+まず、このリポジトリ内では次のファイルを開いておきます。
 
 - コピー元の MCP 設定例: [examples/opencode-mcp.example.json](./examples/opencode-mcp.example.json)
+- Docker 自動起動付き OpenCode 設定例: [examples/opencode-mcp.with-docker.example.json](./examples/opencode-mcp.with-docker.example.json)
+- Docker 自動起動付き VS Code 設定例: [examples/vscode-mcp.with-docker.example.json](./examples/vscode-mcp.with-docker.example.json)
 - コピー元の system prompt: [examples/opencode-system-prompt.md](./examples/opencode-system-prompt.md)
 
-この 2 つを OpenCode 側の設定へ移すのが基本作業です。
+OpenCode では MCP 設定と system prompt を、VS Code では MCP 設定を反映するのが基本作業です。
 
 ## 2. このリポジトリ側で必要な準備
 
@@ -39,6 +41,7 @@ npm run build
 - `dist/mcp/server.js` が無ければ OpenCode から起動できません
 - outputs を共通化したい場合は `SF_AI_OUTPUTS_DIR` を絶対パスで指定します
 - 例ファイルでは `SF_AI_OUTPUTS_BACKUP_DIR` も指定しています。バックアップ運用をするなら合わせて設定してください
+- Docker 依存サービスも自動起動したい場合は [../scripts/start-mcp-with-docker.mjs](../scripts/start-mcp-with-docker.mjs) を MCP 起動コマンドとして使えます
 
 ## 3. OpenCode で実際に編集する場所
 
@@ -57,12 +60,26 @@ OpenCode のバージョン差で UI 名は多少違いますが、基本は次�
 重要なのは「OpenCode 固有の設定ファイルの場所」ではなく、「その中に入れるサーバー定義」です。  
 バージョンごとに設定ファイルの保存先が異なるため、このドキュメントでは貼り付ける中身を明示します。
 
+## 3.5 VS Code で実際に編集する場所
+
+VS Code ではワークスペース設定として [../.vscode/mcp.json](../.vscode/mcp.json) を使うのが分かりやすいです。
+
+1. ワークスペースの [../.vscode/mcp.json](../.vscode/mcp.json) を開く
+2. `servers.salesforce-ai-company` を追加または更新する
+3. VS Code を再読み込みするか MCP サーバー一覧を再読み込みする
+
+このリポジトリでは `servers` 形式を使っています。Docker 自動起動版の例は
+[examples/vscode-mcp.with-docker.example.json](./examples/vscode-mcp.with-docker.example.json) を参照してください。
+
 ## 4. OpenCode の MCP 設定へ貼る内容
 
 コピー元は [examples/opencode-mcp.example.json](./examples/opencode-mcp.example.json) です。  
 OpenCode 側の MCP 設定に、`salesforce-ai-company` エントリを追加してください。
 
 `npm run init` 実行後は、生成済みの `outputs/setup/opencode-mcp.local.json` をそのまま流用して構いません。
+
+Docker 依存サービスも同時に自動起動したい場合は、
+[examples/opencode-mcp.with-docker.example.json](./examples/opencode-mcp.with-docker.example.json) をベースにしてください。
 
 ### 4.1 `mcpServers` 形式の例
 
@@ -114,6 +131,80 @@ OpenCode のバージョンによってはトップレベルキーが `servers` 
 - `cwd` はこのリポジトリのルートフォルダ
 - `SF_AI_OUTPUTS_DIR` は任意。共有出力が不要なら削除しても構いません
 - パス区切りは Windows では `/` でも動作します
+
+### 4.4 Docker 依存サービスも自動起動する例
+
+OpenCode でも VS Code でも、MCP サーバーの `command` / `args` に
+[../scripts/start-mcp-with-docker.mjs](../scripts/start-mcp-with-docker.mjs) を指定すれば、
+`docker compose up -d postgres ollama` を先に実行してから MCP サーバーを起動できます。
+
+```json
+{
+  "mcpServers": {
+    "salesforce-ai-company": {
+      "command": "node",
+      "args": [
+        "D:/Projects/mult-agent-ai/salesforce-ai-company/scripts/start-mcp-with-docker.mjs",
+        "--",
+        "node",
+        "dist/mcp/server.js"
+      ],
+      "cwd": "D:/Projects/mult-agent-ai/salesforce-ai-company",
+      "env": {
+        "SF_AI_OUTPUTS_DIR": "D:/shared/sf-ai-outputs",
+        "SF_AI_OUTPUTS_BACKUP_DIR": "D:/shared/sf-ai-outputs/backups"
+      }
+    }
+  }
+}
+```
+
+このラッパースクリプトは次を行います。
+
+- `docker compose up -d postgres ollama`
+- `docker compose config --services` で存在するサービスだけ起動
+- `docker compose ps --format json` の状態確認
+- `localhost:5432` と `localhost:11434` の待機
+- その後に `node dist/mcp/server.js` を起動
+
+主な環境変数:
+
+- `SF_AI_DOCKER_SERVICES`: 起動対象サービス。既定 `postgres,ollama`
+- `SF_AI_DOCKER_PROFILE`: 例 `observability`
+- `SF_AI_WAIT_FOR_PORTS`: 待機対象ポート。既定 `5432,11434`
+- `SF_AI_DOCKER_WAIT_TIMEOUT_MS`: 待機タイムアウト ms。既定 `120000`
+- `SF_AI_SKIP_DOCKER_BOOTSTRAP=true`: Docker 起動をスキップ
+
+注意:
+
+- ラッパーは Docker サービスを `up -d` するだけで、自動停止はしません
+- 現在の compose に存在しないサービス名は自動的にスキップします
+- Docker ログは MCP の stdout を壊さないよう stderr に出力します
+- `npx tsx mcp/server.ts` で直接起動したい場合は `-- node dist/mcp/server.js` の部分を `-- npx tsx mcp/server.ts` に置き換えます
+
+### 4.5 VS Code 用の Docker 自動起動例
+
+[../.vscode/mcp.json](../.vscode/mcp.json) に入れる場合の例です。
+
+```json
+{
+  "servers": {
+    "salesforce-ai-company": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/scripts/start-mcp-with-docker.mjs",
+        "--",
+        "node",
+        "dist/mcp/server.js"
+      ],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}
+```
+
+開発中に TypeScript 直起動したい場合は、`dist/mcp/server.js` を `npx`, `tsx`, `mcp/server.ts` に差し替えます。
 
 ## 5. `tsx` で直接起動したい場合
 
@@ -222,8 +313,12 @@ npm run build
 ## 9. このリポジトリ内で参照するファイルまとめ
 
 - MCP 設定のコピー元: [examples/opencode-mcp.example.json](./examples/opencode-mcp.example.json)
+- Docker 自動起動版の MCP 設定例: [examples/opencode-mcp.with-docker.example.json](./examples/opencode-mcp.with-docker.example.json)
+- VS Code 用の Docker 自動起動設定例: [examples/vscode-mcp.with-docker.example.json](./examples/vscode-mcp.with-docker.example.json)
 - system prompt のコピー元: [examples/opencode-system-prompt.md](./examples/opencode-system-prompt.md)
 - ビルド後の実行ファイル: [../dist/mcp/server.js](../dist/mcp/server.js)
+- Docker 自動起動ラッパー: [../scripts/start-mcp-with-docker.mjs](../scripts/start-mcp-with-docker.mjs)
+- VS Code ワークスペース設定: [../.vscode/mcp.json](../.vscode/mcp.json)
 - 検証手順: [full-feature-verification.md](./full-feature-verification.md)
 
 ## 10. 関連ドキュメント
