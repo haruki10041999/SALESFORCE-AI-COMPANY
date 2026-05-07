@@ -142,6 +142,58 @@ test("summarizeProposalQueue counts by status and resourceType", () => {
   } finally { tmp.cleanup(); }
 });
 
+test("listProposals prioritizes recent proposal when staleness is high", () => {
+  const tmp = withTmp();
+  try {
+    enqueueProposal(
+      tmp.outputsDir,
+      { resourceType: "skills", name: "old", content: "c", confidence: 1 },
+      new Date("2024-01-01T00:00:00.000Z")
+    );
+    enqueueProposal(
+      tmp.outputsDir,
+      { resourceType: "skills", name: "new", content: "c", confidence: 0.8 },
+      new Date("2024-03-25T00:00:00.000Z")
+    );
+
+    const items = listProposals(tmp.outputsDir, {
+      status: "pending",
+      now: new Date("2024-03-25T00:00:00.000Z")
+    });
+
+    assert.equal(items[0]?.name, "new");
+    assert.ok((items[0]?.priorityScore ?? -1) >= (items[1]?.priorityScore ?? -1));
+  } finally { tmp.cleanup(); }
+});
+
+test("listProposals prioritizes higher acceptance-history proposal", () => {
+  const tmp = withTmp();
+  try {
+    enqueueProposal(
+      tmp.outputsDir,
+      { resourceType: "skills", name: "high-rate", content: "c", confidence: 0.8 },
+      new Date("2024-03-25T00:00:00.000Z")
+    );
+    enqueueProposal(
+      tmp.outputsDir,
+      { resourceType: "skills", name: "low-rate", content: "c", confidence: 0.8 },
+      new Date("2024-03-25T00:00:00.000Z")
+    );
+
+    const items = listProposals(tmp.outputsDir, {
+      status: "pending",
+      now: new Date("2024-03-25T00:00:00.000Z"),
+      historyAcceptRateByResource: {
+        "skills:high-rate": 0.9,
+        "skills:low-rate": 0.2
+      }
+    });
+
+    assert.equal(items[0]?.name, "high-rate");
+    assert.ok((items[0]?.priorityScore ?? -1) > (items[1]?.priorityScore ?? -1));
+  } finally { tmp.cleanup(); }
+});
+
 test("approveProposalStage advances reviewer to admin and keeps pending", () => {
   const tmp = withTmp();
   try {

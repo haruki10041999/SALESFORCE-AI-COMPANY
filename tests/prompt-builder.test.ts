@@ -42,6 +42,16 @@ test("selectReasoningStrategy: picks reflect for review/debug tasks", () => {
   assert.equal(strategy, "reflect");
 });
 
+test("selectReasoningStrategy: picks tree-of-thought for semantic option-evaluation phrasing", () => {
+  const strategy = selectReasoningStrategy("Evaluate multiple options and choose the best approach");
+  assert.equal(strategy, "tree-of-thought");
+});
+
+test("selectReasoningStrategy: picks reflect for semantic audit phrasing", () => {
+  const strategy = selectReasoningStrategy("Audit current flow behavior and refine weak points");
+  assert.equal(strategy, "reflect");
+});
+
 test("selectPromptVariant: picks review for review tasks", () => {
   const variant = selectPromptVariant("コードレビューして問題点を確認してください");
   assert.equal(variant, "review");

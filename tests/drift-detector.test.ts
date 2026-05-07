@@ -125,6 +125,47 @@ test("detectRewardDrift returns no drift when distributions are stable", async (
   }
 });
 
+test("detectRewardDrift adaptive threshold can suppress noise with low-sample/high-variance windows", async () => {
+  await cleanup();
+  try {
+    const rewards: RewardRecord[] = [
+      makeReward(40, 0.1),
+      makeReward(41, 0.9),
+      makeReward(42, 0.2),
+      makeReward(43, 0.8),
+      makeReward(2, 0.6),
+      makeReward(3, 1.0),
+      makeReward(4, 0.5),
+      makeReward(5, 0.7)
+    ];
+    await writeJsonl(REWARD_PATH, rewards);
+
+    const fixed = await detectRewardDrift({
+      baselineHours: 72,
+      recentHours: 24,
+      minRecentSamples: 4,
+      driftThreshold: 0.15,
+      adaptiveThreshold: false,
+      rewardFilePath: REWARD_PATH
+    });
+
+    const adaptive = await detectRewardDrift({
+      baselineHours: 72,
+      recentHours: 24,
+      minRecentSamples: 4,
+      driftThreshold: 0.15,
+      adaptiveThreshold: true,
+      rewardFilePath: REWARD_PATH
+    });
+
+    assert.equal(fixed.isDriftDetected, true);
+    assert.equal(adaptive.isDriftDetected, false);
+    assert.ok(adaptive.effectiveDriftThreshold > fixed.effectiveDriftThreshold);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("detectAgentRegression finds regressed agents", async () => {
   await cleanup();
   try {

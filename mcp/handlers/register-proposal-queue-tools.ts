@@ -22,6 +22,7 @@ import {
   type AutoCreateConfig,
   type AutoCreatePolicy
 } from "../core/resource/proposal/auto-create-gate.js";
+import { loadProposalFeedbackModel } from "../core/resource/proposal-feedback.js";
 import type { GovTool } from "../tool-types.js";
 
 export interface RegisterProposalQueueToolsDeps {
@@ -93,7 +94,13 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
       }
     },
     async ({ status, resourceType, limit }: { status?: ProposalStatus; resourceType?: ProposalResourceType; limit?: number }) => {
-      const items = listProposals(outputsDir, { status, resourceType, limit });
+      const feedbackModel = await loadProposalFeedbackModel(resolve(outputsDir, "tool-proposals", "proposal-feedback-model.json"));
+      const historyAcceptRateByResource = feedbackModel
+        ? Object.fromEntries(
+            feedbackModel.resources.map((row) => [`${row.resourceType}:${row.name}`, row.acceptRate])
+          )
+        : undefined;
+      const items = listProposals(outputsDir, { status, resourceType, limit, historyAcceptRateByResource });
       const summary = summarizeProposalQueue(outputsDir);
       return { content: [{ type: "text", text: JSON.stringify({ summary, items }, null, 2) }] };
     }

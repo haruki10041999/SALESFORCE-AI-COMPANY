@@ -741,6 +741,34 @@ test("metrics_summary returns trace-based summary fields", async () => {
   assert.equal(typeof payload.errorRate, "number");
 });
 
+test("linucb_rank_arms returns ranking and feature importance export", async () => {
+  const payload = parseFirstJson<{
+    recommended: { name: string } | null;
+    ranking: Array<{ name: string; score: number }>;
+    featureImportance: Array<{ featureName: string; importance: number }>;
+  }>(await callTool("linucb_rank_arms", {
+    arms: [
+      { name: "A", features: [1, 0] },
+      { name: "B", features: [0, 1] }
+    ],
+    feedbacks: [
+      { name: "A", features: [1, 0], reward: 1 },
+      { name: "A", features: [1, 0], reward: 1 },
+      { name: "B", features: [0, 1], reward: 0.2 }
+    ],
+    alpha: 0.1,
+    featureNames: ["fit", "latency"],
+    importanceLimit: 2
+  }));
+
+  assert.ok(payload.recommended);
+  assert.equal(payload.recommended?.name, "A");
+  assert.ok(payload.ranking.length >= 2);
+  assert.equal(payload.featureImportance.length, 2);
+  assert.equal(payload.featureImportance[0]?.featureName, "fit");
+  assert.ok((payload.featureImportance[0]?.importance ?? 0) >= (payload.featureImportance[1]?.importance ?? 0));
+});
+
 test("benchmark_suite returns grade and recommendations", async () => {
   const result = await callTool("benchmark_suite", {
     recentTraceLimit: 100,
@@ -872,6 +900,22 @@ test("list_agents returns JSON array with name and summary", async () => {
   assert.ok(payload.length > 0);
   assert.equal(typeof payload[0]?.name, "string");
   assert.equal(typeof payload[0]?.summary, "string");
+});
+
+test("smart_chat includes proactive RAG references when vector matches exist", async () => {
+  await callTool("add_vector_record", {
+    id: `rag-${Date.now()}`,
+    text: "Apex trigger rollback strategy with governor limit mitigation checklist",
+    tags: ["apex", "rollback", "governor"]
+  });
+
+  const result = await callTool("smart_chat", {
+    topic: "Apex trigger rollback strategy",
+    agents: ["architect", "qa-engineer"]
+  });
+  const text = result.content[0]?.text ?? "";
+
+  assert.ok(text.includes("自動RAG候補:"));
 });
 
 test("org timeline tools record and retrieve events", async () => {

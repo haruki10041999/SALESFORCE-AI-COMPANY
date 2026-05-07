@@ -40,10 +40,44 @@ export interface SynergyModel {
   maxRawScore: number;
 }
 
+export interface TripletSynergyTraceRecord {
+  agent: string;
+  skillA: string;
+  skillB: string;
+  success: boolean;
+  endedAt?: string;
+}
+
+export interface TripletStats {
+  agent: string;
+  skillA: string;
+  skillB: string;
+  count: number;
+  successCount: number;
+  successRate: number;
+  synergyScore: number;
+}
+
+export interface TripletSynergyModel {
+  /** key = `${agent}::${skillA}::${skillB}` (skillA<skillB) */
+  triplets: Map<string, TripletStats>;
+  totalRecords: number;
+  maxRawScore: number;
+}
+
 const PAIR_DELIM = "::";
 
 function pairKey(agent: string, skill: string): string {
   return `${agent}${PAIR_DELIM}${skill}`;
+}
+
+function normalizeSkillPair(skillA: string, skillB: string): [string, string] {
+  return skillA.localeCompare(skillB) <= 0 ? [skillA, skillB] : [skillB, skillA];
+}
+
+function tripletKey(agent: string, skillA: string, skillB: string): string {
+  const [left, right] = normalizeSkillPair(skillA, skillB);
+  return `${agent}${PAIR_DELIM}${left}${PAIR_DELIM}${right}`;
 }
 
 /**
@@ -127,12 +161,17 @@ export interface RecommendComboInput {
   limit?: number;
   /** synergyScore がこの値未満の組合せは捨てる。デフォルト 0 */
   minScore?: number;
+  /** T3-2: optional triplet synergy model for approximate 3-way learning */
+  tripletModel?: TripletSynergyModel;
+  /** T3-2: triplet bonus weight (0..1, default 0.2) */
+  tripletWeight?: number;
 }
 
 export interface ComboRecommendation {
   agent: string;
   skill: string;
   synergyScore: number;
+  tripletBonus?: number;
   successRate: number;
   count: number;
 }
@@ -148,6 +187,8 @@ export function recommendCombo(
 ): ComboRecommendation[] {
   const limit = input.limit ?? 3;
   const minScore = input.minScore ?? 0;
+  const tripletModel = input.tripletModel;
+  const tripletWeight = Math.max(0, Math.min(1, input.tripletWeight ?? 0.2));
 
   const candidates: ComboRecommendation[] = [];
   for (const agent of input.agents) {
@@ -155,10 +196,22 @@ export function recommendCombo(
       const stats = model.pairs.get(pairKey(agent, skill));
       if (!stats) continue;
       if (stats.synergyScore < minScore) continue;
+      let tripletBonus = 0;
+      if (tripletModel && input.skills.length > 1) {
+        for (const otherSkill of input.skills) {
+          if (otherSkill === skill) continue;
+          const t = tripletModel.triplets.get(tripletKey(agent, skill, otherSkill));
+          if (t && t.synergyScore > tripletBonus) {
+            tripletBonus = t.synergyScore;
+          }
+        }
+      }
+      const boostedScore = Math.min(1, stats.synergyScore + tripletBonus * tripletWeight);
       candidates.push({
         agent,
         skill,
-        synergyScore: stats.synergyScore,
+        synergyScore: boostedScore,
+        tripletBonus,
         successRate: stats.successRate,
         count: stats.count
       });
@@ -166,8 +219,79 @@ export function recommendCombo(
   }
 
   return candidates
-    .sort((a, b) => b.synergyScore - a.synergyScore)
+    .sort((a, b) => b.synergyScore - a.synergyScore || (b.tripletBonus ?? 0) - (a.tripletBonus ?? 0))
     .slice(0, limit);
+}
+
+export function buildTripletSynergyModel(
+  records: TripletSynergyTraceRecord[],
+  options: { minCount?: number; maxTriplets?: number } = {}
+): TripletSynergyModel {
+  const minCount = Math.max(1, options.minCount ?? 2);
+  const maxTriplets = Math.max(1, options.maxTriplets ?? 300);
+  const aggregated = new Map<string, { agent: string; skillA: string; skillB: string; count: number; successCount: number }>();
+
+  for (const r of records) {
+    if (!r.agent || !r.skillA || !r.skillB) continue;
+    if (r.skillA === r.skillB) continue;
+    const [skillA, skillB] = normalizeSkillPair(r.skillA, r.skillB);
+    const key = tripletKey(r.agent, skillA, skillB);
+    const existing = aggregated.get(key);
+    if (existing) {
+      existing.count += 1;
+      if (r.success) existing.successCount += 1;
+    } else {
+      aggregated.set(key, {
+        agent: r.agent,
+        skillA,
+        skillB,
+        count: 1,
+        successCount: r.success ? 1 : 0
+      });
+    }
+  }
+
+  const filtered = [...aggregated.values()]
+    .filter((row) => row.count >= minCount)
+    .sort((a, b) => b.count - a.count || b.successCount - a.successCount)
+    .slice(0, maxTriplets);
+
+  let maxRawScore = 0;
+  const withRaw = filtered.map((row) => {
+    const successRate = (row.successCount + 1) / (row.count + 2);
+    const rawScore = successRate * Math.log(row.count + 1);
+    if (rawScore > maxRawScore) maxRawScore = rawScore;
+    return { ...row, successRate, rawScore };
+  });
+
+  const triplets = new Map<string, TripletStats>();
+  for (const row of withRaw) {
+    const synergyScore = maxRawScore > 0 ? row.rawScore / maxRawScore : 0;
+    triplets.set(tripletKey(row.agent, row.skillA, row.skillB), {
+      agent: row.agent,
+      skillA: row.skillA,
+      skillB: row.skillB,
+      count: row.count,
+      successCount: row.successCount,
+      successRate: row.successRate,
+      synergyScore
+    });
+  }
+
+  return {
+    triplets,
+    totalRecords: records.length,
+    maxRawScore
+  };
+}
+
+export function getTripletSynergyBonus(
+  model: TripletSynergyModel,
+  agent: string,
+  skillA: string,
+  skillB: string
+): number {
+  return model.triplets.get(tripletKey(agent, skillA, skillB))?.synergyScore ?? 0;
 }
 
 /**
@@ -199,5 +323,44 @@ export function extractSynergyRecordsFromTraces(
       records.push({ agent, skill, success, endedAt: trace.endedAt });
     }
   }
+  return records;
+}
+
+export function extractTripletSynergyRecordsFromTraces(
+  traces: Array<{
+    status: "running" | "success" | "error";
+    endedAt?: string;
+    metadata?: Record<string, unknown>;
+  }>,
+  options: { maxPairsPerTrace?: number } = {}
+): TripletSynergyTraceRecord[] {
+  const maxPairsPerTrace = Math.max(1, options.maxPairsPerTrace ?? 8);
+  const records: TripletSynergyTraceRecord[] = [];
+
+  for (const trace of traces) {
+    if (trace.status === "running") continue;
+    const meta = trace.metadata ?? {};
+    const agent = typeof meta.agent === "string" ? meta.agent : null;
+    const skillsRaw = meta.skills;
+    if (!agent) continue;
+
+    const skills = Array.isArray(skillsRaw)
+      ? [...new Set(skillsRaw.filter((s): s is string => typeof s === "string" && s.trim().length > 0))]
+      : [];
+    if (skills.length < 2) continue;
+
+    const success = trace.status === "success";
+    let emitted = 0;
+    for (let i = 0; i < skills.length; i += 1) {
+      for (let j = i + 1; j < skills.length; j += 1) {
+        const [skillA, skillB] = normalizeSkillPair(skills[i], skills[j]);
+        records.push({ agent, skillA, skillB, success, endedAt: trace.endedAt });
+        emitted += 1;
+        if (emitted >= maxPairsPerTrace) break;
+      }
+      if (emitted >= maxPairsPerTrace) break;
+    }
+  }
+
   return records;
 }

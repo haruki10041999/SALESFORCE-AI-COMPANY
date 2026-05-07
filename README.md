@@ -50,6 +50,7 @@ npm run ai -- outputs:cleanup -- --dry-run
 - **[context/README.md](context/README.md)** — プロンプト構築・コンテキスト注入
 
 ### 📖 詳細ドキュメント
+- 非エンジニア向け用語集: [docs/non-engineer-glossary.md](docs/non-engineer-glossary.md)
 - 設定項目: [docs/configuration.md](docs/configuration.md)
 - 全体像: [docs/system-architecture-with-uml.md](docs/system-architecture-with-uml.md)
 - 詳細索引: [docs/documentation-map.md](docs/documentation-map.md)

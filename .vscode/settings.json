@@ -135,6 +135,38 @@
         "/^node --import tsx --test tests/quality-rubric\\.test\\.ts tests/runtime-config-rubric-override\\.test\\.ts tests/self-refine-loop\\.test\\.ts 2>&1 \\| Select-Object -Last 80$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/drift-detector\\.test\\.ts tests/metrics-auto-update\\.test\\.ts 2>&1 \\| Select-Object -Last 140$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/lin-ucb-bandit\\.test\\.ts tests/server-tools\\.integration\\.test\\.ts --test-name-pattern \"LinUCB\\|linucb_rank_arms\" 2>&1 \\| Select-Object -Last 80$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/drift-detector\\.test\\.ts tests/metrics-auto-update\\.test\\.ts --test-name-pattern \"adaptive\\|detectRewardDrift\\|metrics-auto-update\" 2>&1 \\| Select-Object -Last 120$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/server-tools\\.integration\\.test\\.ts --test-name-pattern \"smart_chat includes proactive RAG\\|list_agents\" 2>&1 \\| Select-Object -Last 120$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/prompt-builder\\.test\\.ts 2>&1 \\| Select-Object -Last 100$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/quality-rubric\\.test\\.ts tests/self-refine-loop\\.test\\.ts 2>&1 \\| Select-Object -Last 120$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/observability-otel-prom\\.e2e\\.test\\.ts 2>&1 \\| Select-Object -Last 160$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/vector-store-large-load\\.test\\.ts tests/memory-prompt\\.test\\.ts 2>&1 \\| Select-Object -Last 180$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }

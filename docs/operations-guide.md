@@ -10,6 +10,8 @@
 
 ## Docker有り運用（Ollama + 観測性）
 
+Docker Desktop を使わない運用を行う場合は、先に [WSL2 + Docker Engine 運用手順 (Docker Desktop なし)](./wsl-docker-engine-setup.md) を参照してください。
+
 前提:
 
 - Docker Desktop / Docker Compose が利用可能

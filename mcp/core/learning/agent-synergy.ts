@@ -25,12 +25,26 @@ export type AgentSynergyRecord = {
   qualityScore?: number | null;
   /** セッション ID (任意) */
   sessionId?: string;
+  /** オーケストレーション時の persona (任意) */
+  persona?: string;
+  /** セッション成功フラグ (任意) */
+  success?: boolean;
 };
 
 export type AgentSynergyBonus = {
   agentA: string;
   agentB: string;
   bonus: number;
+};
+
+export type AgentPersonaWeeklySeries = {
+  weekStart: string;
+  agent: string;
+  persona: string;
+  sessions: number;
+  successes: number;
+  successRate: number;
+  averageQuality: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -148,6 +162,61 @@ function clamp01(value: number): number {
   if (value < 0) return 0;
   if (value > 1) return 1;
   return value;
+}
+
+function startOfWeekIso(date: Date): string {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const day = d.getUTCDay();
+  const diff = (day + 6) % 7; // Monday start
+  d.setUTCDate(d.getUTCDate() - diff);
+  return d.toISOString().slice(0, 10);
+}
+
+export function aggregateAgentPersonaWeekly(
+  records: AgentSynergyRecord[],
+  options: { now?: Date; weeks?: number } = {}
+): AgentPersonaWeeklySeries[] {
+  const now = options.now ?? new Date();
+  const weeks = Math.max(1, options.weeks ?? 8);
+  const cutoff = new Date(now.getTime() - weeks * 7 * 24 * 60 * 60 * 1000);
+  const acc = new Map<string, { weekStart: string; agent: string; persona: string; sessions: number; successes: number; qualityTotal: number }>();
+
+  for (const record of records) {
+    const recorded = new Date(record.recordedAt);
+    if (!Number.isFinite(recorded.getTime()) || recorded < cutoff) continue;
+    const persona = (record.persona ?? "unknown").trim() || "unknown";
+    const weekStart = startOfWeekIso(recorded);
+    for (const agent of [...new Set(record.agents)]) {
+      const key = `${weekStart}\u0000${agent}\u0000${persona}`;
+      const slot = acc.get(key) ?? {
+        weekStart,
+        agent,
+        persona,
+        sessions: 0,
+        successes: 0,
+        qualityTotal: 0
+      };
+      slot.sessions += 1;
+      const derivedSuccess = typeof record.success === "boolean"
+        ? record.success
+        : (record.qualityScore ?? 0.5) >= 0.6;
+      if (derivedSuccess) slot.successes += 1;
+      slot.qualityTotal += record.qualityScore ?? 0;
+      acc.set(key, slot);
+    }
+  }
+
+  return [...acc.values()]
+    .map((row) => ({
+      weekStart: row.weekStart,
+      agent: row.agent,
+      persona: row.persona,
+      sessions: row.sessions,
+      successes: row.successes,
+      successRate: row.sessions > 0 ? Number((row.successes / row.sessions).toFixed(4)) : 0,
+      averageQuality: row.sessions > 0 ? Number((row.qualityTotal / row.sessions).toFixed(4)) : 0
+    }))
+    .sort((a, b) => a.weekStart.localeCompare(b.weekStart) || a.agent.localeCompare(b.agent) || a.persona.localeCompare(b.persona));
 }
 
 /**

@@ -60,6 +60,7 @@ export function registerChatDomain(deps: Deps): void {
     govTool,
     root,
     filterDisabledSkills,
+    ...(searchByKeywordAsync ? { searchByKeywordAsync } : {}),
     buildChatPrompt
   });
 

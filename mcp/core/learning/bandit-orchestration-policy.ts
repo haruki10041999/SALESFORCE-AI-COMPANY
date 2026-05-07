@@ -36,6 +36,10 @@ export interface PolicyMixerInput {
     banditWeight?: number;
     reputationWeight?: number;
   };
+  /** Probability to force exploration of the coldest candidate (0..1) */
+  forcedExplorationRate?: number;
+  /** Optional RNG for deterministic tests */
+  rng?: () => number;
 }
 
 export interface PolicyMixerOutput {
@@ -45,9 +49,28 @@ export interface PolicyMixerOutput {
     graphScore?: number;
     banditScore?: number;
     reputationScore?: number;
+    forcedExplorationApplied?: boolean;
+    forcedExplorationRate?: number;
+    exploredAgent?: string;
     policyMix: string;
   };
   updatedBanditState?: LinUcbState;
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}
+
+function pickColdestCandidate(candidates: string[], banditState?: LinUcbState): string {
+  if (!banditState) {
+    return [...candidates].sort((a, b) => a.localeCompare(b))[0] ?? candidates[0];
+  }
+  return [...candidates]
+    .map((name) => ({ name, pulls: banditState.arms.get(name)?.pulls ?? 0 }))
+    .sort((a, b) => a.pulls - b.pulls || a.name.localeCompare(b.name))[0]?.name ?? candidates[0];
 }
 
 /**
@@ -67,7 +90,9 @@ export async function selectAgentWithPolicyMixer(
     useGraphLearning = true,
     useBandit = true,
     useReputation = true,
-    weights = {}
+    weights = {},
+    forcedExplorationRate = 0,
+    rng = Math.random
   } = input;
 
   const {
@@ -110,7 +135,11 @@ export async function selectAgentWithPolicyMixer(
 
   let selectedAgent = candidates[0];
   let finalConfidence = 0;
-  const rationale: PolicyMixerOutput["rationale"] = { policyMix: "policy_mixer" };
+  const rationale: PolicyMixerOutput["rationale"] = {
+    policyMix: "policy_mixer",
+    forcedExplorationRate: clamp01(forcedExplorationRate),
+    forcedExplorationApplied: false
+  };
 
   // --- Graph Learning Signal ---
   if (useGraphLearning && graphRecommendation) {
@@ -171,6 +200,16 @@ export async function selectAgentWithPolicyMixer(
 
   // Normalize confidence to [0, 1]
   finalConfidence = Math.max(0, Math.min(1, finalConfidence));
+
+  const explorationRate = clamp01(forcedExplorationRate);
+  if (explorationRate > 0 && rng() < explorationRate) {
+    const exploredAgent = pickColdestCandidate(candidates, existingState);
+    selectedAgent = exploredAgent;
+    finalConfidence = Math.min(finalConfidence, 0.5);
+    rationale.forcedExplorationApplied = true;
+    rationale.exploredAgent = exploredAgent;
+    rationale.policyMix = "policy_mixer+forced_exploration";
+  }
 
   return {
     selectedAgent,

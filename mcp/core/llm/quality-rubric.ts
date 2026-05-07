@@ -144,6 +144,94 @@ export interface EvaluateRubricOptions {
   topic?: string;
 }
 
+const RUBRIC_SEMANTIC_CUES: Record<string, string[]> = {
+  relevance: [
+    "requirement",
+    "request",
+    "topic",
+    "goal",
+    "目的",
+    "要件",
+    "依頼",
+    "課題"
+  ],
+  completeness: [
+    "apex",
+    "lwc",
+    "flow",
+    "permission",
+    "profile",
+    "governor",
+    "test",
+    "integration",
+    "権限",
+    "テスト",
+    "統合"
+  ],
+  actionability: [
+    "step",
+    "command",
+    "run",
+    "deploy",
+    "verify",
+    "check",
+    "手順",
+    "実行",
+    "確認"
+  ],
+  safety: [
+    "security",
+    "sanitize",
+    "xss",
+    "soql",
+    "injection",
+    "least",
+    "privilege",
+    "compliance",
+    "セキュリティ",
+    "最小権限",
+    "監査"
+  ],
+  structure: [
+    "summary",
+    "overview",
+    "section",
+    "phase",
+    "conclusion",
+    "要約",
+    "概要",
+    "結論",
+    "章"
+  ]
+};
+
+function tokenizeForSemantic(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9\u3040-\u30ff\u4e00-\u9faf]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+}
+
+function semanticCueRatio(response: string, cues: string[]): number {
+  const tokens = tokenizeForSemantic(response);
+  if (tokens.length === 0 || cues.length === 0) return 0;
+
+  const tokenSet = new Set(tokens);
+  let matched = 0;
+  for (const cue of cues) {
+    const normalizedCue = cue.toLowerCase();
+    if (tokenSet.has(normalizedCue)) {
+      matched += 1;
+      continue;
+    }
+    if (tokens.some((token) => token.includes(normalizedCue) || normalizedCue.includes(token))) {
+      matched += 1;
+    }
+  }
+  return clamp01(matched / cues.length);
+}
+
 /**
  * 軽量ヒューリスティック: structure / completeness を見出しと長さで採点。
  */
@@ -164,12 +252,24 @@ export function evaluateHeuristicRubric(
   const actionabilityScore = clamp01((codeBlocks + bullets / 4) / 4) * 10;
   const safetyScore = /TODO|FIXME|hack|insecure|XSS/i.test(response) ? 5 : 8;
 
+  const semanticRelevance = semanticCueRatio(response, RUBRIC_SEMANTIC_CUES.relevance) * 10;
+  const semanticCompleteness = semanticCueRatio(response, RUBRIC_SEMANTIC_CUES.completeness) * 10;
+  const semanticActionability = semanticCueRatio(response, RUBRIC_SEMANTIC_CUES.actionability) * 10;
+  const semanticSafety = semanticCueRatio(response, RUBRIC_SEMANTIC_CUES.safety) * 10;
+  const semanticStructure = semanticCueRatio(response, RUBRIC_SEMANTIC_CUES.structure) * 10;
+
+  const blendedRelevance = 0.55 * lengthScore + 0.45 * semanticRelevance;
+  const blendedCompleteness = 0.55 * completenessScore + 0.45 * semanticCompleteness;
+  const blendedActionability = 0.55 * actionabilityScore + 0.45 * semanticActionability;
+  const blendedSafety = 0.7 * safetyScore + 0.3 * semanticSafety;
+  const blendedStructure = 0.55 * structureScore + 0.45 * semanticStructure;
+
   const map: Record<string, number> = {
-    relevance: lengthScore,
-    completeness: completenessScore,
-    actionability: actionabilityScore,
-    safety: safetyScore,
-    structure: structureScore
+    relevance: blendedRelevance,
+    completeness: blendedCompleteness,
+    actionability: blendedActionability,
+    safety: blendedSafety,
+    structure: blendedStructure
   };
 
   const items: CriterionScore[] = criteria.map((c) => ({

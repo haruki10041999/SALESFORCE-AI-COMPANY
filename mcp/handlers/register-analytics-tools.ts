@@ -21,9 +21,11 @@ import { scoreAgentSynergy } from "../tools/agent-synergy-score.js";
 import { drillDownDashboard } from "../core/observability/dashboard-drill-down.js";
 import { estimatePromptCost } from "../../prompt-engine/prompt-evaluator.js";
 import { recordUserFeedback, computeFeedbackMetrics, loadFeedbackForSession } from "../core/learning/feedback-manager.js";
+import { appendOutputRatioFeedback } from "../core/learning/cost-feedback.js";
 import { summarizeAbCausalHistory, type AgentAbHistoryRun } from "../core/learning/ab-causal-analysis.js";
 import {
   createLinUcbState,
+  exportLinUcbFeatureImportance,
   fromLinUcbSnapshot,
   rankLinUcbArms,
   toLinUcbSnapshot,
@@ -94,6 +96,7 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
   }
 
   const agentReputationFile = resolve(outputsDir, "agent-reputation.jsonl");
+  const outputRatioFeedbackFile = resolve(outputsDir, "learning", "output-ratio.jsonl");
 
   function aggregateToolAfterExecuteEvents(events: SystemEventRecord[]): {
     totals: {
@@ -1172,6 +1175,8 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
           ).optional(),
           alpha: z.number().min(0).max(10).optional(),
           limit: z.number().int().min(1).max(100).optional(),
+          featureNames: z.array(z.string().min(1)).optional(),
+          importanceLimit: z.number().int().min(1).max(200).optional(),
           snapshot: z.any().optional()
         }
       },
@@ -1180,12 +1185,16 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
         feedbacks,
         alpha,
         limit,
+        featureNames,
+        importanceLimit,
         snapshot
       }: {
         arms: Array<{ name: string; features: number[] }>;
         feedbacks?: Array<{ name: string; features: number[]; reward: number }>;
         alpha?: number;
         limit?: number;
+        featureNames?: string[];
+        importanceLimit?: number;
         snapshot?: LinUcbSnapshot;
       }) => {
         const dimension = arms[0]?.features.length ?? 0;
@@ -1209,9 +1218,14 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
         }
 
         const ranking = rankLinUcbArms(state, arms, alpha ?? 1, limit);
+        const featureImportance = exportLinUcbFeatureImportance(state, {
+          featureNames,
+          topK: importanceLimit
+        });
         const out = {
           recommended: ranking[0] ?? null,
           ranking,
+          featureImportance,
           snapshot: toLinUcbSnapshot(state)
         };
 
@@ -1457,10 +1471,16 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
       inputSchema: {
         prompt: z.string().min(1),
         modelName: z.string().optional().describe("使用 LLM モデル (既定: mistral)"),
-        outputTokenEstimate: z.number().optional().describe("出力トークン予測 (既定: 入力の 0.3 倍)")
+        outputTokenEstimate: z.number().optional().describe("出力トークン予測 (既定: 入力の 0.3 倍)"),
+        agent: z.string().optional().describe("呼び出し元エージェント名 (output ratio feedback 用)")
       }
     },
-    async ({ prompt, modelName, outputTokenEstimate }: { prompt: string; modelName?: string; outputTokenEstimate?: number }) => {
+    async ({ prompt, modelName, outputTokenEstimate, agent }: {
+      prompt: string;
+      modelName?: string;
+      outputTokenEstimate?: number;
+      agent?: string;
+    }) => {
       // deps から受け取った evaluatePromptMetrics を使用
       const rawMetrics = evaluatePromptMetrics(prompt);
       // deps の返却型は PromptMetrics のサブセット。costEstimate 計算に必要なフィールドのみ使用
@@ -1480,6 +1500,12 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
         triggerMatchRate: rawMetrics.triggerMatchRate
       };
       const costEstimate = estimatePromptCost(metrics, modelName ?? "mistral", outputTokenEstimate);
+      await appendOutputRatioFeedback(outputRatioFeedbackFile, {
+        model: costEstimate.model,
+        agent,
+        inputTokens: costEstimate.breakdown.inputTokens,
+        outputTokens: costEstimate.breakdown.outputTokens
+      });
       return {
         content: [{ type: "text", text: JSON.stringify(costEstimate, null, 2) }]
       };

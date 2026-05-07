@@ -11,6 +11,7 @@ export interface GapDetectionResult {
   topScore: number;
   threshold: number;
   gapSeverity: "none" | "low" | "medium" | "high";
+  gapTrend?: "improving" | "stable" | "worsening" | "unknown";
   timestamp: string;
 }
 
@@ -22,7 +23,20 @@ export interface GapEvent {
     topScore: number;
     threshold: number;
     gapSeverity: "low" | "medium" | "high";
+    gapTrend?: "improving" | "stable" | "worsening" | "unknown";
   };
+}
+
+function calculateGapTrend(historyTopScores: number[]): "improving" | "stable" | "worsening" | "unknown" {
+  if (historyTopScores.length < 2) {
+    return "unknown";
+  }
+  const first = historyTopScores[0];
+  const last = historyTopScores[historyTopScores.length - 1];
+  const delta = last - first;
+  if (delta >= 0.5) return "improving";
+  if (delta <= -0.5) return "worsening";
+  return "stable";
 }
 
 /**
@@ -53,10 +67,12 @@ export function detectGap(
   resourceType: "skills" | "tools" | "presets",
   topic: string,
   topScore: number,
-  threshold: number = 5
+  threshold: number = 5,
+  historyTopScores: number[] = []
 ): GapDetectionResult {
   const detected = topScore < threshold;
   const gapSeverity = calculateGapSeverity(topScore, threshold);
+  const gapTrend = calculateGapTrend(historyTopScores);
 
   return {
     detected,
@@ -65,6 +81,7 @@ export function detectGap(
     topScore,
     threshold,
     gapSeverity: detected ? (gapSeverity as "low" | "medium" | "high") : "none",
+    gapTrend,
     timestamp: new Date().toISOString()
   };
 }
@@ -84,7 +101,8 @@ export function createGapEvent(result: GapDetectionResult): GapEvent | null {
       topic: result.topic,
       topScore: result.topScore,
       threshold: result.threshold,
-      gapSeverity: result.gapSeverity
+      gapSeverity: result.gapSeverity,
+      gapTrend: result.gapTrend
     }
   };
 }

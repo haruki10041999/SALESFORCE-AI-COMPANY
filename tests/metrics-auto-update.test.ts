@@ -96,3 +96,40 @@ test("metrics-auto-update does not emit drift callback when alert is not detecte
     await cleanup();
   }
 });
+
+test("metrics-auto-update supports adaptive drift threshold options", async () => {
+  await cleanup();
+  try {
+    const rewards: RewardRecord[] = [
+      makeReward(40, 0.1),
+      makeReward(41, 0.9),
+      makeReward(42, 0.2),
+      makeReward(43, 0.8),
+      makeReward(2, 0.4),
+      makeReward(3, 0.9),
+      makeReward(4, 0.3),
+      makeReward(5, 0.8)
+    ];
+    await writeJsonl(REWARD_PATH, rewards);
+    await writeJsonl(REPUTATION_PATH, []);
+
+    const result = await runMetricsAutoUpdate({
+      reportingHours: 24,
+      includeDriftDetection: true,
+      driftBaselineHours: 72,
+      driftRecentHours: 24,
+      minRecentRewardSamples: 4,
+      rewardDriftThreshold: 0.15,
+      adaptiveRewardDriftThreshold: true,
+      rewardFilePath: REWARD_PATH,
+      reputationFilePath: REPUTATION_PATH,
+      driftReportPath: REPORT_PATH
+    });
+
+    assert.ok(result.driftReport);
+    assert.equal(result.driftReport?.rewardDrift.adaptiveThresholdEnabled, true);
+    assert.ok((result.driftReport?.rewardDrift.effectiveDriftThreshold ?? 0) >= 0.15);
+  } finally {
+    await cleanup();
+  }
+});

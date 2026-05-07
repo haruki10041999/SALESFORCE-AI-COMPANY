@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
@@ -128,6 +128,7 @@ export class JsonlVectorStoreAdapter implements VectorStoreAdapter {
   private vectorBackend: VectorEmbeddingProvider | null = null;
   private vectorBackendKind: VectorBackendKind | null = null;
   private readonly recordVectorCache = new Map<string, { hash: string; vector: number[] }>();
+  private vectorCacheMaxEntries = Number.parseInt(process.env.SF_AI_VECTOR_CACHE_MAX_ENTRIES ?? "2000", 10);
 
   constructor() {
     this.loadFromDisk();
@@ -219,6 +220,9 @@ export class JsonlVectorStoreAdapter implements VectorStoreAdapter {
     if (!Number.isFinite(this.maxBytes) || this.maxBytes < 1024) {
       this.maxBytes = 2 * 1024 * 1024;
     }
+    if (!Number.isFinite(this.vectorCacheMaxEntries) || this.vectorCacheMaxEntries < 100) {
+      this.vectorCacheMaxEntries = 2000;
+    }
   }
 
   private applyRetention(): void {
@@ -274,24 +278,54 @@ export class JsonlVectorStoreAdapter implements VectorStoreAdapter {
       return;
     }
 
+    const MAX_STREAMED_RECORDS = 10000;
     try {
-      const raw = readFileSync(this.storageFilePath, "utf-8");
-      const lines = raw.split(/\r?\n/).filter((line) => line.trim().length > 0);
+      const fd = openSync(this.storageFilePath, "r");
+      try {
+        const buffer = Buffer.allocUnsafe(64 * 1024);
+        let rest = "";
+        let validCount = 0;
 
-      for (const line of lines) {
-        try {
-          const parsed = JSON.parse(line) as Partial<MemoryRecord>;
-          if (
-            typeof parsed.id === "string" &&
-            typeof parsed.text === "string" &&
-            Array.isArray(parsed.tags) &&
-            parsed.tags.every((tag) => typeof tag === "string")
-          ) {
-            this.records.push({ id: parsed.id, text: parsed.text, tags: [...parsed.tags] });
+        const ingestLine = (lineRaw: string): void => {
+          const line = lineRaw.trim();
+          if (line.length === 0) return;
+          try {
+            const parsed = JSON.parse(line) as Partial<MemoryRecord>;
+            if (
+              typeof parsed.id === "string" &&
+              typeof parsed.text === "string" &&
+              Array.isArray(parsed.tags) &&
+              parsed.tags.every((tag) => typeof tag === "string")
+            ) {
+              this.records.push({ id: parsed.id, text: parsed.text, tags: [...parsed.tags] });
+              validCount += 1;
+              if (validCount > MAX_STREAMED_RECORDS && this.records.length > this.maxRecords) {
+                const overflow = this.records.length - this.maxRecords;
+                if (overflow > 0) {
+                  this.records.splice(0, overflow);
+                }
+              }
+            }
+          } catch {
+            // skip corrupted rows
           }
-        } catch {
-          // skip corrupted rows
+        };
+
+        for (;;) {
+          const bytes = readSync(fd, buffer, 0, buffer.length, null);
+          if (bytes <= 0) break;
+          const chunk = rest + buffer.toString("utf-8", 0, bytes);
+          const lines = chunk.split(/\r?\n/);
+          rest = lines.pop() ?? "";
+          for (const line of lines) {
+            ingestLine(line);
+          }
         }
+        if (rest.trim().length > 0) {
+          ingestLine(rest);
+        }
+      } finally {
+        closeSync(fd);
       }
       this.applyRetention();
     } catch {
@@ -341,9 +375,19 @@ export class JsonlVectorStoreAdapter implements VectorStoreAdapter {
     const text = `${record.text} ${(record.tags ?? []).join(" ")}`;
     const hash = fastHash(`${record.id}\u0001${text}`);
     const cached = this.recordVectorCache.get(record.id);
-    if (cached && cached.hash === hash) return cached.vector;
+    if (cached && cached.hash === hash) {
+      this.recordVectorCache.delete(record.id);
+      this.recordVectorCache.set(record.id, cached);
+      return cached.vector;
+    }
     const vector = await provider.embed(text);
     this.recordVectorCache.set(record.id, { hash, vector });
+    if (this.recordVectorCache.size > this.vectorCacheMaxEntries) {
+      const oldestKey = this.recordVectorCache.keys().next().value;
+      if (typeof oldestKey === "string") {
+        this.recordVectorCache.delete(oldestKey);
+      }
+    }
     return vector;
   }
 }

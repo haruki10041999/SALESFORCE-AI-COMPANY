@@ -16,6 +16,10 @@ const logger = createLogger("SmartChatTools");
 interface RegisterSmartChatToolsDeps extends RegisterGovToolDeps {
   root: string;
   filterDisabledSkills: (skillNames: string[]) => Promise<{ enabled: string[]; disabled: string[] }>;
+  searchByKeywordAsync?: (
+    query: string,
+    options?: { limit?: number; minScore?: number }
+  ) => Promise<Array<{ id: string; text: string; tags?: string[]; score?: number }>>;
   buildChatPrompt: (
     topic: string,
     agents: string[],
@@ -29,6 +33,19 @@ interface RegisterSmartChatToolsDeps extends RegisterGovToolDeps {
   ) => Promise<string>;
 }
 
+function summarizeProactiveRagMatches(
+  matches: Array<{ id: string; text: string; score?: number }>
+): string {
+  if (matches.length === 0) return "";
+  const lines = ["### 自動RAG参照", "関連する過去メモを先回りで抽出しました。必要なものだけ採用してください。"];
+  for (const match of matches) {
+    const snippet = match.text.length > 180 ? `${match.text.slice(0, 180)}...` : match.text;
+    const score = typeof match.score === "number" ? ` (score=${match.score.toFixed(3)})` : "";
+    lines.push(`- [${match.id}]${score} ${snippet}`);
+  }
+  return lines.join("\n");
+}
+
 function extractExistingFilePathsFromTopic(topic: string): string[] {
   // Windows paths: C:\path\to\file.ext, posix paths: ./path/to/file.ext, /path/to/file.ext
   const matches = topic.match(
@@ -39,7 +56,7 @@ function extractExistingFilePathsFromTopic(topic: string): string[] {
 }
 
 export function registerSmartChatTools(deps: RegisterSmartChatToolsDeps): void {
-  const { govTool, root, filterDisabledSkills, buildChatPrompt } = deps;
+  const { govTool, root, filterDisabledSkills, searchByKeywordAsync, buildChatPrompt } = deps;
 
   govTool(
     "smart_chat",
@@ -90,6 +107,16 @@ export function registerSmartChatTools(deps: RegisterSmartChatToolsDeps): void {
         autoFilePaths = topicFilePaths;
       }
 
+      let proactiveRagMatches: Array<{ id: string; text: string; score?: number }> = [];
+      if (searchByKeywordAsync) {
+        try {
+          proactiveRagMatches = await searchByKeywordAsync(topic, { limit: 3, minScore: 0.1 });
+        } catch (err) {
+          const error = formatErrorMessage(err);
+          logger.warn("proactive vector retrieval failed", { error });
+        }
+      }
+
       try {
         const repoAnalysis = analyzeRepo(targetPath);
         const candidates = [
@@ -105,6 +132,11 @@ export function registerSmartChatTools(deps: RegisterSmartChatToolsDeps): void {
         logger.warn("repo_analyze failed", { error });
       }
 
+      const ragInstruction = summarizeProactiveRagMatches(proactiveRagMatches);
+      const mergedAppendInstruction = [appendInstruction, ragInstruction]
+        .filter((value): value is string => Boolean(value && value.trim().length > 0))
+        .join("\n\n");
+
       const prompt = await buildChatPrompt(
         topic,
         prioritizedAgents,
@@ -113,7 +145,7 @@ export function registerSmartChatTools(deps: RegisterSmartChatToolsDeps): void {
         autoFilePaths,
         6,
         maxContextChars,
-        appendInstruction,
+        mergedAppendInstruction || undefined,
         includeProjectContext
       );
 
@@ -126,6 +158,8 @@ export function registerSmartChatTools(deps: RegisterSmartChatToolsDeps): void {
               targetPath +
               "\n\n自動検出ファイル:\n" +
               (autoFilePaths.length > 0 ? autoFilePaths.join("\n") : "(なし)") +
+              "\n\n自動RAG候補:\n" +
+              (proactiveRagMatches.length > 0 ? proactiveRagMatches.map((item) => item.id).join("\n") : "(なし)") +
               "\n\n信頼スコア機能:\n" +
               (trustScoringEnabled
                 ? `有効 (threshold=${(trustThreshold ?? getAgentTrustThreshold()).toFixed(2)})`

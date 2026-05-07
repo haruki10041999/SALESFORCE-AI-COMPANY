@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   createLinUcbState,
+  exportLinUcbFeatureImportance,
   updateLinUcbArm,
   rankLinUcbArms,
   toLinUcbSnapshot,
@@ -53,4 +54,32 @@ test("LinUCB snapshot round-trip preserves ranking behavior", () => {
 test("LinUCB throws on feature dimension mismatch", () => {
   const state = createLinUcbState(3, ["A"]);
   assert.throws(() => updateLinUcbArm(state, "A", [1, 2], 1));
+});
+
+test("LinUCB exports feature importance ranked by absolute coefficient", () => {
+  const state = createLinUcbState(2, ["A", "B"]);
+
+  for (let i = 0; i < 20; i += 1) {
+    updateLinUcbArm(state, "A", [1, 0], 1.0);
+    updateLinUcbArm(state, "B", [0, 1], 0.1);
+  }
+
+  const importance = exportLinUcbFeatureImportance(state, {
+    featureNames: ["fit", "latency"],
+    topK: 2
+  });
+
+  assert.equal(importance.length, 2);
+  assert.equal(importance[0]?.featureName, "fit");
+  assert.ok((importance[0]?.importance ?? 0) > (importance[1]?.importance ?? 0));
+});
+
+test("LinUCB feature importance with minPulls filters cold arms", () => {
+  const state = createLinUcbState(2, ["A", "cold"]);
+  for (let i = 0; i < 5; i += 1) {
+    updateLinUcbArm(state, "A", [1, 0], 1.0);
+  }
+
+  const noData = exportLinUcbFeatureImportance(state, { minPulls: 10 });
+  assert.ok(noData.every((row) => row.importance === 0));
 });

@@ -10,6 +10,7 @@
    - [personas/README.md](../personas/README.md) — ペルソナ（応答スタイル）
    - [context/README.md](../context/README.md) — プロンプト構築・注入
 3. 用途別エントリ:
+   - 非エンジニア向けに把握したい → [non-engineer-glossary.md](./non-engineer-glossary.md)
    - 運用したい → [operations-guide.md](./operations-guide.md)
    - 開発したい → [developer-guide.md](./developer-guide.md)
 4. [configuration.md](./configuration.md) — 環境変数・設定キー一覧
@@ -31,6 +32,7 @@
 - リソース一覧: [resource-inventory.md](./resource-inventory.md)
 - OpenCode セットアップ: [opencode-setup.md](./opencode-setup.md)
 - Ollama セットアップ: [ollama-setup.md](./ollama-setup.md)
+- WSL + Docker Engine 運用 (Docker Desktop なし): [wsl-docker-engine-setup.md](./wsl-docker-engine-setup.md)
 - 削除したスクリプト: [deprecated-scripts.md](./deprecated-scripts.md)
 - 変更履歴: [CHANGELOG.md](./CHANGELOG.md)
 - Declarative tool 例 (JSON):

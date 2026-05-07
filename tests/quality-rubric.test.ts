@@ -148,6 +148,26 @@ test("evaluateHeuristicRubric: rich response scores higher than empty", () => {
   assert.ok(rich.overallScore > empty.overallScore);
 });
 
+test("evaluateHeuristicRubric: semantic action cues improve actionability score", () => {
+  const weak = evaluateHeuristicRubric("This is a generic statement without execution guidance.");
+  const strong = evaluateHeuristicRubric(
+    "Step 1: run tests. Step 2: deploy to sandbox. Step 3: verify logs and check rollback readiness."
+  );
+  const weakActionability = weak.criteria.find((c) => c.id === "actionability")?.score ?? 0;
+  const strongActionability = strong.criteria.find((c) => c.id === "actionability")?.score ?? 0;
+  assert.ok(strongActionability > weakActionability);
+});
+
+test("evaluateHeuristicRubric: semantic safety cues improve safety score", () => {
+  const neutral = evaluateHeuristicRubric("Implement logic and ship quickly.");
+  const safe = evaluateHeuristicRubric(
+    "Apply security checks, sanitize inputs, enforce least privilege, and review compliance."
+  );
+  const neutralSafety = neutral.criteria.find((c) => c.id === "safety")?.score ?? 0;
+  const safeSafety = safe.criteria.find((c) => c.id === "safety")?.score ?? 0;
+  assert.ok(safeSafety > neutralSafety);
+});
+
 test("evaluateQualityRubric: judge mode parses response", async () => {
   const r = await evaluateQualityRubric("any response", {
     client: judgeClient(

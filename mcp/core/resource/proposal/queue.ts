@@ -64,7 +64,50 @@ export interface ProposalRecord {
   rejectReason?: string;
   /** F12: multi-stage approval 状態 */
   approval?: ProposalApprovalState;
+  /** T3-1: queue ordering priority snapshot */
+  priorityScore?: number;
+  /** T3-1: priority components */
+  priorityBreakdown?: {
+    topicRelevance: number;
+    historyAcceptRate: number;
+    stalenessPenalty: number;
+  };
   status: ProposalStatus;
+}
+
+export interface ProposalPriority {
+  score: number;
+  topicRelevance: number;
+  historyAcceptRate: number;
+  stalenessPenalty: number;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+export function computeProposalPriority(
+  record: ProposalRecord,
+  options: {
+    now?: Date;
+    historyAcceptRate?: number;
+    topicRelevance?: number;
+  } = {}
+): ProposalPriority {
+  const nowMs = (options.now ?? new Date()).getTime();
+  const createdAtMs = Number.isFinite(Date.parse(record.createdAt))
+    ? Date.parse(record.createdAt)
+    : nowMs;
+  const ageDays = Math.max(0, (nowMs - createdAtMs) / (24 * 60 * 60 * 1000));
+  const stalenessPenalty = clamp(ageDays / 30, 0, 1);
+  const topicRelevance = clamp(
+    typeof options.topicRelevance === "number" ? options.topicRelevance : record.confidence,
+    0,
+    1
+  );
+  const historyAcceptRate = clamp(options.historyAcceptRate ?? 0.5, 0, 1);
+  const score = topicRelevance * historyAcceptRate - stalenessPenalty;
+  return { score, topicRelevance, historyAcceptRate, stalenessPenalty };
 }
 
 export interface NewProposalInput {
@@ -231,6 +274,8 @@ export interface ListProposalsOptions {
   status?: ProposalStatus;
   resourceType?: ProposalResourceType;
   limit?: number;
+  now?: Date;
+  historyAcceptRateByResource?: Record<string, number>;
 }
 
 export function listProposals(outputsDir: string, options: ListProposalsOptions = {}): ProposalRecord[] {
@@ -244,7 +289,27 @@ export function listProposals(outputsDir: string, options: ListProposalsOptions 
   if (options.resourceType) {
     records = records.filter((r) => r.resourceType === options.resourceType);
   }
-  records.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const now = options.now ?? new Date();
+  const rates = options.historyAcceptRateByResource ?? {};
+  records = records.map((record) => {
+    const rate = rates[`${record.resourceType}:${record.name}`];
+    const priority = computeProposalPriority(record, { now, historyAcceptRate: rate });
+    return {
+      ...record,
+      priorityScore: Number(priority.score.toFixed(6)),
+      priorityBreakdown: {
+        topicRelevance: Number(priority.topicRelevance.toFixed(6)),
+        historyAcceptRate: Number(priority.historyAcceptRate.toFixed(6)),
+        stalenessPenalty: Number(priority.stalenessPenalty.toFixed(6))
+      }
+    };
+  });
+  records.sort((a, b) => {
+    const aPriority = a.priorityScore ?? Number.NEGATIVE_INFINITY;
+    const bPriority = b.priorityScore ?? Number.NEGATIVE_INFINITY;
+    if (bPriority !== aPriority) return bPriority - aPriority;
+    return b.createdAt.localeCompare(a.createdAt);
+  });
   if (typeof options.limit === "number" && options.limit > 0) {
     records = records.slice(0, options.limit);
   }

@@ -26,7 +26,41 @@ export interface RewardDriftResult {
   meanShift: number;
   varianceShift: number;
   driftScore: number;
+  driftThreshold: number;
+  effectiveDriftThreshold: number;
+  adaptiveThresholdEnabled: boolean;
   isDriftDetected: boolean;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function computeAdaptiveDriftThreshold(params: {
+  baseThreshold: number;
+  baselineStd: number;
+  recentStd: number;
+  recentSamples: number;
+  minThreshold?: number;
+  maxThreshold?: number;
+}): number {
+  const {
+    baseThreshold,
+    baselineStd,
+    recentStd,
+    recentSamples,
+    minThreshold,
+    maxThreshold
+  } = params;
+
+  // Fewer samples and noisier distributions require a stricter (higher) threshold.
+  // With many stable samples, threshold is relaxed but bounded for safety.
+  const sampleScale = clamp(Math.sqrt(20 / Math.max(1, recentSamples)), 0.6, 1.8);
+  const volatilityScale = clamp((baselineStd + recentStd) / 0.3, 0.6, 1.8);
+  const raw = baseThreshold * sampleScale * volatilityScale;
+  const floor = minThreshold ?? baseThreshold * 0.5;
+  const ceiling = maxThreshold ?? baseThreshold * 2;
+  return clamp(raw, floor, ceiling);
 }
 
 export interface AgentRegressionItem {
@@ -118,12 +152,16 @@ export async function detectRewardDrift(options?: {
   recentHours?: number;
   minRecentSamples?: number;
   driftThreshold?: number;
+  adaptiveThreshold?: boolean;
+  minAdaptiveThreshold?: number;
+  maxAdaptiveThreshold?: number;
   rewardFilePath?: string;
 }): Promise<RewardDriftResult> {
   const baselineHours = options?.baselineHours ?? 24 * 7;
   const recentHours = options?.recentHours ?? 24;
   const minRecentSamples = options?.minRecentSamples ?? 20;
   const driftThreshold = options?.driftThreshold ?? 0.15;
+  const adaptiveThreshold = options?.adaptiveThreshold ?? true;
   const rewardFilePath = options?.rewardFilePath ?? DEFAULT_REWARD_PATH;
 
   const allRewards = await loadRewardRecords(rewardFilePath);
@@ -153,11 +191,21 @@ export async function detectRewardDrift(options?: {
   const meanShift = recentAvgReward - baselineAvgReward;
   const varianceShift = recentStd - baselineStd;
   const driftScore = Math.abs(meanShift) + 0.5 * Math.abs(varianceShift);
+  const effectiveDriftThreshold = adaptiveThreshold
+    ? computeAdaptiveDriftThreshold({
+        baseThreshold: driftThreshold,
+        baselineStd,
+        recentStd,
+        recentSamples: recentValues.length,
+        minThreshold: options?.minAdaptiveThreshold,
+        maxThreshold: options?.maxAdaptiveThreshold
+      })
+    : driftThreshold;
 
   const isDriftDetected =
     recentValues.length >= minRecentSamples &&
     baselineValues.length > 0 &&
-    (Math.abs(meanShift) >= driftThreshold || driftScore >= driftThreshold * 1.25);
+    (Math.abs(meanShift) >= effectiveDriftThreshold || driftScore >= effectiveDriftThreshold * 1.25);
 
   return {
     baselineHours,
@@ -171,6 +219,9 @@ export async function detectRewardDrift(options?: {
     meanShift,
     varianceShift,
     driftScore,
+    driftThreshold,
+    effectiveDriftThreshold,
+    adaptiveThresholdEnabled: adaptiveThreshold,
     isDriftDetected
   };
 }
@@ -251,6 +302,9 @@ export async function generateDriftReport(options?: {
   recentHours?: number;
   minRecentRewardSamples?: number;
   rewardDriftThreshold?: number;
+  adaptiveRewardDriftThreshold?: boolean;
+  minAdaptiveRewardDriftThreshold?: number;
+  maxAdaptiveRewardDriftThreshold?: number;
   minReputationSamplesPerWindow?: number;
   regressionThreshold?: number;
   rewardFilePath?: string;
@@ -261,6 +315,9 @@ export async function generateDriftReport(options?: {
     recentHours: options?.recentHours,
     minRecentSamples: options?.minRecentRewardSamples,
     driftThreshold: options?.rewardDriftThreshold,
+    adaptiveThreshold: options?.adaptiveRewardDriftThreshold,
+    minAdaptiveThreshold: options?.minAdaptiveRewardDriftThreshold,
+    maxAdaptiveThreshold: options?.maxAdaptiveRewardDriftThreshold,
     rewardFilePath: options?.rewardFilePath
   });
 
@@ -336,6 +393,9 @@ export async function runDriftDetectionAndPersist(options?: {
   recentHours?: number;
   minRecentRewardSamples?: number;
   rewardDriftThreshold?: number;
+  adaptiveRewardDriftThreshold?: boolean;
+  minAdaptiveRewardDriftThreshold?: number;
+  maxAdaptiveRewardDriftThreshold?: number;
   minReputationSamplesPerWindow?: number;
   regressionThreshold?: number;
   rewardFilePath?: string;

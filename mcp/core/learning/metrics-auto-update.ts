@@ -14,6 +14,9 @@ export interface MetricsAutoUpdateOptions {
   driftRecentHours?: number;
   minRecentRewardSamples?: number;
   rewardDriftThreshold?: number;
+  adaptiveRewardDriftThreshold?: boolean;
+  minAdaptiveRewardDriftThreshold?: number;
+  maxAdaptiveRewardDriftThreshold?: number;
   minReputationSamplesPerWindow?: number;
   regressionThreshold?: number;
   rewardFilePath?: string;
@@ -43,6 +46,9 @@ export async function runMetricsAutoUpdate(
       recentHours: options.driftRecentHours,
       minRecentRewardSamples: options.minRecentRewardSamples,
       rewardDriftThreshold: options.rewardDriftThreshold,
+      adaptiveRewardDriftThreshold: options.adaptiveRewardDriftThreshold,
+      minAdaptiveRewardDriftThreshold: options.minAdaptiveRewardDriftThreshold,
+      maxAdaptiveRewardDriftThreshold: options.maxAdaptiveRewardDriftThreshold,
       minReputationSamplesPerWindow: options.minReputationSamplesPerWindow,
       regressionThreshold: options.regressionThreshold,
       rewardFilePath: options.rewardFilePath,
@@ -91,6 +97,11 @@ async function main(): Promise<void> {
     driftRecentHours: parseOptionalNumber(process.env.SF_AI_DRIFT_RECENT_HOURS),
     minRecentRewardSamples: parseOptionalNumber(process.env.SF_AI_DRIFT_MIN_REWARD_SAMPLES),
     rewardDriftThreshold: parseOptionalNumber(process.env.SF_AI_DRIFT_THRESHOLD),
+    adaptiveRewardDriftThreshold: process.env.SF_AI_DRIFT_ADAPTIVE_THRESHOLD
+      ? parseBooleanFlag(process.env.SF_AI_DRIFT_ADAPTIVE_THRESHOLD)
+      : undefined,
+    minAdaptiveRewardDriftThreshold: parseOptionalNumber(process.env.SF_AI_DRIFT_ADAPTIVE_MIN_THRESHOLD),
+    maxAdaptiveRewardDriftThreshold: parseOptionalNumber(process.env.SF_AI_DRIFT_ADAPTIVE_MAX_THRESHOLD),
     minReputationSamplesPerWindow: parseOptionalNumber(
       process.env.SF_AI_DRIFT_MIN_REPUTATION_SAMPLES
     ),

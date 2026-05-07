@@ -97,9 +97,12 @@ import { SalesforceTextTokenizer } from "../mcp/core/resource/tokenizer.js";
 // Synergy Model Tests (TASK-043)
 import {
   buildSynergyModel,
+  buildTripletSynergyModel,
   getSynergyBonus,
+  getTripletSynergyBonus,
   recommendCombo,
-  extractSynergyRecordsFromTraces
+  extractSynergyRecordsFromTraces,
+  extractTripletSynergyRecordsFromTraces
 } from "../mcp/core/resource/synergy-model.js";
 
 // Observability Dashboard Tests (TASK-044)
@@ -245,6 +248,14 @@ test("Resource Gap Detector - Create Event", () => {
   const event = createGapEvent(gap);
   assert.ok(event, "Should create event for detected gap");
   assert.equal(event!.event, "resource_gap_detected");
+});
+
+test("Resource Gap Detector - Includes trend from historical top scores", () => {
+  const worsening = detectGap("skills", "trend-topic", 2, 5, [4.2, 3.8, 3.0, 2.0]);
+  const improving = detectGap("skills", "trend-topic", 4, 5, [1.2, 1.8, 2.9, 4.0]);
+
+  assert.equal(worsening.gapTrend, "worsening");
+  assert.equal(improving.gapTrend, "improving");
 });
 
 // ============================================================
@@ -1136,6 +1147,51 @@ test("Synergy Model - extractSynergyRecordsFromTraces normalizes traces", () => 
   assert.equal(records[0].agent, "apex-developer");
   assert.equal(records[0].success, true);
   assert.equal(records[2].success, false);
+});
+
+test("Synergy Model - extractTripletSynergyRecordsFromTraces expands skill pairs", () => {
+  const records = extractTripletSynergyRecordsFromTraces([
+    {
+      status: "success",
+      metadata: { agent: "apex-developer", skills: ["trigger-design", "bulk-patterns", "soql-guard"] }
+    }
+  ]);
+  assert.equal(records.length, 3);
+  assert.equal(records[0].agent, "apex-developer");
+});
+
+test("Synergy Model - triplet model learns top pair scores", () => {
+  const triplet = buildTripletSynergyModel([
+    { agent: "a", skillA: "s1", skillB: "s2", success: true },
+    { agent: "a", skillA: "s1", skillB: "s2", success: true },
+    { agent: "a", skillA: "s1", skillB: "s3", success: false },
+    { agent: "a", skillA: "s1", skillB: "s3", success: true }
+  ]);
+  const strong = getTripletSynergyBonus(triplet, "a", "s1", "s2");
+  const weak = getTripletSynergyBonus(triplet, "a", "s1", "s3");
+  assert.ok(strong > weak);
+});
+
+test("Synergy Model - recommendCombo applies triplet boost when provided", () => {
+  const pairModel = buildSynergyModel([
+    { agent: "a1", skill: "s1", success: true },
+    { agent: "a1", skill: "s2", success: true }
+  ]);
+  const tripletModel = buildTripletSynergyModel([
+    { agent: "a1", skillA: "s1", skillB: "s2", success: true },
+    { agent: "a1", skillA: "s1", skillB: "s2", success: true },
+    { agent: "a1", skillA: "s1", skillB: "s2", success: true }
+  ], { minCount: 1 });
+
+  const combos = recommendCombo(pairModel, {
+    agents: ["a1"],
+    skills: ["s1", "s2"],
+    tripletModel,
+    tripletWeight: 0.3,
+    limit: 2
+  });
+  assert.equal(combos.length, 2);
+  assert.ok((combos[0].tripletBonus ?? 0) >= 0);
 });
 
 // ============================================================================

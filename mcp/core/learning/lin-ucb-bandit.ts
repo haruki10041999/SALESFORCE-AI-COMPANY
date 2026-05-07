@@ -25,6 +25,14 @@ export interface LinUcbRankResult {
   avgReward: number;
 }
 
+export interface LinUcbFeatureImportance {
+  index: number;
+  featureName: string;
+  importance: number;
+  avgWeight: number;
+  supportPulls: number;
+}
+
 export interface LinUcbSnapshot {
   dimension: number;
   arms: Array<{
@@ -34,6 +42,12 @@ export interface LinUcbSnapshot {
     pulls: number;
     totalReward: number;
   }>;
+}
+
+export interface LinUcbFeatureImportanceOptions {
+  featureNames?: string[];
+  topK?: number;
+  minPulls?: number;
 }
 
 function createIdentity(n: number): number[][] {
@@ -200,6 +214,49 @@ export function rankLinUcbArms(
     .sort((a, b) => b.score - a.score);
   if (!limit || limit <= 0) return scored;
   return scored.slice(0, limit);
+}
+
+export function exportLinUcbFeatureImportance(
+  state: LinUcbState,
+  options: LinUcbFeatureImportanceOptions = {}
+): LinUcbFeatureImportance[] {
+  const dimension = state.dimension;
+  const featureNames = options.featureNames ?? [];
+  const minPulls = Math.max(0, Math.floor(options.minPulls ?? 1));
+
+  const absSums = new Array<number>(dimension).fill(0);
+  const signedSums = new Array<number>(dimension).fill(0);
+  let totalWeight = 0;
+
+  for (const arm of state.arms.values()) {
+    if (arm.pulls < minPulls) continue;
+    const invA = invertMatrix(arm.A);
+    const theta = matVec(invA, arm.b);
+    const weight = Math.max(1, arm.pulls);
+    totalWeight += weight;
+    for (let i = 0; i < dimension; i += 1) {
+      const value = theta[i] ?? 0;
+      absSums[i] += Math.abs(value) * weight;
+      signedSums[i] += value * weight;
+    }
+  }
+
+  const normalizer = totalWeight > 0 ? totalWeight : 1;
+  const rows: LinUcbFeatureImportance[] = [];
+  for (let i = 0; i < dimension; i += 1) {
+    rows.push({
+      index: i,
+      featureName: featureNames[i] ?? `f${i}`,
+      importance: absSums[i] / normalizer,
+      avgWeight: signedSums[i] / normalizer,
+      supportPulls: totalWeight
+    });
+  }
+
+  rows.sort((a, b) => b.importance - a.importance || a.index - b.index);
+  const topK = options.topK;
+  if (!topK || topK <= 0) return rows;
+  return rows.slice(0, topK);
 }
 
 export function toLinUcbSnapshot(state: LinUcbState): LinUcbSnapshot {

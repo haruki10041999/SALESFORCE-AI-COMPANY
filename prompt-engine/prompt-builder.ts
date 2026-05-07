@@ -36,6 +36,52 @@ const STRATEGY_GUIDANCE: Record<ReasoningStrategy, string> = {
   "tree-of-thought": "Explore at least two alternative solution branches, compare trade-offs, then choose one."
 };
 
+const STRATEGY_SEMANTIC_CUES: Record<ReasoningStrategy, string[]> = {
+  plan: [
+    "implement",
+    "build",
+    "setup",
+    "design",
+    "roadmap",
+    "step",
+    "plan",
+    "実装",
+    "設計",
+    "手順",
+    "計画"
+  ],
+  reflect: [
+    "review",
+    "audit",
+    "inspect",
+    "debug",
+    "fix",
+    "improve",
+    "refine",
+    "validate",
+    "検証",
+    "改善",
+    "監査",
+    "振り返り"
+  ],
+  "tree-of-thought": [
+    "compare",
+    "alternative",
+    "alternatives",
+    "options",
+    "tradeoff",
+    "trade-off",
+    "branch",
+    "choose",
+    "evaluate",
+    "比較",
+    "選択肢",
+    "複数案",
+    "分岐",
+    "合意"
+  ]
+};
+
 const DEFAULT_PROMPT_TEMPLATE = [
   "{{base}}",
   "",
@@ -95,8 +141,45 @@ export function renderPromptTemplate(template: string, data: PromptTemplateData)
   });
 }
 
+function tokenizeForSemanticScore(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9\u3040-\u30ff\u4e00-\u9faf]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+}
+
+function semanticCueScore(task: string, cues: string[]): number {
+  const tokens = tokenizeForSemanticScore(task);
+  if (tokens.length === 0) return 0;
+  const tokenSet = new Set(tokens);
+  let score = 0;
+  for (const cue of cues) {
+    const normalizedCue = cue.toLowerCase();
+    if (tokenSet.has(normalizedCue)) {
+      score += 1;
+      continue;
+    }
+    if (tokens.some((token) => token.includes(normalizedCue) || normalizedCue.includes(token))) {
+      score += 0.5;
+    }
+  }
+  return score;
+}
+
 export function selectReasoningStrategy(task: string): ReasoningStrategy {
   const normalized = task.toLowerCase();
+  const semanticScores = (Object.keys(STRATEGY_SEMANTIC_CUES) as ReasoningStrategy[])
+    .map((strategy) => ({
+      strategy,
+      score: semanticCueScore(normalized, STRATEGY_SEMANTIC_CUES[strategy])
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  if ((semanticScores[0]?.score ?? 0) >= 1) {
+    return semanticScores[0]!.strategy;
+  }
+
   if (/compare|trade-?off|alternative|選択肢|比較|複数案/.test(normalized)) {
     return "tree-of-thought";
   }
