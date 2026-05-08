@@ -40,6 +40,7 @@ interface BuildRegisterAllToolsDepsOptions {
   orchestrationJobRunner: OrchestrationJobRunner;
   policySnapshotManager: PolicySnapshotManager;
   saveSessionHistory: RegisterAllToolsDeps["saveSessionHistory"];
+  onSessionCompleted?: RegisterAllToolsDeps["onSessionCompleted"];
   root: string;
   agentLog: AgentMessage[];
   loadSystemEvents: (limit?: number, event?: string) => Promise<SystemEventRecord[]>;
@@ -222,6 +223,7 @@ export function buildRegisterAllToolsDeps(options: BuildRegisterAllToolsDepsOpti
     orchestrationJobRunner: options.orchestrationJobRunner,
     policySnapshotManager: options.policySnapshotManager,
     saveSessionHistory: options.saveSessionHistory,
+    ...(options.onSessionCompleted ? { onSessionCompleted: options.onSessionCompleted } : {}),
     root: options.root,
     agentLog: options.agentLog,
     loadSystemEvents: (limit?: number, event?: SystemEventName) => loadSystemEventsCompat(limit, event),

@@ -4,15 +4,19 @@
  */
 
 import { promises as fsPromises } from "fs";
-import { resolve } from "path";
+import { join, resolve } from "path";
 import { randomUUID } from "crypto";
 import { loadAllRewards } from "./reward-aggregator.js";
 import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
 
 export type AdoptionStage = "shadow" | "canary" | "stable" | "rolling-back" | "rolled-back";
 
+const OUTPUTS_DIR = process.env.SF_AI_OUTPUTS_DIR
+  ? resolve(process.env.SF_AI_OUTPUTS_DIR)
+  : resolve("outputs");
+
 const artifactWriter = new OutputsArtifactWriter({
-  outputsDir: process.env.SF_AI_OUTPUTS_DIR ? resolve(process.env.SF_AI_OUTPUTS_DIR) : resolve("outputs"),
+  outputsDir: OUTPUTS_DIR,
   databaseUrl: process.env.DATABASE_URL
 });
 
@@ -68,14 +72,14 @@ export interface StagedToolProposal {
   };
 }
 
-const STAGED_PROPOSALS_PATH = resolve("outputs", "learning", "staged-proposals.jsonl");
+const STAGED_PROPOSALS_PATH = join(OUTPUTS_DIR, "learning", "staged-proposals.jsonl");
 
 /**
  * Ensure outputs/learning directory exists
  */
 async function ensureLearningDir(): Promise<void> {
   try {
-    await fsPromises.mkdir(resolve("outputs", "learning"), { recursive: true });
+    await fsPromises.mkdir(join(OUTPUTS_DIR, "learning"), { recursive: true });
   } catch {
     // directory already exists
   }

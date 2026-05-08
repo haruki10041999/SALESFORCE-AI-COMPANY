@@ -31,12 +31,12 @@ interface ToolManifest {
 }
 
 test("Tool Manifest - file existence", async () => {
-  const manifestPath = join(ROOT, "docs", "internal", "tool-manifest.json");
+  const manifestPath = join(ROOT, "docs", "generated", "internal", "tool-manifest.json");
   assert.ok(existsSync(manifestPath), "tool-manifest.json should exist");
 });
 
 test("Tool Manifest - valid JSON structure", async () => {
-  const manifestPath = join(ROOT, "docs", "internal", "tool-manifest.json");
+  const manifestPath = join(ROOT, "docs", "generated", "internal", "tool-manifest.json");
   const content = readFileSync(manifestPath, "utf-8");
 
   let manifest: ToolManifest = { version: "", generatedAt: "", toolCount: 0, tools: [] };
@@ -54,7 +54,7 @@ test("Tool Manifest - valid JSON structure", async () => {
 });
 
 test("Tool Manifest - tool count matches", async () => {
-  const manifestPath = join(ROOT, "docs", "internal", "tool-manifest.json");
+  const manifestPath = join(ROOT, "docs", "generated", "internal", "tool-manifest.json");
   const content = readFileSync(manifestPath, "utf-8");
   const manifest: ToolManifest = JSON.parse(content);
 
@@ -66,7 +66,7 @@ test("Tool Manifest - tool count matches", async () => {
 });
 
 test("Tool Manifest - all tools have required fields", async () => {
-  const manifestPath = join(ROOT, "docs", "internal", "tool-manifest.json");
+  const manifestPath = join(ROOT, "docs", "generated", "internal", "tool-manifest.json");
   const content = readFileSync(manifestPath, "utf-8");
   const manifest: ToolManifest = JSON.parse(content);
 
@@ -81,7 +81,7 @@ test("Tool Manifest - all tools have required fields", async () => {
 });
 
 test("Tool Manifest - no duplicate tool names", async () => {
-  const manifestPath = join(ROOT, "docs", "internal", "tool-manifest.json");
+  const manifestPath = join(ROOT, "docs", "generated", "internal", "tool-manifest.json");
   const content = readFileSync(manifestPath, "utf-8");
   const manifest: ToolManifest = JSON.parse(content);
 
@@ -96,7 +96,7 @@ test("Tool Manifest - no duplicate tool names", async () => {
 });
 
 test("Tool Manifest - tool names are valid identifiers", async () => {
-  const manifestPath = join(ROOT, "docs", "internal", "tool-manifest.json");
+  const manifestPath = join(ROOT, "docs", "generated", "internal", "tool-manifest.json");
   const content = readFileSync(manifestPath, "utf-8");
   const manifest: ToolManifest = JSON.parse(content);
 
@@ -111,7 +111,7 @@ test("Tool Manifest - tool names are valid identifiers", async () => {
 });
 
 test("Tool Manifest - input schema keys are valid identifiers", async () => {
-  const manifestPath = join(ROOT, "docs", "internal", "tool-manifest.json");
+  const manifestPath = join(ROOT, "docs", "generated", "internal", "tool-manifest.json");
   const content = readFileSync(manifestPath, "utf-8");
   const manifest: ToolManifest = JSON.parse(content);
 
@@ -128,7 +128,7 @@ test("Tool Manifest - input schema keys are valid identifiers", async () => {
 });
 
 test("Tool Manifest - descriptions are not empty or placeholder", async () => {
-  const manifestPath = join(ROOT, "docs", "internal", "tool-manifest.json");
+  const manifestPath = join(ROOT, "docs", "generated", "internal", "tool-manifest.json");
   const content = readFileSync(manifestPath, "utf-8");
   const manifest: ToolManifest = JSON.parse(content);
 
@@ -146,7 +146,7 @@ test("Tool Manifest - descriptions are not empty or placeholder", async () => {
 });
 
 test("Tool Manifest - Markdown file exists and is readable", async () => {
-  const markdownPath = join(ROOT, "docs", "internal", "tool-manifest.md");
+  const markdownPath = join(ROOT, "docs", "generated", "internal", "tool-manifest.md");
   assert.ok(existsSync(markdownPath), "tool-manifest.md should exist");
 
   const content = readFileSync(markdownPath, "utf-8");
@@ -156,8 +156,8 @@ test("Tool Manifest - Markdown file exists and is readable", async () => {
 });
 
 test("Tool Manifest - Markdown table row count matches tool count", async () => {
-  const manifestPath = join(ROOT, "docs", "internal", "tool-manifest.json");
-  const markdownPath = join(ROOT, "docs", "internal", "tool-manifest.md");
+  const manifestPath = join(ROOT, "docs", "generated", "internal", "tool-manifest.json");
+  const markdownPath = join(ROOT, "docs", "generated", "internal", "tool-manifest.md");
 
   const manifestContent = readFileSync(manifestPath, "utf-8");
   const manifest: ToolManifest = JSON.parse(manifestContent);

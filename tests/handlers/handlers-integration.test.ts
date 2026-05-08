@@ -1,5 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const handlersTestOutputsDir = mkdtempSync(join(tmpdir(), "sf-ai-handlers-outputs-"));
+process.env.SF_AI_OUTPUTS_DIR = handlersTestOutputsDir;
+process.env.SF_AI_STATE_BACKEND = "sqlite";
+process.env.SF_AI_PROPOSAL_QUEUE_BACKEND = "file";
+process.env.DATABASE_URL = "";
+process.env.SF_AI_STATE_DB_PATH = join(handlersTestOutputsDir, "handlers-state.sqlite");
+process.env.SF_AI_ACTOR_TYPE = "system";
+process.env.SF_AI_ACTOR_ID = "test-runner";
+process.env.SF_AI_ROLE = "admin";
 
 const {
   clearOrchestrationSessionsForTest,

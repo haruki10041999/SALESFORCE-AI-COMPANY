@@ -140,7 +140,7 @@ function main(): number {
   const argv = process.argv.slice(2);
   const baselineRef = parseArg(argv, "--baseline-ref") ?? "origin/main";
   const baselinePathArg = parseArg(argv, "--baseline-path");
-  const currentPath = resolve(parseArg(argv, "--current") ?? join(ROOT, "docs", "internal", "tool-manifest.json"));
+  const currentPath = resolve(parseArg(argv, "--current") ?? join(ROOT, "docs", "generated", "internal", "tool-manifest.json"));
   const failOnBreaking = hasFlag(argv, "--fail-on-breaking");
 
   if (!existsSync(currentPath)) {
@@ -157,7 +157,7 @@ function main(): number {
       baseline = loadJson(resolve(baselinePathArg));
       baselineSource = "file";
     } else {
-      baseline = loadBaselineFromGit(baselineRef, "docs/internal/tool-manifest.json");
+      baseline = loadBaselineFromGit(baselineRef, "docs/generated/internal/tool-manifest.json");
       baselineSource = "git";
     }
   } catch (error) {

@@ -3,6 +3,8 @@
 このページは、開発変更の検証手順をまとめた技術向けドキュメントです。
 日常運用のチェックは `operations-guide.md` を参照してください。
 
+テストの担当範囲を確認したい場合は [test-file-responsibility-map.md](./test-file-responsibility-map.md) を参照してください。
+
 ## 標準検証フロー
 
 1. ビルド
@@ -201,7 +203,7 @@ node --import tsx --test tests/new-tools.test.ts
 - `CHANGELOG.md` 更新済み
 - 必要なドキュメント更新済み（設定・運用・機能仕様）
 - オーケストレーション変更時は `dequeue_next_agent` の `graphRecommendation` 契約を確認済み
-- 全機能の動作確認は [full-feature-verification.md](./full-feature-verification.md) を参照
+- 全機能の動作確認はこのガイド内の「変更タイプ別の追加検証」を参照
 
 ## 追加検証カテゴリ (2026-04 Phase 2-4)
 
@@ -281,4 +283,4 @@ npm run benchmark:run -- --output outputs/benchmark/local.json
 - `operations-guide.md`
 - `developer-guide.md`
 - `documentation-map.md`
-- `full-feature-verification.md`
+- `verification-guide.md`

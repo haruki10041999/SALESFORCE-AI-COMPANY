@@ -41,11 +41,11 @@ test("buildExecutionOriginRecord detects repo roots from repoPath and filePaths"
   }
 });
 
-test("appendExecutionOrigin writes JSONL record under outputs", () => {
+test("appendExecutionOrigin writes JSONL record under outputs", async () => {
   const fixture = createTempRoot("outputs-origin-write-");
   try {
     const outputsDir = join(fixture.root, "outputs");
-    appendExecutionOrigin(outputsDir, {
+    await appendExecutionOrigin(outputsDir, {
       timestamp: "2026-04-27T00:00:00.000Z",
       toolName: "chat",
       status: "success",

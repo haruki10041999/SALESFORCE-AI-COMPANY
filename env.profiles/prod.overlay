@@ -1,0 +1,13 @@
+# Prod overlay (apply on top of env.example)
+SF_AI_PROFILE=operations
+SF_AI_PROFILE_STRICT=true
+SF_AI_STATE_BACKEND=postgres
+SF_AI_PROPOSAL_QUEUE_BACKEND=pg-boss
+SF_AI_VECTOR_BACKEND=pgvector
+SF_AI_SECRET_BACKEND=vault
+# DATABASE_URL=postgres://sfai:REPLACE_WITH_SECRET@postgres.internal:5432/sfai_prod
+# SF_AI_VAULT_ADDR=http://vault.internal:8200
+# SF_AI_VAULT_AUTH_VALUE=replace-with-runtime-value
+SF_AI_LANGSMITH_ENABLED=true
+PROMETHEUS_METRICS_PORT=9464
+OTEL_ENABLED=true

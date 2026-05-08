@@ -25,12 +25,14 @@ loadDotenv({ path: resolve(fileURLToPath(import.meta.url), "../../.env.local"), 
 const DRY_RUN = process.argv.includes("--dry-run");
 const ROOT = resolve(fileURLToPath(import.meta.url), "../..");
 const SESSIONS_DIR = process.env.SF_AI_SESSIONS_DIR ?? join(ROOT, "outputs", "sessions");
-const DATABASE_URL = process.env.DATABASE_URL;
+const rawDatabaseUrl = process.env.DATABASE_URL?.trim();
 
-if (!DATABASE_URL) {
+if (!rawDatabaseUrl) {
   console.error("ERROR: DATABASE_URL is not set. Cannot connect to Postgres.");
   process.exit(1);
 }
+
+const DATABASE_URL: string = rawDatabaseUrl;
 
 async function main(): Promise<void> {
   console.log(`Sessions dir : ${SESSIONS_DIR}`);

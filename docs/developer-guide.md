@@ -123,7 +123,7 @@ npm test
 
 ### 推奨チェックポイント
 
-- 変更前後で `docs/internal/tool-manifest.json` の差分を確認し、意図しないスキーマ変化がないことを確認
+- 変更前後で `docs/generated/internal/tool-manifest.json` の差分を確認し、意図しないスキーマ変化がないことを確認
 - ハンドラー周辺の回帰確認として、少なくとも次を再実行
 	- `node --import tsx --test tests/handlers-modules.test.ts`
 	- `node --import tsx --test tests/core-tools.test.ts`
@@ -200,4 +200,4 @@ npm test
 - `catch (e) {}` の空 catch 禁止
 - 同じ例外を多層で重複ログしない（原則 1 回）
 - エラー文面は「何が失敗し、次に何を確認すべきか」を含める
-- 新規エラーコードを追加した場合は `docs/error-codes.md` へ追記
+- 新規エラーコードを追加した場合は `docs/generated/error-codes.md` を再生成して確認

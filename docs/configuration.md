@@ -56,18 +56,26 @@ LOG_LEVEL=debug SF_AI_DEBUG_VERBOSE_PROMPT=true npm run ai -- dev
 
 ## 推奨プロファイル
 
-用途別に、次のサンプルをベースに `.env` を作成できます。
+用途別に、`../env.example` + `../env.profiles/*.overlay` をベースに `.env` を作成できます。
 
-- ローカル開発向け: `../.env.local.sample`
-- 運用向け（可観測性重視）: `../.env.operations.sample`
+- 共通テンプレート: `../env.example`
+- ローカル開発向け overlay: `../env.profiles/dev.overlay`
+- 運用向け overlay: `../env.profiles/prod.overlay`
 
 例 (PowerShell):
 
 ```powershell
-Copy-Item .env.local.sample .env
+Copy-Item env.example .env
+Get-Content env.profiles/dev.overlay | Add-Content .env
 # または
-Copy-Item .env.operations.sample .env
+Copy-Item env.example .env
+Get-Content env.profiles/prod.overlay | Add-Content .env
 ```
+
+補足:
+
+- 旧 `../.env.sample` / `../.env.local.sample` / `../.env.operations.sample` は移行期間中の互換サンプルです
+- `SF_AI_ENV_VALIDATE=true`（既定）で起動時に env schema 検証を実施し、明らかな設定不備を fail-fast します
 
 ### profile固定 (T-26)
 
@@ -239,6 +247,8 @@ Copy-Item .env.operations.sample .env
 | `SF_AI_PROPOSAL_QUEUE_BACKEND` | proposal queue と cleanup schedule の永続化（`file` / `pg-boss`） | `file` |
 | `SF_AI_VECTOR_BACKEND` | ベクターストア（`tfidf` / `pgvector`） | `tfidf` |
 | `DATABASE_URL` | Postgres 接続文字列（`STATE_BACKEND=postgres` または `PROPOSAL_QUEUE_BACKEND=pg-boss` 時） | 未設定 |
+| `SF_AI_DB_URL_PRIMARY` | Postgres の primary 接続先。設定時は `DATABASE_URL` より優先して write/read の基準になる | 未設定 |
+| `SF_AI_DB_URL_REPLICA` | Postgres の replica 接続先。設定時は read 用コネクションとして利用（未設定時は primary を利用） | 未設定 |
 | `DATABASE_POOL_SIZE` | Postgres コネクションプール数 | `10` |
 | `DATABASE_POOL_IDLE_TIMEOUT_MS` | アイドル接続のタイムアウト（ミリ秒） | `30000` |
 | `CLEANUP_SCHEDULER_QUEUE` | pg-boss recurring job 用のキュー名 | `governance-auto-cleanup` |
@@ -251,6 +261,9 @@ Copy-Item .env.operations.sample .env
 | `EVENT_HISTORY_MAX` | EventDispatcher がメモリ上に保持するイベントの最大件数 | `1000` |
 | `TRACE_HISTORY_MAX` | メモリ上に保持する完了トレースの最大件数 | `500` |
 | `METRICS_SAMPLES_MAX` | メモリ上に保持するメトリクスサンプルの最大件数 | `2000` |
+| `OUTPUTS_BACKEND` | outputs 保存先 backend（`fs` / `s3`） | `fs` |
+| `SF_AI_OUTPUTS_S3_BASE_URL` | `OUTPUTS_BACKEND=s3` 時の保存先 base URL（prefix 含む） | 未設定 |
+| `SF_AI_OUTPUTS_S3_AUTH_HEADER` | `OUTPUTS_BACKEND=s3` 時の Authorization ヘッダ値（任意） | 未設定 |
 
 ## provenance / trace 保存
 

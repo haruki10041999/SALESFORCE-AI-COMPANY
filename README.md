@@ -56,6 +56,7 @@ npm run ai -- outputs:cleanup -- --dry-run
 - **[context/README.md](context/README.md)** — プロンプト構築・コンテキスト注入
 
 ### 📖 詳細ドキュメント
+- docs 入口（用途別ナビ）: [docs/README.md](docs/README.md)
 - 観測性/クリーンアップ運用: [docs/observability-cleanup-playbook.md](docs/observability-cleanup-playbook.md)
 
 ## 🏗️ システム構成

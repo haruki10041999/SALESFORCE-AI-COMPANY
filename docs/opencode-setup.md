@@ -323,11 +323,11 @@ npm run build
 - ビルド後の実行ファイル: [../dist/mcp/server.js](../dist/mcp/server.js)
 - Docker 自動起動ラッパー: [../scripts/start-mcp-with-docker.mjs](../scripts/start-mcp-with-docker.mjs)
 - VS Code ワークスペース設定: [../.vscode/mcp.json](../.vscode/mcp.json)
-- 検証手順: [full-feature-verification.md](./full-feature-verification.md)
+- 検証手順: [verification-guide.md](./verification-guide.md)
 
 ## 10. 関連ドキュメント
 
-- [full-feature-verification.md](./full-feature-verification.md)
+- [verification-guide.md](./verification-guide.md)
 - [configuration.md](./configuration.md)
 - [outputs-structure.md](./outputs-structure.md)
 - [learning-guide.md](./learning-guide.md)

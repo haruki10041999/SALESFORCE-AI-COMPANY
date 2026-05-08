@@ -67,6 +67,11 @@ interface RegisterChatOrchestrationToolsDeps extends RegisterGovToolDeps {
   /** T-07: Online policy snapshot for posterior-based reranking */
   policySnapshotManager?: PolicySnapshotManager;
   saveSessionHistory: (topic: string, entries: AgentMessage[]) => Promise<string>;
+  onSessionCompleted?: (input: {
+    sessionId: string;
+    topic: string;
+    history: AgentMessage[];
+  }) => Promise<{ entities: number; relations: number } | null>;
   outputsDir: string;
 }
 
@@ -86,6 +91,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     orchestrationJobRunner,
     policySnapshotManager,
     saveSessionHistory,
+    onSessionCompleted,
     outputsDir
   } = deps;
 
@@ -671,6 +677,13 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
         const savedHistoryId = session.history.length > 0
           ? await saveSessionHistory(session.topic, session.history)
           : null;
+        const knowledgeGraph = onSessionCompleted
+          ? await onSessionCompleted({
+            sessionId,
+            topic: session.topic,
+            history: session.history
+          })
+          : null;
 
         await emitSystemEvent("session_end", {
           sessionId,
@@ -680,7 +693,8 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
           firedRuleCount: session.firedRules.length,
           graphLearned: learned !== null,
           autoSavedSessionPath: savedSession?.filePath ?? null,
-          autoSavedHistoryId: savedHistoryId
+          autoSavedHistoryId: savedHistoryId,
+          knowledgeGraph
         });
       }
 

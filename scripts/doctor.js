@@ -66,6 +66,37 @@ function parsePortFromUrl(url, fallbackPort) {
   return fallbackPort;
 }
 
+function collectKnownEnvKeys() {
+  const candidates = [
+    join(ROOT, "env.example"),
+    join(ROOT, ".env.sample"),
+    join(ROOT, ".env.local.sample"),
+    join(ROOT, ".env.operations.sample"),
+    join(ROOT, "env.profiles", "dev.overlay"),
+    join(ROOT, "env.profiles", "prod.overlay")
+  ];
+
+  const keys = new Set();
+  const keyPattern = /^(?:\s*#\s*)?([A-Z][A-Z0-9_]+)\s*=/;
+
+  for (const filePath of candidates) {
+    if (!existsSync(filePath)) continue;
+    try {
+      const lines = readFileSync(filePath, "utf-8").split(/\r?\n/);
+      for (const line of lines) {
+        const match = line.match(keyPattern);
+        if (match) {
+          keys.add(match[1]);
+        }
+      }
+    } catch {
+      // ignore per-file parse errors
+    }
+  }
+
+  return keys;
+}
+
 async function checkTcpPort(host, port, timeoutMs = 2500) {
   await new Promise((resolvePromise, rejectPromise) => {
     const socket = net.createConnection({ host, port });
@@ -121,6 +152,25 @@ if (existsSync(envFile)) {
 }
 
 // ── 4. git hooks チェック ─────────────────────────────────────
+const knownEnvKeys = collectKnownEnvKeys();
+if (knownEnvKeys.size > 0) {
+  const suspiciousPrefixes = ["SF_AI_", "AI_", "OLLAMA_", "LANGSMITH_", "OTEL_", "PROMETHEUS_"];
+  const unknownKeys = Object.keys(process.env)
+    .filter((key) => suspiciousPrefixes.some((prefix) => key.startsWith(prefix)))
+    .filter((key) => !knownEnvKeys.has(key))
+    .sort();
+
+  if (unknownKeys.length > 0) {
+    warningCount += 1;
+    const preview = unknownKeys.slice(0, 8).join(", ");
+    const suffix = unknownKeys.length > 8 ? ` ... (+${unknownKeys.length - 8})` : "";
+    log("WARN", `未定義の可能性がある環境変数を検出: ${preview}${suffix}`);
+  } else {
+    log("OK", "既知の env テンプレートに基づく未定義キーは検出されませんでした。");
+  }
+}
+
+// ── 5. git hooks チェック ─────────────────────────────────────
 const preCommitHook = join(ROOT, ".git", "hooks", "pre-commit");
 if (existsSync(preCommitHook)) {
   const hookContent = readFileSync(preCommitHook, "utf-8");
@@ -135,7 +185,7 @@ if (existsSync(preCommitHook)) {
   log("WARN", "pre-commit フックが未導入です。npm run init または npm run hooks:install で導入できます。");
 }
 
-// ── 5. outputs/ 構造チェック ──────────────────────────────────
+// ── 6. outputs/ 構造チェック ──────────────────────────────────
 if (!existsSync(OUTPUTS_DIR)) {
   hasError = true;
   log("ERROR", "outputs ディレクトリが存在しません。npm run init を実行してください。");
@@ -217,7 +267,7 @@ if (existsSync(sessionDir)) {
   }
 }
 
-// ── 6. Ollama 疎通確認 (任意) ─────────────────────────────────
+// ── 7. Ollama 疎通確認 (任意) ─────────────────────────────────
 const dockerVersion = spawnSync("docker", ["--version"], { encoding: "utf-8" });
 if ((dockerVersion.status ?? 1) === 0) {
   log("OK", `Docker CLI 検出: ${(dockerVersion.stdout || dockerVersion.stderr).trim()}`);

@@ -1,0 +1,44 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: sf-ai-drift-guard
+  labels:
+    app.kubernetes.io/name: sf-ai-mcp
+    app.kubernetes.io/component: rollout-analysis
+spec:
+  args:
+    - name: maxDriftScore
+      value: "0.15"
+  metrics:
+    - name: drift-score
+      interval: 1m
+      count: 3
+      successCondition: result <= args.maxDriftScore
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            max(sf_ai_drift_score{service="sf-ai-mcp"})
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: sf-ai-smoke-check
+  labels:
+    app.kubernetes.io/name: sf-ai-mcp
+    app.kubernetes.io/component: rollout-analysis
+spec:
+  metrics:
+    - name: success-rate
+      interval: 1m
+      count: 3
+      successCondition: result >= 0.98
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            sum(rate(http_requests_total{service="sf-ai-mcp",code!~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{service="sf-ai-mcp"}[5m]))

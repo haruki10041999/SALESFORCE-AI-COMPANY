@@ -58,7 +58,8 @@ test("observability runtime serves prometheus metrics endpoint", async () => {
   try {
     const healthRes = await fetch(`http://127.0.0.1:${port}/healthz`);
     assert.equal(healthRes.status, 200);
-    assert.equal((await healthRes.text()).trim(), "ok");
+    const healthPayload = JSON.parse(await healthRes.text()) as { status: string };
+    assert.equal(healthPayload.status, "ok");
 
     await waitForPrometheusMetric("sfai_tool_executions_total");
 

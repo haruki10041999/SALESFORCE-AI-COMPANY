@@ -22,7 +22,8 @@ export class OutputsArtifactWriter {
     "exports/",
     "recordings/",
     "backups/",
-    "setup/"
+    "setup/",
+    "learning/"
   ];
 
   public constructor(options: OutputsArtifactWriterOptions) {

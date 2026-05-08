@@ -1,0 +1,52 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: sf-ai-mcp-bluegreen
+  labels:
+    app.kubernetes.io/name: sf-ai-mcp
+    app.kubernetes.io/component: rollout
+spec:
+  replicas: 3
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: sf-ai-mcp
+  template:
+    metadata:
+      labels:
+        app: sf-ai-mcp
+        track: bluegreen
+    spec:
+      containers:
+        - name: mcp-server
+          image: ghcr.io/example/sf-ai-mcp:latest
+          ports:
+            - containerPort: 3001
+          env:
+            - name: SF_AI_ROLLOUT_MODE
+              value: blue-green
+            - name: SF_AI_DB_URL_PRIMARY
+              value: postgres://sfai:$(DB_PASSWORD)@sf-ai-postgres-primary:5432/sfai
+            - name: SF_AI_DB_URL_REPLICA
+              value: postgres://sfai:$(DB_PASSWORD)@sf-ai-postgres-replica:5432/sfai
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sf-ai-db-secret
+                  key: password
+  strategy:
+    blueGreen:
+      activeService: sf-ai-mcp-active
+      previewService: sf-ai-mcp-preview
+      autoPromotionEnabled: false
+      previewReplicaCount: 1
+      scaleDownDelaySeconds: 120
+      prePromotionAnalysis:
+        templates:
+          - templateName: sf-ai-drift-guard
+        args:
+          - name: maxDriftScore
+            value: "0.15"
+      postPromotionAnalysis:
+        templates:
+          - templateName: sf-ai-smoke-check

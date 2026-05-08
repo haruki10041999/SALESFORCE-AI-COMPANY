@@ -41,6 +41,9 @@ jobs:
       - name: Lint outputs schema
         run: npm run lint:outputs
 
+      - name: Lint docs source-of-truth
+        run: npm run lint:docs
+
       - name: Selective test run
         if: matrix.os == 'ubuntu-latest'
         run: npm run test:selective -- --base origin/main --head HEAD
@@ -64,7 +67,7 @@ jobs:
       - name: Verify tool manifest integrity
         if: matrix.os == 'ubuntu-latest'
         run: |
-          if ! node -e "JSON.parse(require('fs').readFileSync('docs/internal/tool-manifest.json', 'utf-8'))" 2>/dev/null; then
+          if ! node -e "JSON.parse(require('fs').readFileSync('docs/generated/internal/tool-manifest.json', 'utf-8'))" 2>/dev/null; then
             echo "❌ tool-manifest.json is invalid JSON"
             exit 1
           fi

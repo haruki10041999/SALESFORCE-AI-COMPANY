@@ -1,44 +1,55 @@
 # ドキュメント索引
 
-## まず読む 5 つ (最短経路)
+## まずここから
 
-1. [README.md](../README.md) — プロジェクト全体像と起動方法
-2. **主要領域の README**（実装詳細を知りたい人向け）:
-   - [mcp/README.md](../mcp/README.md) — MCP サーバーアーキテクチャ
-   - [agents/README.md](../agents/README.md) — エージェント（17個）一覧
-   - [skills/README.md](../skills/README.md) — スキル（知識体系）
-   - [personas/README.md](../personas/README.md) — ペルソナ（応答スタイル）
-   - [context/README.md](../context/README.md) — プロンプト構築・注入
-3. 用途別エントリ:
-   - 非エンジニア向けに把握したい → [non-engineer-glossary.md](./non-engineer-glossary.md)
-   - 運用したい → [operations-guide.md](./operations-guide.md)
-   - 開発したい → [developer-guide.md](./developer-guide.md)
-4. [configuration.md](./configuration.md) — 環境変数・設定キー一覧
+- docs 入口ページ: [README.md](./README.md)
+- 全体像と起動方法: [README.md](../README.md)
+- 設定キー一覧: [configuration.md](./configuration.md)
 
-> 上記で日常作業はカバーできます。以下は必要に応じて参照してください。
+## 初級者向け（最短導線）
 
-## 詳細リファレンス
+- 用語を先に把握する: [non-engineer-glossary.md](./non-engineer-glossary.md)
+- 開発の入口を確認する: [developer-guide.md](./developer-guide.md)
+- 日常運用の流れを確認する: [operations-guide.md](./operations-guide.md)
+- 検証の基本手順を確認する: [verification-guide.md](./verification-guide.md)
+- 出力先の見方を確認する: [outputs-structure.md](./outputs-structure.md)
 
-- 出力構成: [outputs-structure.md](./outputs-structure.md)
-- 学習の仕組み: [learning-guide.md](./learning-guide.md)
-- 学習メトリクス自動更新 / ドリフト検知 (Task 8):
-   - 運用手順: [operations-guide.md](./operations-guide.md)
-   - 機能仕様: [features/11-metrics-benchmarks.md](./features/11-metrics-benchmarks.md)
-   - 学習観点の説明: [learning-guide.md](./learning-guide.md)
-- 指標評価: [metrics-evaluation.md](./metrics-evaluation.md)
-- 検証手順: [verification-guide.md](./verification-guide.md)
-- tenant 移行運用手順: [tenant-migration-runbook.md](./tenant-migration-runbook.md)
-- 改修・拡張仕様書: [mcp-server-improvement-spec.md](./mcp-server-improvement-spec.md)
-- タスク別修正方針・影響範囲: [task-impact-map.md](./task-impact-map.md)
+## 運用者向け
+
+- 日次/週次運用: [operations-guide.md](./operations-guide.md)
+- SLO 運用基準: [sla-slo.md](./sla-slo.md)
+- DR フェイルオーバー: [dr-failover.md](./dr-failover.md)
+- tenant 移行手順: [tenant-migration-runbook.md](./tenant-migration-runbook.md)
+- 観測性とクリーンアップ方針: [observability-cleanup-playbook.md](./observability-cleanup-playbook.md)
+- 指標評価の運用基準: [metrics-evaluation.md](./metrics-evaluation.md)
+- 指標定義（計算式）: [metrics-indicators-reference.md](./metrics-indicators-reference.md)
+
+## 深掘り設計・実装向け
+
+- 設計要約: [architecture.md](./architecture.md)
+- 詳細 UML: [system-architecture-with-uml.md](./system-architecture-with-uml.md)
+- プロンプト/リソース選択ロジック: [prompt-resource-logic.md](./prompt-resource-logic.md)
+- 学習ロジック全体: [learning-guide.md](./learning-guide.md)
 - リソース一覧: [resource-inventory.md](./resource-inventory.md)
+- テスト責務マップ: [test-file-responsibility-map.md](./test-file-responsibility-map.md)
+- プラグイン開発: [plugin-development.md](./plugin-development.md)
 - OpenCode セットアップ: [opencode-setup.md](./opencode-setup.md)
 - Ollama セットアップ: [ollama-setup.md](./ollama-setup.md)
-- WSL + Docker Engine 運用 (Docker Desktop なし): [wsl-docker-engine-setup.md](./wsl-docker-engine-setup.md)
-- 削除したスクリプト: [deprecated-scripts.md](./deprecated-scripts.md)
+- WSL + Docker Engine 運用: [wsl-docker-engine-setup.md](./wsl-docker-engine-setup.md)
+
+## 主要領域 README
+
+- MCP サーバーアーキテクチャ: [mcp/README.md](../mcp/README.md)
+- エージェント一覧: [agents/README.md](../agents/README.md)
+- スキル体系: [skills/README.md](../skills/README.md)
+- ペルソナ一覧: [personas/README.md](../personas/README.md)
+- コンテキスト定義: [context/README.md](../context/README.md)
+
+## 補助資料
+
 - 変更履歴: [CHANGELOG.md](./CHANGELOG.md)
-- Declarative tool 例 (JSON):
-  - compose-prompt 型: [examples/declarative-tool.compose-prompt.example.json](./examples/declarative-tool.compose-prompt.example.json)
-  - static-text 型: [examples/declarative-tool.static-text.example.json](./examples/declarative-tool.static-text.example.json)
+- Declarative tool 例（compose-prompt）: [examples/declarative-tool.compose-prompt.example.json](./examples/declarative-tool.compose-prompt.example.json)
+- Declarative tool 例（static-text）: [examples/declarative-tool.static-text.example.json](./examples/declarative-tool.static-text.example.json)
 
 ## 機能別仕様 (docs/features)
 
@@ -56,10 +67,20 @@
 | 10 | [イベント自動化](./features/10-event-automation.md) |
 | 11 | [メトリクス/ベンチマーク](./features/11-metrics-benchmarks.md) |
 
-## 内部ドキュメント (docs/internal)
+## 生成ドキュメント (docs/generated)
 
-運用に必要な内部資料は次の 3 つに整理しています。
+CLI で再生成されるドキュメントは次を参照してください。
 
-- [internal/tool-manifest.md](./internal/tool-manifest.md) — ツール仕様の人間可読版
-- [internal/tool-manifest.json](./internal/tool-manifest.json) — ツール仕様の機械可読版
-- [internal/test-matrix.md](./internal/test-matrix.md) — ツールとテストの対応表
+- [generated/features/tools-reference.md](./generated/features/tools-reference.md) — ツール一覧の自動生成版
+- [generated/error-codes.md](./generated/error-codes.md) — エラーコード表の自動生成版
+- [generated/internal/tool-manifest.md](./generated/internal/tool-manifest.md) — ツール仕様の人間可読版
+- [generated/internal/tool-manifest.json](./generated/internal/tool-manifest.json) — ツール仕様の機械可読版
+
+## 手書きドキュメント運用 (docs/handwritten)
+
+- [handwritten/README.md](./handwritten/README.md) — docs Source-of-Truth の運用ポリシー
+
+補足:
+
+- 既存の `docs/*.md` は段階移行期間中の互換配置です
+- 新規手書きドキュメントは `docs/handwritten/` を優先してください

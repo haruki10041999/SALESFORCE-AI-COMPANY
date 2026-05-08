@@ -166,7 +166,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
 
   function recordExecutionOrigin(toolName: string, input: unknown, status: "success" | "error"): void {
     try {
-      appendExecutionOrigin(outputsDir, buildExecutionOriginRecord(toolName, input, status, serverRoot));
+      void appendExecutionOrigin(outputsDir, buildExecutionOriginRecord(toolName, input, status, serverRoot));
     } catch {
       // provenance 記録失敗はツール実行を阻害しない
     }

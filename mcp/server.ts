@@ -5,10 +5,12 @@ import "./env-loader.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { join } from "path";
 import { AppError } from "./core/errors/messages.js";
-import { initializeServerRuntime as initializeServerRuntimeModule } from "./bootstrap.js";
-import { registerServerTools } from "./tool-registry.js";
-import { startMcpTransport } from "./transport.js";
-import { runWithLifecycle } from "./lifecycle.js";
+import {
+  initializeServerRuntime as initializeServerRuntimeModule,
+  registerServerTools,
+  startMcpTransport,
+  runWithLifecycle
+} from "./surface/index.js";
 
 // ============================================================
 // Core Modules
@@ -49,6 +51,7 @@ import {
   searchFailureMemory,
   listFailureMemory
 } from "../memory/failure-memory.js";
+import { ingestKnowledgeSummary } from "../memory/knowledge-graph.js";
 import { addRecord, searchByKeyword, searchByKeywordAsync } from "../memory/vector-store.js";
 import { buildPrompt } from "../prompt-engine/prompt-builder.js";
 import { evaluatePromptMetrics } from "../prompt-engine/prompt-evaluator.js";
@@ -480,6 +483,23 @@ registerServerTools({
     orchestrationJobRunner,
     policySnapshotManager,
     saveSessionHistory,
+    onSessionCompleted: async ({ sessionId, topic, history }) => {
+      if (!history || history.length === 0) {
+        return null;
+      }
+
+      const lines = [
+        `session: ${sessionId}`,
+        `topic: ${topic}`,
+        ...history.slice(-30).map((entry) => `${entry.agent}: ${entry.message}`)
+      ];
+
+      const result = ingestKnowledgeSummary(lines.join("\n"));
+      return {
+        entities: result.entities.length,
+        relations: result.relations.length
+      };
+    },
     root: ROOT,
     agentLog,
     loadSystemEvents: loadSystemEventsCompat,

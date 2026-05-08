@@ -25,6 +25,7 @@ export function registerChatDomain(deps: Deps): void {
     orchestrationJobRunner,
     policySnapshotManager,
     saveSessionHistory,
+    onSessionCompleted,
     root,
     createPreset,
     listPresetsData,
@@ -52,6 +53,7 @@ export function registerChatDomain(deps: Deps): void {
     orchestrationJobRunner,
     policySnapshotManager,
     saveSessionHistory,
+    onSessionCompleted,
     outputsDir: join(root, "outputs")
   });
 

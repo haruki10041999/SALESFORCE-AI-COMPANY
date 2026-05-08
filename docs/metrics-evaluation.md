@@ -2,6 +2,10 @@
 
 このドキュメントは、メトリクスの算出方法と評価基準を定義します。
 
+詳細な指標定義（概要・計算方法・SQL 例）は次を参照してください。
+
+- [metrics-indicators-reference.md](./metrics-indicators-reference.md)
+
 ## 1. 共通前提
 
 - 入力データ: Postgres `metrics_samples`（fallback: `outputs/events/metrics-samples.jsonl`）

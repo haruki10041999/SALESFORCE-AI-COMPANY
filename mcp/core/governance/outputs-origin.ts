@@ -123,16 +123,16 @@ export function buildExecutionOriginRecord(
   };
 }
 
-export function appendExecutionOrigin(outputsDir: string, record: ExecutionOriginRecord): void {
+export async function appendExecutionOrigin(outputsDir: string, record: ExecutionOriginRecord): Promise<void> {
   if (shouldUseDatabaseExecutionOrigins(outputsDir)) {
-    void artifactWriter.appendExecutionOrigin(record).catch(() => {
+    await artifactWriter.appendExecutionOrigin(record).catch(() => {
       // provenance 記録失敗はツール実行を阻害しない
     });
     return;
   }
 
   const fileWriter = new OutputsArtifactWriter({ outputsDir });
-  void fileWriter.appendExecutionOrigin(record).catch(() => {
+  await fileWriter.appendExecutionOrigin(record).catch(() => {
     // provenance 記録失敗はツール実行を阻害しない
   });
 }

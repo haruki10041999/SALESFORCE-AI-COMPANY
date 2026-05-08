@@ -227,7 +227,7 @@ flowchart LR
 - [`mcp/core/declarative/tool-spec.ts`](../mcp/core/declarative/tool-spec.ts) — zod スキーマと legacy 互換変換
 - [`mcp/core/declarative/loader.ts`](../mcp/core/declarative/loader.ts) — custom-tools 定義の動的ロード
 - [`mcp/core/declarative/frontmatter.ts`](../mcp/core/declarative/frontmatter.ts) — agents/personas/skills 用 (opt-in)
-- [`mcp/core/resource/proposal-applier.ts`](../mcp/core/resource/proposal-applier.ts) — 提案を新スキーマで物理書き込み
+- [`mcp/core/resource/proposal/applier.ts`](../mcp/core/resource/proposal/applier.ts) — 提案を新スキーマで物理書き込み
 - [`scripts/lint-outputs.ts`](../scripts/lint-outputs.ts) — custom-tools JSON の DeclarativeToolSpec 検証
 - 例示ファイル: [`docs/examples/declarative-tool.compose-prompt.example.json`](./examples/declarative-tool.compose-prompt.example.json) / [`docs/examples/declarative-tool.static-text.example.json`](./examples/declarative-tool.static-text.example.json)
 

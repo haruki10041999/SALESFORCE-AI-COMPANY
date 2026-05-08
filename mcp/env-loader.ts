@@ -16,6 +16,7 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyRuntimeProfile } from "./core/config/runtime-profile.js";
+import { validateEnvironment } from "./env-schema.js";
 import { hydrateEnvFromSecrets } from "./core/security/secrets.js";
 
 function findUpwards(startDir: string, target: string, maxDepth = 6): string | undefined {
@@ -116,3 +117,8 @@ if ((process.env.SF_AI_DOTENV_DISABLE ?? "").toLowerCase() !== "1") {
 }
 
 await hydrateSecretsIntoEnv();
+
+const shouldValidateEnv = (process.env.SF_AI_ENV_VALIDATE ?? "true").toLowerCase() !== "false";
+if (shouldValidateEnv) {
+  validateEnvironment(process.env);
+}

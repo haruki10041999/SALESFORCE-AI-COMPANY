@@ -17,7 +17,7 @@ import {
   getAdoptionSummary
 } from "../mcp/core/learning/staged-adoption.js";
 
-const testDir = path.resolve("outputs", "learning");
+const testDir = path.resolve(process.env.SF_AI_OUTPUTS_DIR ?? "outputs", "learning");
 
 async function setupTest(): Promise<void> {
   try {

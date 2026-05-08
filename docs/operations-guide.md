@@ -113,6 +113,7 @@ docker compose down
 補足:
 
 - Docker 構成の詳細は `ollama-setup.md` を参照
+- DR 手順は `dr-failover.md` を参照
 - Prometheus は `host.docker.internal:9464/metrics` を scrape する構成
 - `npm run ai -- dev` は stdio 接続が切れるとプロセス終了するため、`/metrics` は MCP クライアント接続中のみ利用可能
 - 複数リポジトリで同時運用する場合は `PROMETHEUS_METRICS_PORT` と `OTEL_SERVICE_NAME` を分離する
@@ -218,6 +219,41 @@ npm run ai -- observability:dashboard -- --trace-limit 200 --event-limit 1000
 
 ```bash
 npm run ai -- outputs:cleanup -- --dry-run
+
+## Blue/Green / Canary 運用 (T-32)
+
+Kubernetes 上で段階リリースする場合は、以下のテンプレートを利用します。
+
+- Canary: `infra/k8s/rollouts/canary.yaml`
+- Blue/Green: `infra/k8s/rollouts/blue-green.yaml`
+- AnalysisTemplate: `infra/k8s/rollouts/analysis-templates.yaml`
+
+適用順序:
+
+1. `analysis-templates.yaml` を先に apply する
+2. `canary.yaml` または `blue-green.yaml` を apply する
+
+drift 連動 rollback:
+
+- `sf-ai-drift-guard` は `sf_ai_drift_score` を監視し、`maxDriftScore` を超過すると analysis が fail します
+- Argo Rollouts は failed analysis を検知すると rollout を中断し、安定版へ rollback します
+- しきい値は rollout 側の `maxDriftScore` 引数で調整します（既定 `0.15`）
+
+推奨手順:
+
+1. Canary 5% で開始し、drift 指標がしきい値未満であることを確認
+2. 25% → 50% → 100% へ段階昇格
+3. 問題がある場合は Argo Rollouts で即時 rollback
+
+リリースノート生成:
+
+```bash
+npm run release:notes -- --base origin/main --head HEAD
+```
+
+生成先:
+
+- `outputs/reports/release-notes.md`
 ```
 
 分類別 retention ルールで確認する場合:

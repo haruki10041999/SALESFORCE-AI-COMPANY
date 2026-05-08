@@ -7,7 +7,7 @@ import { relations } from "drizzle-orm";
  */
 
 export const memoryDocumentsTable = pgTable("memory_documents", {
-  id: bigserial("id").primaryKey(),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   externalId: text("external_id").notNull().unique(),
   tenant_id: text("tenant_id").notNull().default("default"),
   title: text("title").notNull(),
@@ -19,8 +19,8 @@ export const memoryDocumentsTable = pgTable("memory_documents", {
 });
 
 export const memorySectionsTable = pgTable("memory_sections", {
-  id: bigserial("id").primaryKey(),
-  documentId: bigserial("document_id")
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  documentId: bigserial("document_id", { mode: "number" })
     .notNull()
     .references(() => memoryDocumentsTable.id, { onDelete: "cascade" }),
   sectionIndex: integer("section_index").notNull(),
@@ -33,8 +33,8 @@ export const memorySectionsTable = pgTable("memory_sections", {
 });
 
 export const memoryChunksTable = pgTable("memory_chunks", {
-  id: bigserial("id").primaryKey(),
-  sectionId: bigserial("section_id")
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  sectionId: bigserial("section_id", { mode: "number" })
     .notNull()
     .references(() => memorySectionsTable.id, { onDelete: "cascade" }),
   chunkIndex: integer("chunk_index").notNull(),

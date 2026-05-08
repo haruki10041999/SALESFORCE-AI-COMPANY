@@ -1,7 +1,7 @@
 # SLA / SLO + Error Budget ガイド
 
 **更新日**: 2026-05-08  
-**参照**: [T-34: SLA / SLO + Error Budget](docs/internal/persistent-runtime-task-list.md#t-34-sla--slo--error-budget)
+**参照**: [T-34: SLA / SLO + Error Budget](./internal/persistent-runtime-task-list.md#t-34-sla--slo--error-budget)
 
 ## 概要
 
@@ -204,7 +204,7 @@ labels:
 
 ```typescript
 export const sloBurn = pgTable('slo_burn', {
-  id: bigserial('id').primaryKey(),
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
   ts: timestamp('ts').defaultNow().notNull(),
   sloId: text('slo_id').notNull(),  // 'success_rate' | 'latency_p95' | 'cost_per_chat'
   sloTarget: real('slo_target').notNull(),  // 0.995, 1000, 0.5
@@ -213,7 +213,7 @@ export const sloBurn = pgTable('slo_burn', {
   burnRate: real('burn_rate').notNull(),
   budgetRemainingSec: integer('budget_remaining_sec').notNull(),
   window: text('window').notNull(),  // '5m' | '1h' | '1d' | '30d'
-  alertFired: boolean('alert_fired').defaultValue(false)
+  alertFired: boolean('alert_fired').default(false)
 });
 ```
 

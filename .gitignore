@@ -7,5 +7,6 @@ drizzle/
 *.log
 outputs/
 docs/internal/
+docs/generated/
 .mcp.json
 package-lock.json

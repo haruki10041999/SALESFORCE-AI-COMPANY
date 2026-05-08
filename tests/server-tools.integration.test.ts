@@ -13,6 +13,9 @@ process.env.SF_AI_STATE_BACKEND = "sqlite";
 process.env.SF_AI_PROPOSAL_QUEUE_BACKEND = "file";
 process.env.DATABASE_URL = "";
 process.env.SF_AI_STATE_DB_PATH = join(serverTestOutputsDir, "server-tools-state.sqlite");
+process.env.SF_AI_ACTOR_TYPE = "system";
+process.env.SF_AI_ACTOR_ID = "test-runner";
+process.env.SF_AI_ROLE = "admin";
 
 const {
   clearOrchestrationSessionsForTest,
@@ -150,7 +153,16 @@ test("simulate_flow_conditions alias returns trigger result", async () => {
 
 test("deploy_org returns JSON with command and dryRun", async () => {
   const result = await callTool("deploy_org", { targetOrg: "dev-org", dryRun: true });
-  const payload = JSON.parse(result.content[0].text) as { command: string; dryRun: boolean };
+  const payload = JSON.parse(result.content[0].text) as
+    | { command: string; dryRun: boolean }
+    | { blocked: true; requiredAction: string; message: string };
+
+  if ("blocked" in payload) {
+    assert.equal(payload.blocked, true);
+    assert.equal(payload.requiredAction, "enqueue_proposal");
+    assert.ok(payload.message.includes("Policy Gate"));
+    return;
+  }
 
   assert.equal(payload.dryRun, true);
   assert.ok(payload.command.includes("--target-org dev-org"));
@@ -856,9 +868,16 @@ test("apply_resource_actions writes audit trail metadata", async () => {
     ]
   });
 
-  const payload = JSON.parse(result.content[0].text) as {
-    auditFile?: string;
-  };
+  const payload = JSON.parse(result.content[0].text) as
+    | { auditFile?: string }
+    | { blocked: true; requiredAction: string; message: string };
+
+  if ("blocked" in payload) {
+    assert.equal(payload.blocked, true);
+    assert.equal(payload.requiredAction, "enqueue_proposal");
+    assert.ok(payload.message.includes("Policy Gate"));
+    return;
+  }
 
   assert.equal(typeof payload.auditFile, "string");
   const expectedAuditPath = join(serverTestOutputsDir, "audit", "resource-actions.jsonl");

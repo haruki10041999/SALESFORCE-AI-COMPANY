@@ -63,6 +63,11 @@ interface RegisterAllToolsDeps {
   orchestrationJobRunner: OrchestrationJobRunner;
   policySnapshotManager: PolicySnapshotManager;
   saveSessionHistory: (topic: string, entries: AgentMessage[]) => Promise<string>;
+  onSessionCompleted?: (input: {
+    sessionId: string;
+    topic: string;
+    history: AgentMessage[];
+  }) => Promise<{ entities: number; relations: number } | null>;
   root: string;
   agentLog: AgentMessage[];
   loadSystemEvents: (limit?: number, event?: SystemEventName) => Promise<SystemEventRecord[]>;

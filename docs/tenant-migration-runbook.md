@@ -122,5 +122,6 @@ Copy-Item backups/state-pre-tenant-migration-YYYYMMDD-HHMMSS.sqlite outputs/stat
 ## 関連
 
 - operations-guide.md
-- data-persistence-guide.md
+- outputs-structure.md
+- configuration.md
 - scripts/migrate-tenant-scope.ts

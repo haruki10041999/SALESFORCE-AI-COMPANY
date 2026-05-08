@@ -39,6 +39,7 @@ import {
   updateAgentReputation
 } from "../core/learning/agent-reputation.js";
 import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
+import { listKnowledgeEntities, listKnowledgeRelations } from "../../memory/knowledge-graph.js";
 
 interface RegisterAnalyticsToolsDeps extends RegisterGovToolDeps {
   agentLog: AgentMessage[];
@@ -182,6 +183,20 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
     return [...duplicates].sort();
   }
 
+  function escapeMermaidId(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "node";
+  }
+
+  function trimForNodeLabel(value: string, max = 48): string {
+    if (value.length <= max) {
+      return value;
+    }
+    return `${value.slice(0, max - 3)}...`;
+  }
+
   async function loadPricingBudgets(): Promise<{
     currency: string;
     dailyLimit: number;
@@ -251,6 +266,93 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
 
     return recommendations.sort((a, b) => b.confidence - a.confidence || b.support - a.support);
   }
+
+  govTool(
+    "knowledge_graph_dashboard",
+    {
+      title: "Knowledge Graph ダッシュボード",
+      description: "Knowledge Graph の要約と Mermaid 可視化を返します。",
+      inputSchema: {
+        limitEntities: z.number().int().min(1).max(200).optional(),
+        limitRelations: z.number().int().min(1).max(400).optional(),
+        write: z.boolean().optional()
+      }
+    },
+    async ({ limitEntities, limitRelations, write }: {
+      limitEntities?: number;
+      limitRelations?: number;
+      write?: boolean;
+    }) => {
+      const entityLimit = limitEntities ?? 60;
+      const relationLimit = limitRelations ?? 120;
+
+      const entities = listKnowledgeEntities().slice(0, entityLimit);
+      const relations = listKnowledgeRelations().slice(0, relationLimit);
+      const entityMap = new Map(entities.map((entity) => [entity.id, entity]));
+
+      const mermaidLines = ["graph LR"];
+      for (const entity of entities) {
+        const nodeId = `n_${escapeMermaidId(entity.id)}`;
+        const label = `${trimForNodeLabel(entity.name)} (${entity.type})`;
+        mermaidLines.push(`  ${nodeId}[\"${label}\"]`);
+      }
+
+      for (const relation of relations) {
+        if (!entityMap.has(relation.srcId) || !entityMap.has(relation.dstId)) {
+          continue;
+        }
+        const srcId = `n_${escapeMermaidId(relation.srcId)}`;
+        const dstId = `n_${escapeMermaidId(relation.dstId)}`;
+        const edgeLabel = trimForNodeLabel(`${relation.relationType} (${relation.weight})`, 36);
+        mermaidLines.push(`  ${srcId} -- \"${edgeLabel}\" --> ${dstId}`);
+      }
+
+      const topEntities = entities
+        .slice(0, 10)
+        .map((entity) => `- ${entity.name} [${entity.type}]`)
+        .join("\n");
+      const markdown = [
+        "# Knowledge Graph Dashboard",
+        "",
+        `- Entities: ${entities.length}`,
+        `- Relations: ${relations.length}`,
+        "",
+        "## Top Entities",
+        topEntities || "- (none)",
+        "",
+        "## Mermaid",
+        "```mermaid",
+        ...mermaidLines,
+        "```",
+        ""
+      ].join("\n");
+
+      let outputPath: string | null = null;
+      if (write ?? false) {
+        outputPath = "dashboards/knowledge-graph.md";
+        await artifactWriter.writeText(outputPath, markdown);
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                entities: entities.length,
+                relations: relations.length,
+                outputPath,
+                markdown,
+                mermaid: mermaidLines.join("\n")
+              },
+              null,
+              2
+            )
+          }
+        ]
+      };
+    }
+  );
 
   govTool(
     "agent_ab_test",

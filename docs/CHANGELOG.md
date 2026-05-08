@@ -10,7 +10,7 @@
 **Persistence Backend Switchers** — Development から Production へのスケール対応
 - `SF_AI_STATE_BACKEND`: `sqlite` | `postgres` による state/governance 永続化先切り替え ([`mcp/core/persistence/`](../mcp/core/persistence/))
 - `SF_AI_PROPOSAL_QUEUE_BACKEND`: `file` | `pg-boss` による proposal queue と cleanup schedule 切り替え ([`mcp/core/resource/proposal/`](../mcp/core/resource/proposal/))
-- `SF_AI_VECTOR_BACKEND`: `tfidf` | `pgvector` による vector store 切り替え ([`memory/vector-store-adapters.ts`](../memory/vector-store-adapters.ts))
+- `SF_AI_VECTOR_BACKEND`: `tfidf` | `pgvector` による vector store 切り替え ([`memory/vector-store-adapter.ts`](../memory/vector-store-adapter.ts))
 - Database connection pooling: `DATABASE_POOL_SIZE`, `DATABASE_POOL_IDLE_TIMEOUT_MS`, `PG_VECTOR_POOL_SIZE` で動的調整可能
 - 既存 JSONL/file-based 実装から段階的移行の許容、バックエンド並行運用を許容
 
@@ -22,7 +22,7 @@
 - cleanup 監査ログは `CLEANUP_SCHEDULER_QUEUE="governance-auto-cleanup"` で一元管理
 
 **PGVector Integration** — 大規模ベクター検索
-- [`memory/pgvector-adapter.ts`](../memory/pgvector-adapter.ts): `@pgvector/client` ベースの vector store adapter
+- [`memory/adapters/pgvector-vector-store.ts`](../memory/adapters/pgvector-vector-store.ts): `@pgvector/client` ベースの vector store adapter
 - `VECTOR_BACKEND=pgvector` で自動選択、既存 tfidf API との互換性維持
 - pgvector index 自動生成、similarity search / cosine / inner product 対応
 - 検索性能: HNSW index により大規模データセットで L2 norm ~100ms
@@ -53,7 +53,7 @@
 **Test Coverage** — Phase 7-9 回帰
 - [`tests/pg-boss-proposal-queue.test.ts`](../tests/pg-boss-proposal-queue.test.ts): pg-boss queue CRUD / recurring job 7件
 - [`tests/handlers/handlers-integration.test.ts`](../tests/handlers/handlers-integration.test.ts): cleanup schedule sync 統合 3件
-- [`tests/pgvector-adapter.test.ts`](../tests/pgvector-adapter.test.ts): vector search / similarity match 6件
+- [`tests/vector-store-pgvector.test.ts`](../tests/vector-store-pgvector.test.ts): vector search / similarity match 6件
 - [`tests/core-modules.test.ts`](../tests/core-modules.test.ts): dependency/export/import audit 100件
 
 ### Changed (2026-05-01 — Reports Retention / Pre-commit Lint Stability / Cross-repo Outputs)
@@ -232,7 +232,7 @@ Phase 1 で導入した基盤を MCP ツール層と本番運用パイプライ�
 - **F7** [`mcp/core/layer-manifest.ts`](../mcp/core/layer-manifest.ts) + [`scripts/lint-core-layers.ts`](../scripts/lint-core-layers.ts): レイヤ依存制約を宣言し循環参照を検出する Lint。
 - **F8** [`scripts/lint-outputs.ts`](../scripts/lint-outputs.ts): outputs 配下スキーマ整合性チェック。
 - **F9** [`scripts/extract-tool-names.ts`](../scripts/extract-tool-names.ts): MCP ツール名一覧抽出ユーティリティ。
-- **F10** [`scripts/generate-tools-doc.ts`](../scripts/generate-tools-doc.ts): `npm run docs:tools` で [`docs/features/tools-reference.md`](./features/tools-reference.md) を自動生成。
+- **F10** [`scripts/generate-tools-doc.ts`](../scripts/generate-tools-doc.ts): `npm run docs:tools` で [`docs/generated/features/tools-reference.md`](./generated/features/tools-reference.md) を自動生成。
 - **F11** [`scripts/generate-config-doc.ts`](../scripts/generate-config-doc.ts): `npm run docs:config` で [`docs/configuration.md`](./configuration.md) の governance 既定セクションを再生成。
 - **F12** [`scripts/test.mjs`](../scripts/test.mjs): `pathToFileURL` を使った Windows 安定版 node:test ランナー。
 
@@ -260,8 +260,8 @@ Phase 1 で導入した基盤を MCP ツール層と本番運用パイプライ�
 
 #### Docs auto-regen
 
-- [`docs/features/tools-reference.md`](./features/tools-reference.md): 105 ツールに更新 (旧 89)。
-- [`docs/internal/tool-manifest.md`](./internal/tool-manifest.md) / [`docs/internal/tool-manifest.json`](./internal/tool-manifest.json): 再生成。
+- [`docs/generated/features/tools-reference.md`](./generated/features/tools-reference.md): 105 ツールに更新 (旧 89)。
+- [`docs/generated/internal/tool-manifest.md`](./generated/internal/tool-manifest.md) / [`docs/generated/internal/tool-manifest.json`](./generated/internal/tool-manifest.json): 再生成。
 - [`docs/configuration.md`](./configuration.md): governance 既定セクション再生成。
 - [`README.md`](../README.md): ツール総数 (60+ → 105+) を更新。
 
@@ -270,13 +270,13 @@ Phase 1 で導入した基盤を MCP ツール層と本番運用パイプライ�
 - [`mcp/core/quality/scan-exclusions.ts`](../mcp/core/quality/scan-exclusions.ts) を新設し、リポジトリ走査で `.sf` / `.sfdx` / `.git` / `node_modules` / `dist` / `build` / `coverage` / `.next` / `.cache` / `.vscode` / `.idea` / `.turbo` / `__pycache__` / `.venv` を除外。Salesforce CLI の自動生成キャッシュが解析対象に混入する問題を解消。
 - [`mcp/tools/repo-analyzer.ts`](../mcp/tools/repo-analyzer.ts) / [`mcp/tools/apex-dependency-graph.ts`](../mcp/tools/apex-dependency-graph.ts) / [`mcp/tools/apex-dependency-graph-incremental.ts`](../mcp/tools/apex-dependency-graph-incremental.ts) で共通除外ヘルパ `shouldSkipScanDir` を適用。
 - [`tests/governed-tool-registrar.test.ts`](../tests/governed-tool-registrar.test.ts): 必須となった `outputsDir` / `serverRoot` を `mkdtempSync` で生成して渡し、ビルドエラーを解消。
-- [`outputs/.schema.json`](../outputs/.schema.json): A1 Org カタログ実装が書き込む実パス (`outputs/orgs/`) と allow-list の不整合 (`org-catalog`) を修正し、`orgs` に統一。あわせて [`docs/outputs-structure.md`](./outputs-structure.md) に `.schema.json` / `npm run lint:outputs` の運用節を追加。
+- `outputs/.schema.json`: A1 Org カタログ実装が書き込む実パス (`outputs/orgs/`) と allow-list の不整合 (`org-catalog`) を修正し、`orgs` に統一。あわせて [`docs/outputs-structure.md`](./outputs-structure.md) に `.schema.json` / `npm run lint:outputs` の運用節を追加。
 
 ### Added (2026-04-27 Phase 4 — Resource Auto-Creation Phase 1)
 
 リソース作成提案を**永続化**する仕組みを導入 (Phase 1: 提案キュー)。自動適用は Phase 3 以降。MCP ツールは 105 → 110 件。
 
-- [`mcp/core/resource/proposal-queue.ts`](../mcp/core/resource/proposal-queue.ts): `enqueueProposal` / `listProposals` / `getProposal` / `approveProposal` / `rejectProposal` / `summarizeProposalQueue`。`outputs/tool-proposals/{pending,approved,rejected}/<id>.json` で状態を永続化。`buildProposal` / `nextProposalId` は純粋関数。
+- [`mcp/core/resource/proposal/proposal-queue-store.ts`](../mcp/core/resource/proposal/proposal-queue-store.ts): `enqueueProposal` / `listProposals` / `getProposal` / `approveProposal` / `rejectProposal` / `summarizeProposalQueue`。`outputs/tool-proposals/{pending,approved,rejected}/<id>.json` で状態を永続化。`buildProposal` / `nextProposalId` は純粋関数。
 - [`mcp/handlers/register-proposal-queue-tools.ts`](../mcp/handlers/register-proposal-queue-tools.ts): MCP ツール 5 件を登録。
   - `enqueue_proposal` — 新規 skill / tool / preset の作成提案を pending/ にキュー。
   - `list_proposals` — status / resourceType / limit でフィルタ。
@@ -284,13 +284,13 @@ Phase 1 で導入した基盤を MCP ツール層と本番運用パイプライ�
   - `approve_proposal` — pending → approved に移動 (実適用は引き続き `apply_resource_actions` / `create_preset`)。
   - `reject_proposal` — pending → rejected に移動 (理由必須)。
 - [`tests/proposal-queue.test.ts`](../tests/proposal-queue.test.ts): 11 ケース全 green。
-- [`docs/features/tools-reference.md`](./features/tools-reference.md) / [`docs/internal/tool-manifest.md`](./internal/tool-manifest.md): 110 ツールに更新。
+- [`docs/generated/features/tools-reference.md`](./generated/features/tools-reference.md) / [`docs/generated/internal/tool-manifest.md`](./generated/internal/tool-manifest.md): 110 ツールに更新。
 
 ### Added (2026-04-28 Phase 4 — Resource Auto-Creation Phase 2 / 3 / 4)
 
 提案キューに**実適用**と**自動承認バッチ**を追加。MCP ツールは 110 → 112 件 (`apply_proposal` / `auto_apply_pending_proposals`)。
 
-- **Phase 2 — 実適用** [`mcp/core/resource/proposal-applier.ts`](../mcp/core/resource/proposal-applier.ts):
+- **Phase 2 — 実適用** [`mcp/core/resource/proposal/applier.ts`](../mcp/core/resource/proposal/applier.ts):
   - `slugifyResourceName` (純粋関数。lowercase/dash collapse/64 文字制限)。
   - `applyProposal(record, { repoRoot, outputsDir, overwrite })` で resourceType 別に物理書き込み。
     - `skills` → `skills/<slug>.md`
@@ -299,7 +299,7 @@ Phase 1 で導入した基盤を MCP ツール層と本番運用パイプライ�
   - 既定 idempotent (`overwrite=false` で既存スキップ)。
 - **Phase 2 — MCP ツール** `apply_proposal` (`approve` + 物理適用を 1 ステップ実行):
   - pending を取得 → `applyProposal` → 成功時のみ `approveProposal` で approved/ へ移動。
-- **Phase 3 — Auto-create gate** [`mcp/core/resource/auto-create-gate.ts`](../mcp/core/resource/auto-create-gate.ts):
+- **Phase 3 — Auto-create gate** [`mcp/core/resource/proposal/auto-create-gate.ts`](../mcp/core/resource/proposal/auto-create-gate.ts):
   - `evaluateAutoCreateGate({ proposal, config, todayAppliedCount, denyList })` の純粋関数。
   - 拒否理由は `type-disabled` / `below-threshold` / `daily-limit-reached` / `denied-by-list` / `not-pending` の機械可読コードで返却。
   - `DEFAULT_AUTO_CREATE_CONFIG` は **すべて enabled=false** (明示 opt-in 必須)。
@@ -317,7 +317,7 @@ Phase 1 で導入した基盤を MCP ツール層と本番運用パイプライ�
 - [`mcp/core/declarative/tool-spec.ts`](../mcp/core/declarative/tool-spec.ts): `DeclarativeToolSpec` zod スキーマ。`compose-prompt` / `static-text` 2 種の action、legacy `CustomToolDefinition` 互換変換 `fromLegacyCustomTool` / `parseToolSpec`。name は lowercase + `_` `-` 許容。
 - [`mcp/core/declarative/loader.ts`](../mcp/core/declarative/loader.ts): `loadDeclarativeToolsFromDir` で `outputs/custom-tools/*.json` を起動時に動的 `govTool` 登録。重複名 / `governance.deprecated:true` / parse 失敗ファイルはスキップしレポート返却 (例外を上位に投げない)。
 - [`mcp/core/registration/register-all-tools.ts`](../mcp/core/registration/register-all-tools.ts): loader を fire-and-forget で統合 (同期 API 維持)。
-- [`mcp/core/resource/proposal-applier.ts`](../mcp/core/resource/proposal-applier.ts): `applyTool` を新スキーマ準拠で書き出すよう更新。検証失敗時は legacy 形式にフォールバックし loader 互換性を保つ。
+- [`mcp/core/resource/proposal/applier.ts`](../mcp/core/resource/proposal/applier.ts): `applyTool` を新スキーマ準拠で書き出すよう更新。検証失敗時は legacy 形式にフォールバックし loader 互換性を保つ。
 - [`mcp/core/declarative/frontmatter.ts`](../mcp/core/declarative/frontmatter.ts): agents/personas/skills 用の **opt-in** YAML サブセット parser と zod schema (`AgentFrontmatterSchema` / `PersonaFrontmatterSchema` / `SkillFrontmatterSchema`、`strict()`)。既存 Markdown を非破壊。
 - [`scripts/lint-outputs.ts`](../scripts/lint-outputs.ts): `outputs/custom-tools/*.json` の DeclarativeToolSpec 検証を追加。
 - [`docs/architecture.md`](./architecture.md) §8: 二層構造の Mermaid 図と分類基準テーブル、関連モジュール一覧を追加。
@@ -342,7 +342,7 @@ Phase 1 で導入した基盤を MCP ツール層と本番運用パイプライ�
 - **TASK-048** [`tests/property-based.test.ts`](../tests/property-based.test.ts): `fast-check` で scoring / learning / trust の不変条件 10 properties を追加。
 - **TASK-049** [`docs/architecture.md`](./architecture.md): Core 層の説明を更新し Mermaid サブシステム関係図を追加。
 - **TASK-050** [`.github/workflows/benchmark-nightly.yml`](../.github/workflows/benchmark-nightly.yml): 毎日 19:30 UTC に benchmark を実行し grade 低下で alert、`outputs/benchmark/` に蓄積。
-- **検証ドキュメント** [`docs/full-feature-verification.md`](./full-feature-verification.md): 全機能を一通り動作確認するための網羅的検証手順を追加。
+- **検証ドキュメント** [`docs/verification-guide.md`](./verification-guide.md): 全機能を一通り動作確認するための網羅的検証手順を追加。
 
 ### Added
 

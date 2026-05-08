@@ -10,7 +10,7 @@ import { pgTable, bigserial, timestamp, text, real, integer, boolean, index } fr
 export const sloBurn = pgTable(
   "slo_burn",
   {
-    id: bigserial("id").primaryKey(),
+    id: bigserial("id", { mode: "number" }).primaryKey(),
     ts: timestamp("ts", { withTimezone: true }).defaultNow().notNull(),
     sloId: text("slo_id").notNull(), // 'success_rate' | 'latency_p95' | 'cost_per_chat'
     sloTarget: real("slo_target").notNull(), // 0.995, 1000, 0.5
@@ -19,7 +19,7 @@ export const sloBurn = pgTable(
     burnRate: real("burn_rate").notNull(), // error_rate / allowed_error_rate
     budgetRemainingSec: integer("budget_remaining_sec").notNull(), // seconds remaining in rolling window
     window: text("window").notNull(), // '5m' | '1h' | '1d' | '30d'
-    alertFired: boolean("alert_fired").defaultValue(false)
+    alertFired: boolean("alert_fired").default(false)
   },
   (table) => ({
     idxTs: index("idx_slo_burn_ts").on(table.ts),
