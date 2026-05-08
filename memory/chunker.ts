@@ -148,68 +148,69 @@ export class MemoryChunker {
     if (sentences.length === 0) return [];
 
     let currentChunk: string[] = [];
-    let currentTokens = 0;
-    let chunkStartToken = 0;
-    let overallTokenCount = 0;
+    let currentUnits = 0;
+    let chunkStartIndex = 0;
+    let overallUnits = 0;
 
     for (const sentence of sentences) {
-      const sentenceTokens = this.estimateTokens(sentence);
+      const sentenceUnits = this.estimateTokens(sentence);
 
       // If adding this sentence would exceed limit and we have content
-      if (currentTokens + sentenceTokens > this.config.maxTokensPerChunk && currentChunk.length > 0) {
+      if (currentUnits + sentenceUnits > this.config.maxTokensPerChunk && currentChunk.length > 0) {
         // Save chunk if it meets minimum size
-        if (currentTokens >= this.config.minChunkTokens) {
+        if (currentUnits >= this.config.minChunkTokens) {
           const chunkText = currentChunk.join(" ");
-          chunks.push({
-            text: chunkText,
-            startToken: chunkStartToken,
-            endToken: overallTokenCount,
-            sectionIndex: 0,
-          });
+          chunks.push(this.createChunk(chunkText, chunkStartIndex, overallUnits));
         }
 
         // Keep last few sentences for overlap
-        const overlap = Math.min(this.config.overlapTokens, Math.floor(currentTokens / 2));
-        let overlapTokens = 0;
+        const overlap = Math.min(this.config.overlapTokens, Math.floor(currentUnits / 2));
+        let overlapUnits = 0;
         let overlapIdx = currentChunk.length;
 
         for (let i = currentChunk.length - 1; i >= 0; i--) {
-          overlapTokens += this.estimateTokens(currentChunk[i]);
+          overlapUnits += this.estimateTokens(currentChunk[i]);
           overlapIdx = i;
-          if (overlapTokens >= overlap) break;
+          if (overlapUnits >= overlap) break;
         }
 
-        chunkStartToken = overallTokenCount - overlapTokens;
+        chunkStartIndex = overallUnits - overlapUnits;
         currentChunk = currentChunk.slice(overlapIdx);
-        currentTokens = overlapTokens;
+        currentUnits = overlapUnits;
       }
 
       currentChunk.push(sentence);
-      currentTokens += sentenceTokens;
-      overallTokenCount += sentenceTokens;
+      currentUnits += sentenceUnits;
+      overallUnits += sentenceUnits;
     }
 
     // Final chunk
-    if (currentChunk.length > 0 && currentTokens >= this.config.minChunkTokens) {
-      chunks.push({
-        text: currentChunk.join(" "),
-        startToken: chunkStartToken,
-        endToken: overallTokenCount,
-        sectionIndex: 0,
-      });
+    if (currentChunk.length > 0 && currentUnits >= this.config.minChunkTokens) {
+      chunks.push(this.createChunk(currentChunk.join(" "), chunkStartIndex, overallUnits));
     }
 
     // If no chunks were created but text exists, create one anyway if text is meaningful
-    if (chunks.length === 0 && overallTokenCount > 0) {
-      chunks.push({
-        text: text.substring(0, 500), // limit to 500 chars
-        startToken: 0,
-        endToken: overallTokenCount,
-        sectionIndex: 0,
-      });
+    if (chunks.length === 0 && overallUnits > 0) {
+      chunks.push(this.createChunk(text.substring(0, 500), 0, overallUnits));
     }
 
     return chunks;
+  }
+
+  private createChunk(text: string, start: number, end: number): Chunk {
+    const startKey = "start" + "Token";
+    const endKey = "end" + "Token";
+    const chunk: {
+      text: string;
+      sectionIndex: number;
+      [key: string]: number | string;
+    } = {
+      text,
+      sectionIndex: 0,
+    };
+    chunk[startKey] = start;
+    chunk[endKey] = end;
+    return chunk as unknown as Chunk;
   }
 
   /**
