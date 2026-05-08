@@ -1,0 +1,26 @@
+[
+  {
+    "name": "apex-developer-topic-match",
+    "topic": "Apex クラスのリファクタリング",
+    "expectedAgents": ["apex-developer", "refactor-specialist"],
+    "mustNotSelect": ["lwc-developer", "flow-specialist"]
+  },
+  {
+    "name": "lwc-developer-topic-match",
+    "topic": "lwc developer performance optimization",
+    "expectedAgents": ["lwc-developer", "performance-engineer"],
+    "mustNotSelect": ["apex-developer", "data-modeler"]
+  },
+  {
+    "name": "security-review-topic",
+    "topic": "security engineer owasp review",
+    "expectedAgents": ["security-engineer"],
+    "mustNotSelect": []
+  },
+  {
+    "name": "generic-topic",
+    "topic": "一般的な質問",
+    "expectedAgents": [],
+    "mustNotSelect": []
+  }
+]

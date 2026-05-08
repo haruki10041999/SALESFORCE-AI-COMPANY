@@ -6,6 +6,10 @@ import type { ResourceOperation as GovernanceResourceOperation } from "../govern
 import type { SystemEventName, SystemEventRecord } from "../event/system-event-manager.js";
 import type { SystemEventType } from "../event/event-dispatcher.js";
 import type { ProposalQueueStore } from "../resource/proposal/proposal-queue-store.js";
+import type { SessionStore } from "../persistence/session-store.js";
+import type { OrchestrationQueueStore } from "../orchestration/orchestration-queue-store.js";
+import type { OrchestrationJobRunner } from "../orchestration/job-runner.js";
+import type { PolicySnapshotManager } from "../learning/policy-snapshot.js";
 import type {
   AgentMessage,
   ChatSession,
@@ -13,7 +17,6 @@ import type {
   StoredPreset,
   CustomToolDefinition,
   ResourceOperation,
-  OrchestrationSession,
   HandlersDashboardState
 } from "../types/index.js";
 import type { HandlersState } from "../../handlers/auto-init.js";
@@ -32,11 +35,11 @@ interface BuildRegisterAllToolsDepsOptions {
   emitSystemEvent: (event: string, payload: Record<string, unknown>) => Promise<void>;
   buildChatPrompt: RegisterAllToolsDeps["buildChatPrompt"];
   evaluatePseudoHooks: RegisterAllToolsDeps["evaluatePseudoHooks"];
-  orchestrationSessions: Map<string, OrchestrationSession>;
-  saveOrchestrationSession: RegisterAllToolsDeps["saveOrchestrationSession"];
+  sessionStore: SessionStore;
+  orchestrationQueueStore: OrchestrationQueueStore;
+  orchestrationJobRunner: OrchestrationJobRunner;
+  policySnapshotManager: PolicySnapshotManager;
   saveSessionHistory: RegisterAllToolsDeps["saveSessionHistory"];
-  restoreOrchestrationSession: RegisterAllToolsDeps["restoreOrchestrationSession"];
-  listOrchestrationSessions: RegisterAllToolsDeps["listOrchestrationSessions"];
   root: string;
   agentLog: AgentMessage[];
   loadSystemEvents: (limit?: number, event?: string) => Promise<SystemEventRecord[]>;
@@ -214,11 +217,11 @@ export function buildRegisterAllToolsDeps(options: BuildRegisterAllToolsDepsOpti
     emitSystemEvent: options.emitSystemEvent,
     buildChatPrompt: options.buildChatPrompt,
     evaluatePseudoHooks: options.evaluatePseudoHooks,
-    orchestrationSessions: options.orchestrationSessions,
-    saveOrchestrationSession: options.saveOrchestrationSession,
+    sessionStore: options.sessionStore,
+    orchestrationQueueStore: options.orchestrationQueueStore,
+    orchestrationJobRunner: options.orchestrationJobRunner,
+    policySnapshotManager: options.policySnapshotManager,
     saveSessionHistory: options.saveSessionHistory,
-    restoreOrchestrationSession: options.restoreOrchestrationSession,
-    listOrchestrationSessions: options.listOrchestrationSessions,
     root: options.root,
     agentLog: options.agentLog,
     loadSystemEvents: (limit?: number, event?: SystemEventName) => loadSystemEventsCompat(limit, event),

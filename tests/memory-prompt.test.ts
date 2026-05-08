@@ -72,6 +72,55 @@ test("project-memory persists to disk and can be reloaded", async () => {
   }
 });
 
+test("project-memory persists encrypted payload when at-rest encryption is enabled", async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "sf-ai-memory-encrypted-test-"));
+  const tempStorage = join(tempRoot, "memory-encrypted.jsonl");
+  const token = `encrypted-token-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const prevEnabled = process.env.SF_AI_ENCRYPTION_ENABLED;
+  const prevKey = process.env.SF_AI_ENCRYPTION_KEY_B64;
+  const prevKeyId = process.env.SF_AI_ENCRYPTION_KEY_ID;
+  const keyB64 = Buffer.from("0123456789abcdef0123456789abcdef", "utf-8").toString("base64");
+
+  try {
+    process.env.SF_AI_ENCRYPTION_ENABLED = "true";
+    process.env.SF_AI_ENCRYPTION_KEY_B64 = keyB64;
+    process.env.SF_AI_ENCRYPTION_KEY_ID = "test-memory-v1";
+
+    configureMemoryStorageForTest(tempStorage);
+    await clearMemory();
+    await addMemory(`Encrypted ${token}`);
+
+    const raw = readFileSync(tempStorage, "utf-8");
+    assert.equal(raw.includes(token), false);
+
+    const parsed = JSON.parse(raw.trim()) as Record<string, unknown>;
+    assert.equal(typeof parsed.ciphertext, "string");
+    assert.equal(parsed.keyId, "test-memory-v1");
+
+    configureMemoryStorageForTest(tempStorage);
+    const items = await listMemory();
+    assert.ok(items.some((item) => item.includes(token)));
+  } finally {
+    if (typeof prevEnabled === "string") {
+      process.env.SF_AI_ENCRYPTION_ENABLED = prevEnabled;
+    } else {
+      delete process.env.SF_AI_ENCRYPTION_ENABLED;
+    }
+    if (typeof prevKey === "string") {
+      process.env.SF_AI_ENCRYPTION_KEY_B64 = prevKey;
+    } else {
+      delete process.env.SF_AI_ENCRYPTION_KEY_B64;
+    }
+    if (typeof prevKeyId === "string") {
+      process.env.SF_AI_ENCRYPTION_KEY_ID = prevKeyId;
+    } else {
+      delete process.env.SF_AI_ENCRYPTION_KEY_ID;
+    }
+    configureMemoryStorageForTest(join(ROOT, "outputs", "memory.jsonl"));
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("project-memory applies retention limit", async () => {
   const tempRoot = mkdtempSync(join(tmpdir(), "sf-ai-memory-retention-test-"));
   const tempStorage = join(tempRoot, "memory.jsonl");
@@ -137,6 +186,57 @@ test("vector-store persists to disk and can be reloaded", () => {
     const results = searchByKeyword("recovery");
     assert.ok(results.some((record) => record.id === id));
   } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("vector-store persists encrypted payload when at-rest encryption is enabled", () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "sf-ai-vector-encrypted-test-"));
+  const tempStorage = join(tempRoot, "vector-store-encrypted.jsonl");
+  const id = `vector-encrypted-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const prevEnabled = process.env.SF_AI_ENCRYPTION_ENABLED;
+  const prevKey = process.env.SF_AI_ENCRYPTION_KEY_B64;
+  const prevKeyId = process.env.SF_AI_ENCRYPTION_KEY_ID;
+  const keyB64 = Buffer.from("0123456789abcdef0123456789abcdef", "utf-8").toString("base64");
+
+  try {
+    process.env.SF_AI_ENCRYPTION_ENABLED = "true";
+    process.env.SF_AI_ENCRYPTION_KEY_B64 = keyB64;
+    process.env.SF_AI_ENCRYPTION_KEY_ID = "test-vector-v1";
+
+    configureVectorStoreForTest(tempStorage);
+    clearRecords();
+    addRecord({
+      id,
+      text: "Encrypted vector note",
+      tags: ["secure"]
+    });
+
+    const raw = readFileSync(tempStorage, "utf-8");
+    assert.equal(raw.includes(id), false);
+    const parsed = JSON.parse(raw.trim()) as Record<string, unknown>;
+    assert.equal(typeof parsed.ciphertext, "string");
+    assert.equal(parsed.keyId, "test-vector-v1");
+
+    configureVectorStoreForTest(tempStorage);
+    const results = searchByKeyword("secure");
+    assert.ok(results.some((record) => record.id === id));
+  } finally {
+    if (typeof prevEnabled === "string") {
+      process.env.SF_AI_ENCRYPTION_ENABLED = prevEnabled;
+    } else {
+      delete process.env.SF_AI_ENCRYPTION_ENABLED;
+    }
+    if (typeof prevKey === "string") {
+      process.env.SF_AI_ENCRYPTION_KEY_B64 = prevKey;
+    } else {
+      delete process.env.SF_AI_ENCRYPTION_KEY_B64;
+    }
+    if (typeof prevKeyId === "string") {
+      process.env.SF_AI_ENCRYPTION_KEY_ID = prevKeyId;
+    } else {
+      delete process.env.SF_AI_ENCRYPTION_KEY_ID;
+    }
     rmSync(tempRoot, { recursive: true, force: true });
   }
 });

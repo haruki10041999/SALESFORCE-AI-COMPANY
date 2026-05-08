@@ -1,5 +1,6 @@
 import { PgBoss } from "pg-boss";
 import { Pool, type PoolClient } from "pg";
+import { isEnvFlagEnabled } from "../../config/env-flags.js";
 import {
   buildProposal,
   computeProposalPriority,
@@ -24,6 +25,7 @@ interface ProposalRow {
   confidence: number | string;
   source_event: string | null;
   origin: string | null;
+  created_by_actor_id: string | null;
   created_at: Date | string;
   resolved_at: Date | string | null;
   reject_reason: string | null;
@@ -79,6 +81,7 @@ function mapRow(row: ProposalRow): ProposalRecord {
     confidence: Number(row.confidence),
     sourceEvent: row.source_event ?? undefined,
     origin: row.origin ?? undefined,
+    createdByActorId: row.created_by_actor_id ?? undefined,
     createdAt: asIsoString(row.created_at) ?? new Date(0).toISOString(),
     resolvedAt: asIsoString(row.resolved_at),
     rejectReason: row.reject_reason ?? undefined,
@@ -193,6 +196,37 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
     }
   }
 
+  private isSodRelaxedForDev(): boolean {
+    return isEnvFlagEnabled("SF_AI_SOD_RELAX_FOR_DEV");
+  }
+
+  private enforceSod(record: ProposalRecord, input: { stage: ApprovalStage; actor: string }): string | undefined {
+    const actor = input.actor.trim();
+    if (actor.length === 0) {
+      throw new Error("actor must not be empty");
+    }
+
+    const approval = ensureApprovalState(record);
+    const violations: string[] = [];
+    if (record.createdByActorId && record.createdByActorId === actor) {
+      violations.push("proposer and approver must be different");
+    }
+    if (input.stage === "admin") {
+      const reviewerActor = approval.history.find((entry) => entry.stage === "reviewer")?.actor;
+      if (reviewerActor && reviewerActor === actor) {
+        violations.push("reviewer and admin approver must be different");
+      }
+    }
+
+    if (violations.length === 0) {
+      return undefined;
+    }
+    if (!this.isSodRelaxedForDev()) {
+      throw new Error(`SoD violation: ${violations.join("; ")}`);
+    }
+    return `[SOD_RELAX_FOR_DEV] ${violations.join("; ")}`;
+  }
+
   public async scheduleRecurringJob(input: {
     queue: string;
     cron: string;
@@ -227,8 +261,8 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
     await this.pool.query(
       [
         "INSERT INTO resource_proposals(",
-        "  id, resource_type, name, content, confidence, source_event, origin, created_at, approval_json, status",
-        ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9::jsonb, $10)"
+        "  id, resource_type, name, content, confidence, source_event, origin, created_by_actor_id, created_at, approval_json, status",
+        ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::jsonb, $11)"
       ].join("\n"),
       [
         record.id,
@@ -238,6 +272,7 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
         record.confidence,
         record.sourceEvent ?? null,
         record.origin ?? null,
+        record.createdByActorId ?? null,
         record.createdAt,
         JSON.stringify(record.approval ?? null),
         record.status
@@ -280,7 +315,7 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
 
     const result = await this.pool.query<ProposalRow>(
       [
-        "SELECT id, resource_type, name, content, confidence, source_event, origin, created_at, resolved_at, reject_reason, approval_json, status, boss_job_id",
+        "SELECT id, resource_type, name, content, confidence, source_event, origin, created_by_actor_id, created_at, resolved_at, reject_reason, approval_json, status, boss_job_id",
         "FROM resource_proposals",
         clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "",
         "ORDER BY created_at DESC"
@@ -326,7 +361,7 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
       await this.ensureSchema();
       const result = await this.pool.query<ProposalRow>(
         [
-          "SELECT id, resource_type, name, content, confidence, source_event, origin, created_at, resolved_at, reject_reason, approval_json, status, boss_job_id",
+          "SELECT id, resource_type, name, content, confidence, source_event, origin, created_by_actor_id, created_at, resolved_at, reject_reason, approval_json, status, boss_job_id",
           "FROM resource_proposals WHERE id = $1"
         ].join("\n"),
         [id]
@@ -405,6 +440,7 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
     if (approval.currentStage !== input.stage) {
       throw new Error(`current stage is ${approval.currentStage}; requested ${input.stage}`);
     }
+    const sodRelaxNote = this.enforceSod(current.record, input);
 
     const now = new Date().toISOString();
     const completedStages = [...new Set([...approval.completedStages, input.stage])];
@@ -415,7 +451,9 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
         actor: input.actor,
         decision: "approved",
         decidedAt: now,
-        comment: input.comment
+        comment: [input.comment, sodRelaxNote]
+          .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+          .join(" | ") || undefined
       }
     ];
 
@@ -457,6 +495,7 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
     if (approval.currentStage !== input.stage) {
       throw new Error(`current stage is ${approval.currentStage}; requested ${input.stage}`);
     }
+    const sodRelaxNote = this.enforceSod(current.record, input);
 
     const trimmed = input.reason.trim();
     if (trimmed.length === 0) {
@@ -470,7 +509,9 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
         actor: input.actor,
         decision: "rejected",
         decidedAt: now,
-        comment: trimmed
+        comment: [trimmed, sodRelaxNote]
+          .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+          .join(" | ")
       }
     ];
 
@@ -510,7 +551,7 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
     await this.ensureSchema();
     const result = await this.pool.query<ProposalRow>(
       [
-        "SELECT id, resource_type, name, content, confidence, source_event, origin, created_at, resolved_at, reject_reason, approval_json, status, boss_job_id",
+        "SELECT id, resource_type, name, content, confidence, source_event, origin, created_by_actor_id, created_at, resolved_at, reject_reason, approval_json, status, boss_job_id",
         "FROM resource_proposals WHERE id = $1"
       ].join("\n"),
       [id]
@@ -598,6 +639,7 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
         "  confidence double precision NOT NULL DEFAULT 0,",
         "  source_event text,",
         "  origin text,",
+        "  created_by_actor_id text,",
         "  created_at timestamptz NOT NULL DEFAULT NOW(),",
         "  resolved_at timestamptz,",
         "  reject_reason text,",
@@ -610,5 +652,6 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
     await client.query("CREATE INDEX IF NOT EXISTS idx_resource_proposals_status ON resource_proposals(status)");
     await client.query("CREATE INDEX IF NOT EXISTS idx_resource_proposals_created_at ON resource_proposals(created_at DESC)");
     await client.query("CREATE INDEX IF NOT EXISTS idx_resource_proposals_resource_type ON resource_proposals(resource_type)");
+    await client.query("ALTER TABLE resource_proposals ADD COLUMN IF NOT EXISTS created_by_actor_id text");
   }
 }

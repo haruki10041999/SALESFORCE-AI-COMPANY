@@ -20,11 +20,11 @@ export function registerChatDomain(deps: Deps): void {
     emitSystemEvent,
     buildChatPrompt,
     evaluatePseudoHooks,
-    orchestrationSessions,
-    saveOrchestrationSession,
+    sessionStore,
+    orchestrationQueueStore,
+    orchestrationJobRunner,
+    policySnapshotManager,
     saveSessionHistory,
-    restoreOrchestrationSession,
-    listOrchestrationSessions,
     root,
     createPreset,
     listPresetsData,
@@ -47,12 +47,12 @@ export function registerChatDomain(deps: Deps): void {
     emitSystemEvent,
     buildChatPrompt,
     evaluatePseudoHooks,
-    orchestrationSessions,
-    saveOrchestrationSession,
+    sessionStore,
+    orchestrationQueueStore,
+    orchestrationJobRunner,
+    policySnapshotManager,
     saveSessionHistory,
-    restoreOrchestrationSession,
-    outputsDir: join(root, "outputs"),
-    listOrchestrationSessions
+    outputsDir: join(root, "outputs")
   });
 
   registerSmartChatTools({

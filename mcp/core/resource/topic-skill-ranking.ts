@@ -1,12 +1,13 @@
-import { DEFAULT_SCORING_CONFIG, scoreCandidate, type ResourceCandidate } from "./resource-selector.js";
+import {
+  DEFAULT_SCORING_CONFIG,
+  normalizeForSearch,
+  scoreCandidate,
+  type ResourceCandidate
+} from "./resource-selector.js";
 
 export interface NamedSummary {
   name: string;
   summary: string;
-}
-
-export function normalizeForSearch(text: string): string {
-  return text.toLowerCase().replace(/[\s_\-\/]+/g, " ").trim();
 }
 
 export function tokenizeQuery(query: string): string[] {

@@ -172,3 +172,12 @@ export function getFileExtension(path: string): string {
 export function unique<T>(values: T[]): T[] {
   return [...new Set(values)];
 }
+
+export function uniqueByJson<T>(values: T[]): T[] {
+  return unique(values.map((value) => JSON.stringify(value))).map((value) => JSON.parse(value) as T);
+}
+
+export function apexClassNameFromPath(path: string): string | null {
+  const match = path.match(/\/classes\/([^/]+)\.cls$/i);
+  return match?.[1] ?? null;
+}

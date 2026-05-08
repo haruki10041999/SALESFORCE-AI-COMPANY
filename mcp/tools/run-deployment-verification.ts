@@ -1,6 +1,7 @@
 import { promises as fsPromises } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { buildTestCommand } from "./run-tests.js";
+import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
 
 export type VerificationAction = "rollback" | "continue" | "monitor";
 
@@ -130,6 +131,13 @@ function renderMarkdown(result: RunDeploymentVerificationResult): string {
 export async function runDeploymentVerification(
   input: RunDeploymentVerificationInput
 ): Promise<RunDeploymentVerificationResult> {
+  const runtimeOutputsDir = process.env.SF_AI_OUTPUTS_DIR
+    ? resolve(process.env.SF_AI_OUTPUTS_DIR)
+    : resolve("outputs");
+  const artifactWriter = new OutputsArtifactWriter({
+    outputsDir: runtimeOutputsDir,
+    databaseUrl: process.env.DATABASE_URL
+  });
   const dryRun = input.dryRun ?? true;
   const deploymentSucceeded = input.deploymentSucceeded ?? true;
   const failureRateThresholdPercent = clampNumber(
@@ -228,10 +236,18 @@ export async function runDeploymentVerification(
   };
 
   if (reportDir) {
-    await fsPromises.mkdir(reportDir, { recursive: true });
-    await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
-    await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
-    await fsPromises.writeFile(reportMarkdownPath, renderMarkdown(result), "utf-8");
+    const reportRelativeDir = relative(runtimeOutputsDir, reportDir);
+    const useArtifactWriter = reportRelativeDir.length > 0 && !reportRelativeDir.startsWith("..") && !isAbsolute(reportRelativeDir);
+    if (useArtifactWriter) {
+      await artifactWriter.appendJsonl(join(reportRelativeDir, "runs.jsonl"), result);
+      await artifactWriter.writeJson(join(reportRelativeDir, "latest.json"), result);
+      await artifactWriter.writeText(join(reportRelativeDir, "latest.md"), renderMarkdown(result));
+    } else {
+      await fsPromises.mkdir(reportDir, { recursive: true });
+      await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
+      await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
+      await fsPromises.writeFile(reportMarkdownPath, renderMarkdown(result), "utf-8");
+    }
   }
 
   return result;

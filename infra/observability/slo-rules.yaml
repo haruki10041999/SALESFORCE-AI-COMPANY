@@ -1,0 +1,149 @@
+# Prometheus recording rules for SLA/SLO metrics (T-34)
+# Place in: infra/observability/slo-rules.yaml or import in prometheus.yml
+
+groups:
+  - name: slo_success_rate
+    interval: 30s
+    rules:
+      - record: slo:success_rate:5m
+        expr: rate(tool_executions_success_total[5m]) / rate(tool_executions_total[5m])
+        labels:
+          slo: "success_rate"
+
+      - record: slo:success_rate:1h
+        expr: rate(tool_executions_success_total[1h]) / rate(tool_executions_total[1h])
+        labels:
+          slo: "success_rate"
+
+      - record: slo:success_rate:1d
+        expr: rate(tool_executions_success_total[1d]) / rate(tool_executions_total[1d])
+        labels:
+          slo: "success_rate"
+
+      - record: slo:success_rate:30d
+        expr: rate(tool_executions_success_total[30d]) / rate(tool_executions_total[30d])
+        labels:
+          slo: "success_rate"
+
+      - record: slo:error_rate:5m
+        expr: 1 - slo:success_rate:5m
+
+  - name: slo_latency
+    interval: 30s
+    rules:
+      - record: slo:latency_p95:5m
+        expr: histogram_quantile(0.95, rate(tool_execution_duration_ms_bucket[5m]))
+        labels:
+          slo: "latency_p95"
+
+      - record: slo:latency_p95:1h
+        expr: histogram_quantile(0.95, rate(tool_execution_duration_ms_bucket[1h]))
+        labels:
+          slo: "latency_p95"
+
+      - record: slo:latency_p95:1d
+        expr: histogram_quantile(0.95, rate(tool_execution_duration_ms_bucket[1d]))
+        labels:
+          slo: "latency_p95"
+
+      - record: slo:latency_p95:30d
+        expr: histogram_quantile(0.95, rate(tool_execution_duration_ms_bucket[30d]))
+        labels:
+          slo: "latency_p95"
+
+  - name: slo_cost
+    interval: 1m
+    rules:
+      - record: slo:cost_per_chat:1h
+        expr: |
+          (rate(llm_cost_usd_total[1h]) or vector(0))
+          /
+          (rate(chat_sessions_completed_total[1h]) or vector(0))
+        labels:
+          slo: "cost_per_chat"
+
+      - record: slo:cost_per_chat:1d
+        expr: |
+          (rate(llm_cost_usd_total[1d]) or vector(0))
+          /
+          (rate(chat_sessions_completed_total[1d]) or vector(0))
+        labels:
+          slo: "cost_per_chat"
+
+      - record: slo:cost_per_chat:30d
+        expr: |
+          (rate(llm_cost_usd_total[30d]) or vector(0))
+          /
+          (rate(chat_sessions_completed_total[30d]) or vector(0))
+        labels:
+          slo: "cost_per_chat"
+
+  - name: slo_burn_rate
+    interval: 30s
+    rules:
+      # Success Rate: Target 99.5% (0.995), Allowed error = 0.5% (0.005)
+      - record: slo:error_budget_allowed:success_rate
+        expr: 0.005  # (1 - 0.995)
+
+      - record: slo:burn_rate:success_rate:5m
+        expr: slo:error_rate:5m / 0.005
+        labels:
+          slo: "success_rate"
+
+      - record: slo:burn_rate:success_rate:1h
+        expr: (1 - slo:success_rate:1h) / 0.005
+        labels:
+          slo: "success_rate"
+
+      # Latency P95: Target 1000ms, Allowed error = 500ms
+      - record: slo:burn_rate:latency_p95:5m
+        expr: (slo:latency_p95:5m - 1000) / 500
+        labels:
+          slo: "latency_p95"
+
+      - record: slo:burn_rate:latency_p95:1h
+        expr: (slo:latency_p95:1h - 1000) / 500
+        labels:
+          slo: "latency_p95"
+
+      # Cost per Chat: Target $0.50, Alert threshold $0.75 (1.5x)
+      - record: slo:burn_rate:cost_per_chat:1h
+        expr: slo:cost_per_chat:1h / 0.50
+        labels:
+          slo: "cost_per_chat"
+
+  - name: slo_alert_rules
+    interval: 30s
+    rules:
+      # Critical: 14.4x burn rate (budget consumed in 1 hour)
+      - alert: SloErrorBudgetCritical
+        expr: slo:burn_rate:success_rate:5m > 14.4 or slo:burn_rate:latency_p95:5m > 14.4
+        for: 5m
+        labels:
+          severity: "critical"
+          slo_severity: "budget_breach"
+        annotations:
+          summary: "SLO critical budget burn detected"
+          description: "SLO burn rate {{ $value | humanize }}x, budget exhaustion in <1h"
+
+      # High: 1x burn rate (budget consumed in rolling window)
+      - alert: SloErrorBudgetHigh
+        expr: (slo:burn_rate:success_rate:1h > 1.0 and slo:success_rate:1h < 0.995) or (slo:burn_rate:latency_p95:1h > 1.0 and slo:latency_p95:1h > 1000)
+        for: 15m
+        labels:
+          severity: "warning"
+          slo_severity: "budget_high"
+        annotations:
+          summary: "SLO budget depletion in progress"
+          description: "SLO burn rate {{ $value | humanize }}x, will exhaust budget in {{ $value }}d"
+
+      # Warning: Cost threshold exceeded
+      - alert: SloHighCostPerChat
+        expr: slo:cost_per_chat:1h > 0.75
+        for: 30m
+        labels:
+          severity: "warning"
+          slo_severity: "cost_alert"
+        annotations:
+          summary: "Cost per chat exceeds threshold"
+          description: "Cost ${{ $value | humanize }}/chat (threshold $0.75)"

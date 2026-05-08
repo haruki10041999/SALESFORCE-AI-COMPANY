@@ -1,5 +1,6 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { join } from "node:path";
+import { isEnvFlagEnabled } from "../config/env-flags.js";
 import { maskUnknown } from "../logging/pii-masker.js";
 import { PostgresRuntimeLogStore } from "../persistence/postgres-runtime-log-store.js";
 import { appendTextFileAtomic } from "../persistence/unit-of-work.js";
@@ -72,6 +73,7 @@ export function createSystemEventManager(deps: CreateSystemEventManagerDeps) {
   const outputsDir = deps.outputsDir ?? join(deps.rootDir, "outputs");
   const eventDir = join(outputsDir, "events");
   const eventLogFile = join(eventDir, "system-events.jsonl");
+  const allowFileFallback = isEnvFlagEnabled("SF_AI_EVENTS_FILE_FALLBACK");
   const runtimeStorePromise = deps.databaseUrl
     ? PostgresRuntimeLogStore.open({ databaseUrl: deps.databaseUrl }).catch(() => null)
     : Promise.resolve(null);
@@ -148,6 +150,9 @@ export function createSystemEventManager(deps: CreateSystemEventManagerDeps) {
   }
 
   async function rotateEventLogIfNeeded(nextLine: string): Promise<void> {
+    if (!allowFileFallback) {
+      return;
+    }
     await deps.ensureDir(eventDir);
     if (!existsSync(eventLogFile)) {
       return;
@@ -173,6 +178,10 @@ export function createSystemEventManager(deps: CreateSystemEventManagerDeps) {
     const runtimeStore = await runtimeStorePromise;
     if (runtimeStore) {
       await runtimeStore.appendSystemEvent(record.id, record.event, toRecord(maskUnknown(record.payload)), record.timestamp);
+      return;
+    }
+
+    if (!allowFileFallback) {
       return;
     }
 
@@ -265,6 +274,10 @@ export function createSystemEventManager(deps: CreateSystemEventManagerDeps) {
       }
     }
 
+    if (!allowFileFallback) {
+      return fromMemory;
+    }
+
     try {
       await deps.ensureDir(eventDir);
       const files = await fsPromises.readdir(eventDir);
@@ -321,6 +334,18 @@ export function createSystemEventManager(deps: CreateSystemEventManagerDeps) {
         eventDir: "postgres:system_events",
         activeLogPath: "postgres://system_events",
         activeLogExists: recent.length > 0,
+        activeLogSizeBytes: 0,
+        archiveCount: 0,
+        archiveTotalSizeBytes: 0,
+        archives: []
+      };
+    }
+
+    if (!allowFileFallback) {
+      return {
+        eventDir: "in-memory:system_events",
+        activeLogPath: "in-memory://system-events",
+        activeLogExists: false,
         activeLogSizeBytes: 0,
         archiveCount: 0,
         archiveTotalSizeBytes: 0,

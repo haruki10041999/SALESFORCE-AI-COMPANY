@@ -1,0 +1,23 @@
+[
+  {
+    "name": "prompt-has-context-section",
+    "agents": ["apex-developer"],
+    "skills": [],
+    "topic": "Apex コードのレビュー",
+    "expectSections": ["role", "task"]
+  },
+  {
+    "name": "prompt-with-skills",
+    "agents": ["lwc-developer"],
+    "skills": [],
+    "topic": "LWC コンポーネントの設計",
+    "expectSections": ["role", "task"]
+  },
+  {
+    "name": "prompt-token-budget",
+    "agents": ["architect"],
+    "skills": [],
+    "topic": "システム設計レビュー",
+    "maxTokens": 4000
+  }
+]

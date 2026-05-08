@@ -83,6 +83,11 @@ npm run ai -- observability:dashboard -- --trace-limit 200 --event-limit 1000
 npm run ai -- scaffold -- preset release-readiness-check --agents release-manager,qa-engineer
 ```
 
+補足:
+
+- `scaffold` の `preset` / `tool` は runtime 用の `outputs/presets` / `outputs/custom-tools` へは直接書き込みません。
+- 生成先は既定で `outputs/setup/scaffold/` です。`SF_AI_OUTPUTS_DIR` を指定している場合はその配下の `setup/scaffold/` に出力されます。
+
 ## MCP SDK 更新ランブック
 
 このプロジェクトで `@modelcontextprotocol/sdk` を更新する場合は、次の順序で実施します。

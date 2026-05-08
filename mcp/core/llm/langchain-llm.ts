@@ -1,6 +1,8 @@
 import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { ChatOllama } from "@langchain/ollama";
 import type { OllamaChatRequest, OllamaChatResponse } from "./ollama-client.js";
+import { circuitBreakerRegistry } from "../reliability/circuit-breaker.js";
+import { bulkheadRegistry, DEFAULT_OLLAMA_CONCURRENCY } from "../reliability/bulkhead.js";
 
 export interface LangChainLlmClientOptions {
   baseUrl?: string;
@@ -26,6 +28,17 @@ function asStringContent(content: unknown): string {
 
 export class LangChainLlmClient {
   private readonly baseUrl?: string;
+  private readonly circuitBreaker = circuitBreakerRegistry.get("ollama-chat", {
+    failureRateThreshold: 0.5,
+    minCallsInWindow: 3,
+    cooldownMs: 10_000,
+    windowSize: 10,
+    halfOpenSuccessThreshold: 1
+  });
+  private readonly bulkhead = bulkheadRegistry.get("ollama-chat", {
+    concurrency: DEFAULT_OLLAMA_CONCURRENCY,
+    maxQueue: 30
+  });
 
   constructor(options: LangChainLlmClientOptions = {}) {
     this.baseUrl = options.baseUrl ?? process.env.OLLAMA_BASE_URL;
@@ -44,7 +57,9 @@ export class LangChainLlmClient {
       return new HumanMessage(message.content);
     });
 
-    const out = await chat.invoke(messages);
+    const out = await this.bulkhead.execute(async () =>
+      this.circuitBreaker.execute(async () => chat.invoke(messages))
+    );
     return {
       model: req.model,
       message: {

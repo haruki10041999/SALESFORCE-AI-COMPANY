@@ -1,4 +1,4 @@
-import { closeSync, existsSync, mkdirSync, openSync, readSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
@@ -9,6 +9,11 @@ import {
   cosineSimilarity,
   type VectorEmbeddingProvider
 } from "../../mcp/core/llm/embedding-provider.js";
+import {
+  createAtRestCryptoFromEnv,
+  parseEncryptedEnvelope,
+  type EncryptedEnvelope
+} from "../../mcp/core/security/at-rest-crypto.js";
 import type {
   EmbeddingProvider,
   MemoryRecord,
@@ -115,6 +120,18 @@ function fastHash(value: string): string {
     h = Math.imul(h, 0x01000193);
   }
   return (h >>> 0).toString(16);
+}
+
+function isEncryptedEnvelope(value: unknown): value is EncryptedEnvelope {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record.alg === "string"
+    && typeof record.keyId === "string"
+    && typeof record.iv === "string"
+    && typeof record.tag === "string"
+    && typeof record.ciphertext === "string";
 }
 
 export class JsonlVectorStoreAdapter implements VectorStoreAdapter {
@@ -279,6 +296,42 @@ export class JsonlVectorStoreAdapter implements VectorStoreAdapter {
     }
 
     const MAX_STREAMED_RECORDS = 10000;
+    const atRestCrypto = createAtRestCryptoFromEnv();
+    if (atRestCrypto) {
+      try {
+        const raw = readFileSync(this.storageFilePath, "utf-8");
+        const trimmed = raw.trim();
+        if (trimmed.length > 0) {
+          const parsed = parseEncryptedEnvelope(trimmed);
+          if (isEncryptedEnvelope(parsed)) {
+            const plainText = atRestCrypto.decryptUtf8(parsed);
+            const lines = plainText.split(/\r?\n/);
+            for (const lineRaw of lines) {
+              const line = lineRaw.trim();
+              if (line.length === 0) continue;
+              try {
+                const rec = JSON.parse(line) as Partial<MemoryRecord>;
+                if (
+                  typeof rec.id === "string"
+                  && typeof rec.text === "string"
+                  && Array.isArray(rec.tags)
+                  && rec.tags.every((tag) => typeof tag === "string")
+                ) {
+                  this.records.push({ id: rec.id, text: rec.text, tags: [...rec.tags] });
+                }
+              } catch {
+                // skip corrupted rows
+              }
+            }
+            this.applyRetention();
+            return;
+          }
+        }
+      } catch {
+        // fall through to plaintext streaming loader
+      }
+    }
+
     try {
       const fd = openSync(this.storageFilePath, "r");
       try {
@@ -340,7 +393,13 @@ export class JsonlVectorStoreAdapter implements VectorStoreAdapter {
       mkdirSync(dirname(this.storageFilePath), { recursive: true });
       const payload = this.records.map((record) => JSON.stringify(record)).join("\n");
       const content = this.archivePayloadIfNeeded(payload.length > 0 ? `${payload}\n` : "");
-      atomicWriteFileSync(this.storageFilePath, content, "utf-8");
+      const atRestCrypto = createAtRestCryptoFromEnv();
+      if (!atRestCrypto) {
+        atomicWriteFileSync(this.storageFilePath, content, "utf-8");
+        return;
+      }
+      const encrypted = atRestCrypto.encryptUtf8(content);
+      atomicWriteFileSync(this.storageFilePath, `${JSON.stringify(encrypted)}\n`, "utf-8");
     } catch {
       // keep API non-throwing
     }

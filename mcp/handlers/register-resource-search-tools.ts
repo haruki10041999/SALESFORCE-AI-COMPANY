@@ -19,6 +19,7 @@ import {
   saveSkillRatingModel
 } from "../core/resource/skill-rating.js";
 import type { RegisterGovToolDeps, ToolMetadata } from "./types.js";
+import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
 
 interface RegisterResourceSearchToolsDeps extends RegisterGovToolDeps {
   loadGovernanceState: () => Promise<GovernanceState>;
@@ -230,6 +231,10 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
   const skillRatingLogFile = join(outputsDir, "reports", "skill-rating.jsonl");
   const skillRatingModelFile = join(outputsDir, "reports", "skill-rating.json");
   const skillRatingReportFile = join(outputsDir, "reports", "skill-rating.md");
+  const artifactWriter = new OutputsArtifactWriter({
+    outputsDir,
+    databaseUrl: process.env.DATABASE_URL
+  });
 
   function withFeedbackScore(
     baseScore: number,
@@ -289,8 +294,7 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
       );
       await saveSkillRatingModel(skillRatingModelFile, model);
       const markdown = renderSkillRatingMarkdown(model);
-      await fsPromises.mkdir(join(outputsDir, "reports"), { recursive: true });
-      await fsPromises.writeFile(skillRatingReportFile, markdown, "utf-8");
+      await artifactWriter.writeText("reports/skill-rating.md", markdown);
 
       return {
         content: [
@@ -339,8 +343,7 @@ export function registerResourceSearchTools(deps: RegisterResourceSearchToolsDep
       );
       await saveSkillRatingModel(skillRatingModelFile, model);
       const markdown = renderSkillRatingMarkdown(model);
-      await fsPromises.mkdir(join(outputsDir, "reports"), { recursive: true });
-      await fsPromises.writeFile(skillRatingReportFile, markdown, "utf-8");
+      await artifactWriter.writeText("reports/skill-rating.md", markdown);
 
       return {
         content: [

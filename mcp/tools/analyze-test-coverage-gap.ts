@@ -1,5 +1,5 @@
 import { promises as fsPromises } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import {
   estimateChangedCoverage,
   type CoverageEstimateInput,
@@ -9,6 +9,7 @@ import {
   scanBranchAndExceptionScaffold,
   type BranchExceptionScaffold
 } from "./test-scaffold-extractor.js";
+import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
 
 export type AnalyzeTestCoverageGapInput = CoverageEstimateInput & {
   reportOutputDir?: string;
@@ -108,6 +109,13 @@ function renderMarkdown(result: AnalyzeTestCoverageGapResult): string {
 export async function analyzeTestCoverageGap(input: AnalyzeTestCoverageGapInput): Promise<AnalyzeTestCoverageGapResult> {
   // Debug: keep minimal runtime context without touching outputs paths.
   const cwd = process.cwd();
+  const runtimeOutputsDir = process.env.SF_AI_OUTPUTS_DIR
+    ? resolve(process.env.SF_AI_OUTPUTS_DIR)
+    : resolve("outputs");
+  const artifactWriter = new OutputsArtifactWriter({
+    outputsDir: runtimeOutputsDir,
+    databaseUrl: process.env.DATABASE_URL
+  });
   
   const estimate = estimateChangedCoverage(input);
   const generatedAt = new Date().toISOString();
@@ -193,10 +201,18 @@ export async function analyzeTestCoverageGap(input: AnalyzeTestCoverageGapInput)
   };
 
   if (reportDir) {
-    await fsPromises.mkdir(reportDir, { recursive: true });
-    await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
-    await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
-    await fsPromises.writeFile(reportMarkdownPath, renderMarkdown(result), "utf-8");
+    const reportRelativeDir = relative(runtimeOutputsDir, reportDir);
+    const useArtifactWriter = reportRelativeDir.length > 0 && !reportRelativeDir.startsWith("..") && !isAbsolute(reportRelativeDir);
+    if (useArtifactWriter) {
+      await artifactWriter.appendJsonl(join(reportRelativeDir, "runs.jsonl"), result);
+      await artifactWriter.writeJson(join(reportRelativeDir, "latest.json"), result);
+      await artifactWriter.writeText(join(reportRelativeDir, "latest.md"), renderMarkdown(result));
+    } else {
+      await fsPromises.mkdir(reportDir, { recursive: true });
+      await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
+      await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
+      await fsPromises.writeFile(reportMarkdownPath, renderMarkdown(result), "utf-8");
+    }
   }
 
   return result;

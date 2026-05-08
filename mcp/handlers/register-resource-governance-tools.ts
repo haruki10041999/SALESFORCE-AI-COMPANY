@@ -39,6 +39,7 @@ import {
 } from "../core/resource/cleanup-scheduler.js";
 import { getDeclinedSkills, loadSkillRatings } from "../core/resource/skill-rating.js";
 import type { RegisterGovToolDeps } from "./types.js";
+import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
 
 type GovernanceActionType = "create" | "delete" | "disable" | "enable";
 
@@ -77,10 +78,13 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
     resourceScore,
     emitSystemEvent
   } = deps;
-
   const outputsDir = process.env.SF_AI_OUTPUTS_DIR
     ? resolve(process.env.SF_AI_OUTPUTS_DIR)
     : resolve("outputs");
+  const artifactWriter = new OutputsArtifactWriter({
+    outputsDir,
+    databaseUrl: process.env.DATABASE_URL
+  });
   const proposalQueue = deps.proposalQueue ?? createFileProposalQueueStore(outputsDir);
   const proposalFeedbackLog = join(outputsDir, "tool-proposals", "proposal-feedback.jsonl");
   const proposalFeedbackModel = join(outputsDir, "tool-proposals", "proposal-feedback-model.json");
@@ -857,19 +861,14 @@ export function registerResourceGovernanceTools(deps: RegisterResourceGovernance
       const dashboardsDir = join(outputsDir, "dashboards");
       const shouldWrite = write === true;
       if (shouldWrite) {
-        await fsPromises.mkdir(dashboardsDir, { recursive: true });
-        await fsPromises.writeFile(join(dashboardsDir, "governance.html"), report.html, "utf-8");
-        await fsPromises.writeFile(join(dashboardsDir, "governance.md"), report.markdown, "utf-8");
-        await fsPromises.writeFile(
-          join(dashboardsDir, "governance.json"),
-          JSON.stringify({
-            generatedAt: report.generatedAt,
-            thresholds: report.thresholds,
-            sections: report.sections,
-            totals: report.totals
-          }, null, 2),
-          "utf-8"
-        );
+        await artifactWriter.writeText("dashboards/governance.html", report.html);
+        await artifactWriter.writeText("dashboards/governance.md", report.markdown);
+        await artifactWriter.writeJson("dashboards/governance.json", {
+          generatedAt: report.generatedAt,
+          thresholds: report.thresholds,
+          sections: report.sections,
+          totals: report.totals
+        });
       }
 
       const fmt = format ?? "json";

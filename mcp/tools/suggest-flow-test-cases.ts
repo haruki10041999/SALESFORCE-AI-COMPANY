@@ -1,5 +1,6 @@
 import { promises as fsPromises } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { parseBooleanLike } from "../core/config/env-flags.js";
 import { analyzeFlow, type FlowFileAnalysis } from "./flow-analyzer.js";
 import {
   simulateFlowCondition,
@@ -7,6 +8,7 @@ import {
   type FlowConditionNode,
   type FlowConditionSimulationResult
 } from "./flow-condition-simulator.js";
+import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
 
 export type SuggestFlowTestCasesInput = {
   filePath: string;
@@ -123,7 +125,7 @@ function parseRightValue(conditionBlock: string): unknown {
 
   const booleanValue = extractTag(rightValue, "booleanValue");
   if (booleanValue !== null) {
-    return booleanValue.trim().toLowerCase() === "true";
+    return parseBooleanLike(booleanValue, false);
   }
 
   const dateTimeValue = extractTag(rightValue, "dateTimeValue");
@@ -333,6 +335,13 @@ function toMarkdown(result: SuggestFlowTestCasesResult): string {
 }
 
 export async function suggestFlowTestCases(input: SuggestFlowTestCasesInput): Promise<SuggestFlowTestCasesResult> {
+  const runtimeOutputsDir = process.env.SF_AI_OUTPUTS_DIR
+    ? resolve(process.env.SF_AI_OUTPUTS_DIR)
+    : resolve("outputs");
+  const artifactWriter = new OutputsArtifactWriter({
+    outputsDir: runtimeOutputsDir,
+    databaseUrl: process.env.DATABASE_URL
+  });
   const flowAnalysis = analyzeFlow(input.filePath);
   const source = await fsPromises.readFile(input.filePath, "utf-8");
 
@@ -420,10 +429,18 @@ export async function suggestFlowTestCases(input: SuggestFlowTestCasesInput): Pr
   };
 
   if (reportDir) {
-    await fsPromises.mkdir(reportDir, { recursive: true });
-    await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
-    await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
-    await fsPromises.writeFile(reportMarkdownPath, toMarkdown(result), "utf-8");
+    const reportRelativeDir = relative(runtimeOutputsDir, reportDir);
+    const useArtifactWriter = reportRelativeDir.length > 0 && !reportRelativeDir.startsWith("..") && !isAbsolute(reportRelativeDir);
+    if (useArtifactWriter) {
+      await artifactWriter.appendJsonl(join(reportRelativeDir, "runs.jsonl"), result);
+      await artifactWriter.writeJson(join(reportRelativeDir, "latest.json"), result);
+      await artifactWriter.writeText(join(reportRelativeDir, "latest.md"), toMarkdown(result));
+    } else {
+      await fsPromises.mkdir(reportDir, { recursive: true });
+      await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
+      await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
+      await fsPromises.writeFile(reportMarkdownPath, toMarkdown(result), "utf-8");
+    }
   }
 
   return result;

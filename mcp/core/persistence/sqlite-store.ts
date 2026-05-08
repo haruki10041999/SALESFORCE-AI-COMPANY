@@ -6,6 +6,12 @@ import {
   type SQLOutputValue,
   type StatementSync
 } from "node:sqlite";
+import {
+  createAtRestCryptoFromEnv,
+  parseEncryptedEnvelope,
+  type EncryptedEnvelope,
+  type AtRestCrypto
+} from "../security/at-rest-crypto.js";
 
 type SqlBindParams = SQLInputValue[] | Record<string, SQLInputValue> | undefined;
 
@@ -58,14 +64,28 @@ function ensureParentDir(filePath: string): void {
   }
 }
 
+function isEncryptedEnvelope(value: unknown): value is EncryptedEnvelope {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record.alg === "string"
+    && typeof record.keyId === "string"
+    && typeof record.iv === "string"
+    && typeof record.tag === "string"
+    && typeof record.ciphertext === "string";
+}
+
 export class SQLiteStateStore {
   private readonly db: DatabaseSync;
   private readonly dbPath: string;
+  private readonly atRestCrypto: AtRestCrypto | null;
   private inTransaction = false;
 
   private constructor(dbPath: string, db: DatabaseSync) {
     this.dbPath = dbPath;
     this.db = db;
+    this.atRestCrypto = createAtRestCryptoFromEnv();
     this.initSchema();
   }
 
@@ -141,7 +161,7 @@ export class SQLiteStateStore {
       return null;
     }
     return {
-      stateJson: asString(row.state_json),
+      stateJson: this.decryptForRead(asString(row.state_json)),
       updatedAt: asString(row.updated_at)
     };
   }
@@ -155,7 +175,7 @@ export class SQLiteStateStore {
         "  state_json=excluded.state_json,",
         "  updated_at=excluded.updated_at"
       ].join("\n"),
-      [stateJson, updatedAt]
+      [this.encryptForWrite(stateJson), updatedAt]
     );
   }
 
@@ -174,8 +194,8 @@ export class SQLiteStateStore {
         session.id,
         session.timestamp,
         session.topic,
-        JSON.stringify(session.agents ?? []),
-        JSON.stringify(session.entries ?? []),
+        this.encryptForWrite(JSON.stringify(session.agents ?? [])),
+        this.encryptForWrite(JSON.stringify(session.entries ?? [])),
         new Date().toISOString()
       ]
     );
@@ -193,8 +213,8 @@ export class SQLiteStateStore {
       id: asString(row.id),
       timestamp: asString(row.timestamp),
       topic: asString(row.topic),
-      agents: safeParseStringArray(asString(row.agents_json)),
-      entries: safeParseArray(asString(row.entries_json))
+      agents: safeParseStringArray(this.decryptForRead(asString(row.agents_json))),
+      entries: safeParseArray(this.decryptForRead(asString(row.entries_json)))
     }));
   }
 
@@ -212,8 +232,8 @@ export class SQLiteStateStore {
       id: asString(row.id),
       timestamp: asString(row.timestamp),
       topic: asString(row.topic),
-      agents: safeParseStringArray(asString(row.agents_json)),
-      entries: safeParseArray(asString(row.entries_json))
+      agents: safeParseStringArray(this.decryptForRead(asString(row.agents_json))),
+      entries: safeParseArray(this.decryptForRead(asString(row.entries_json)))
     };
   }
 
@@ -251,7 +271,7 @@ export class SQLiteStateStore {
       ].join("\n"),
       [
         record.stream,
-        record.payload,
+        this.encryptForWrite(record.payload),
         record.sourcePath ?? null,
         record.lineNumber ?? null,
         record.importedAt ?? new Date().toISOString()
@@ -276,11 +296,37 @@ export class SQLiteStateStore {
     return rows.map((row) => ({
       id: asNumber(row.id),
       stream: asString(row.stream),
-      payload: asString(row.payload),
+      payload: this.decryptForRead(asString(row.payload)),
       sourcePath: asNullableString(row.source_path),
       lineNumber: asNullableNumber(row.line_number),
       importedAt: asString(row.imported_at)
     }));
+  }
+
+  private encryptForWrite(value: string): string {
+    if (!this.atRestCrypto) {
+      return value;
+    }
+    return JSON.stringify(this.atRestCrypto.encryptUtf8(value));
+  }
+
+  private decryptForRead(value: string): string {
+    if (!this.atRestCrypto) {
+      return value;
+    }
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      return value;
+    }
+    try {
+      const parsed = parseEncryptedEnvelope(trimmed);
+      if (!isEncryptedEnvelope(parsed)) {
+        return value;
+      }
+      return this.atRestCrypto.decryptUtf8(parsed);
+    } catch {
+      return value;
+    }
   }
 
   private selectRows(sql: string, params?: SqlBindParams): QueryRow[] {

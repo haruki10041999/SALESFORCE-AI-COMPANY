@@ -29,6 +29,7 @@ interface CreateHistoryStoreDeps {
   agentLog: AgentMessage[];
   maxHistoryFiles?: number;
   retentionDays?: number;
+  allowFileFallback?: boolean;
   sqlite?: {
     enabled?: boolean;
     dbPath?: string;
@@ -42,11 +43,22 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
     agentLog,
     maxHistoryFiles = 200,
     retentionDays = 30,
+    allowFileFallback = false,
     sqlite
   } = deps;
   const sqliteEnabled = sqlite?.enabled === true && isSqliteDriverAvailable();
   const sqliteDbPath = sqlite?.dbPath ?? join(historyDir, "..", DEFAULT_SQLITE_STATE_FILE);
   let sqliteStorePromise: Promise<SQLiteStateStore> | null = null;
+  const volatileSessions: ChatSession[] = [];
+
+  function saveVolatileSession(session: ChatSession): void {
+    volatileSessions.push(session);
+    volatileSessions.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    const overflow = Math.max(0, volatileSessions.length - maxHistoryFiles);
+    if (overflow > 0) {
+      volatileSessions.splice(0, overflow);
+    }
+  }
 
   async function getSqliteStore(): Promise<SQLiteStateStore> {
     if (!sqliteStorePromise) {
@@ -84,6 +96,27 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
   async function deleteOldHistories(): Promise<{ deletedByAge: number; deletedByCount: number; remaining: number }> {
     if (sqliteEnabled) {
       return deleteOldHistoriesSqlite(await getSqliteStore(), maxHistoryFiles, retentionDays);
+    }
+
+    if (!allowFileFallback) {
+      const threshold = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+      const before = volatileSessions.length;
+      for (let i = volatileSessions.length - 1; i >= 0; i -= 1) {
+        const ts = new Date(volatileSessions[i].timestamp).getTime();
+        if (Number.isFinite(ts) && ts < threshold) {
+          volatileSessions.splice(i, 1);
+        }
+      }
+      const deletedByAge = before - volatileSessions.length;
+      const overflow = Math.max(0, volatileSessions.length - maxHistoryFiles);
+      if (overflow > 0) {
+        volatileSessions.splice(0, overflow);
+      }
+      return {
+        deletedByAge,
+        deletedByCount: overflow,
+        remaining: volatileSessions.length
+      };
     }
 
     if (!existsSync(historyDir)) {
@@ -173,7 +206,7 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
         store.upsertHistorySession(sessionToRecord(session));
         deleteOldHistoriesSqlite(store, maxHistoryFiles, retentionDays);
       });
-    } else {
+    } else if (allowFileFallback) {
       const dayDir = join(historyDir, toDayFolder(nowIso));
       const filePath = join(dayDir, id + ".json");
       const unitOfWork = new FileUnitOfWork();
@@ -182,7 +215,9 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
       await unitOfWork.stageFileWrite(filePath, JSON.stringify(session, null, 2));
       await unitOfWork.commit();
       await deleteOldHistories();
-      return id;
+    } else {
+      saveVolatileSession(session);
+      await deleteOldHistories();
     }
 
     return id;
@@ -207,7 +242,7 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
         store.upsertHistorySession(sessionToRecord(session));
         deleteOldHistoriesSqlite(store, maxHistoryFiles, retentionDays);
       });
-    } else {
+    } else if (allowFileFallback) {
       const dayDir = join(historyDir, toDayFolder(nowIso));
       const filePath = join(dayDir, id + ".json");
       const unitOfWork = new FileUnitOfWork();
@@ -216,7 +251,9 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
       await unitOfWork.stageFileWrite(filePath, JSON.stringify(session, null, 2));
       await unitOfWork.commit();
       await deleteOldHistories();
-      return id;
+    } else {
+      saveVolatileSession(session);
+      await deleteOldHistories();
     }
 
     return id;
@@ -226,6 +263,10 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
     if (sqliteEnabled) {
       const store = await getSqliteStore();
       return store.listHistorySessions().map(recordToSession);
+    }
+
+    if (!allowFileFallback) {
+      return [...volatileSessions].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     }
 
     if (!existsSync(historyDir)) {
@@ -258,6 +299,16 @@ export function createHistoryStore(deps: CreateHistoryStoreDeps) {
       agentLog.length = 0;
       agentLog.push(...mapped.entries);
       return mapped;
+    }
+
+    if (!allowFileFallback) {
+      const session = volatileSessions.find((item) => item.id === id) ?? null;
+      if (!session) {
+        return null;
+      }
+      agentLog.length = 0;
+      agentLog.push(...session.entries);
+      return session;
     }
 
     const dayPrefix = id.slice(0, 10);

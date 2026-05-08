@@ -1,6 +1,8 @@
 import { watch, type FSWatcher } from "node:fs";
 import { basename, dirname } from "node:path";
+import { Client } from "pg";
 import type { Logger } from "../logging/logger.js";
+import type { StateBackend } from "../persistence/state-store.js";
 
 interface DisabledToolsCacheState {
   disabled: {
@@ -13,6 +15,8 @@ interface CreateDisabledToolsCacheDeps {
   logger: Logger;
   loadGovernanceState: () => Promise<DisabledToolsCacheState>;
   normalizeResourceName: (name: string) => string;
+  stateBackend?: StateBackend;
+  databaseUrl?: string;
   cacheMaxAgeMs?: number;
   refreshIntervalMs?: number;
 }
@@ -31,6 +35,7 @@ export function createDisabledToolsCacheManager(deps: CreateDisabledToolsCacheDe
   let refreshInFlight: Promise<void> | null = null;
   let governanceWatcher: FSWatcher | null = null;
   let refreshInterval: NodeJS.Timeout | null = null;
+  let pgListener: Client | null = null;
 
   function startRefresh(reason: string): void {
     if (!refreshInFlight) {
@@ -68,6 +73,27 @@ export function createDisabledToolsCacheManager(deps: CreateDisabledToolsCacheDe
         startRefresh("interval");
       }, refreshIntervalMs);
       refreshInterval.unref?.();
+    }
+
+    // Multi-instance invalidation path: LISTEN/NOTIFY on Postgres
+    if (deps.stateBackend === "postgres" && deps.databaseUrl && !pgListener) {
+      const listener = new Client({ connectionString: deps.databaseUrl });
+      void listener.connect()
+        .then(async () => {
+          pgListener = listener;
+          listener.on("notification", (msg) => {
+            if (msg.channel === "governance_state_updated") {
+              startRefresh("pg-notify");
+            }
+          });
+          listener.on("error", (error) => {
+            deps.logger.warn("Governance pg LISTEN error", error);
+          });
+          await listener.query("LISTEN governance_state_updated");
+        })
+        .catch((error) => {
+          deps.logger.warn("Failed to start governance pg LISTEN", error);
+        });
     }
 
     if (!governanceWatcher) {

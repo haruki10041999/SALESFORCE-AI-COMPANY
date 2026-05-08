@@ -9,6 +9,9 @@ import { execFileSync } from "node:child_process";
 
 const serverTestOutputsDir = mkdtempSync(join(tmpdir(), "sf-ai-server-outputs-"));
 process.env.SF_AI_OUTPUTS_DIR = serverTestOutputsDir;
+process.env.SF_AI_STATE_BACKEND = "sqlite";
+process.env.SF_AI_PROPOSAL_QUEUE_BACKEND = "file";
+process.env.DATABASE_URL = "";
 process.env.SF_AI_STATE_DB_PATH = join(serverTestOutputsDir, "server-tools-state.sqlite");
 
 const {
@@ -1512,6 +1515,55 @@ test("orchestration tools restore saved session automatically when memory is cle
 
   assert.equal(session.id, orchestrated.sessionId);
   assert.equal(session.historyCount, 1);
+});
+
+test("tenant boundary prevents cross-tenant orchestration session access", async () => {
+  const tenantA = {
+    actor: {
+      type: "user",
+      id: "user-tenant-a",
+      role: "admin",
+      tenantId: "tenant-a"
+    }
+  };
+  const tenantB = {
+    actor: {
+      type: "user",
+      id: "user-tenant-b",
+      role: "admin",
+      tenantId: "tenant-b"
+    }
+  };
+
+  const orchestrated = parseFirstJson<{
+    sessionId: string;
+  }>(await callTool("orchestrate_chat", {
+    ...tenantA,
+    topic: "tenant boundary session visibility",
+    agents: ["architect", "qa-engineer"],
+    turns: 2
+  }));
+
+  const saved = parseFirstJson<{
+    saved: boolean;
+    sessionId: string;
+  }>(await callTool("save_orchestration_session", {
+    ...tenantA,
+    sessionId: orchestrated.sessionId
+  }));
+  assert.equal(saved.saved, true);
+
+  const listedA = parseFirstJson<Array<{ id: string }>>(await callTool("list_orchestration_sessions", tenantA));
+  assert.ok(listedA.some((item) => item.id === orchestrated.sessionId));
+
+  const listedB = parseFirstJson<Array<{ id: string }>>(await callTool("list_orchestration_sessions", tenantB));
+  assert.ok(!listedB.some((item) => item.id === orchestrated.sessionId));
+
+  const restoreB = await callTool("restore_orchestration_session", {
+    ...tenantB,
+    sessionId: orchestrated.sessionId
+  });
+  assert.ok(restoreB.content[0].text.includes("Saved session not found"));
 });
 
 test("parse_and_record_chat and get_agent_log return expected JSON structure", async () => {

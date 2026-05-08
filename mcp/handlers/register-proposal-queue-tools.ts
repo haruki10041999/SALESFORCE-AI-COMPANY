@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { resolve } from "node:path";
-import { promises as fsPromises } from "node:fs";
-import { PostgresRuntimeLogStore } from "../core/persistence/postgres-runtime-log-store.js";
+import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
 import {
   type ProposalResourceType,
   type ProposalStatus,
@@ -20,6 +19,7 @@ import {
   type AutoCreatePolicy
 } from "../core/resource/proposal/auto-create-gate.js";
 import { loadProposalFeedbackModel } from "../core/resource/proposal-feedback.js";
+import { currentActor } from "../core/identity/actor-context.js";
 import type { GovTool } from "../tool-types.js";
 
 export interface RegisterProposalQueueToolsDeps {
@@ -40,32 +40,19 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
   const repoRoot = deps.repoRoot ?? resolve(".");
   const proposalQueue = deps.proposalQueue ?? createFileProposalQueueStore(outputsDir);
   const approvalAuditFile = resolve(outputsDir, "audit", "proposal-approvals.jsonl");
-  const runtimeLogStorePromise = process.env.DATABASE_URL
-    ? PostgresRuntimeLogStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
-    : Promise.resolve(null);
+  const artifactWriter = new OutputsArtifactWriter({
+    outputsDir,
+    databaseUrl: process.env.DATABASE_URL
+  });
 
   async function appendApprovalAudit(event: Record<string, unknown>): Promise<void> {
-    const runtimeLogStore = await runtimeLogStorePromise;
-    if (runtimeLogStore) {
-      try {
-        await runtimeLogStore.appendAuditLog(
-          "proposal_approval",
-          "presets",
-          { recordedAt: new Date().toISOString(), ...event },
-          new Date().toISOString()
-        );
-        return;
-      } catch {
-        // fall back to file logging
-      }
-    }
-
     try {
-      await fsPromises.mkdir(resolve(outputsDir, "audit"), { recursive: true });
-      await fsPromises.appendFile(
-        approvalAuditFile,
-        `${JSON.stringify({ recordedAt: new Date().toISOString(), ...event })}\n`,
-        "utf-8"
+      await artifactWriter.appendAuditArtifact(
+        "proposal_approval",
+        "presets",
+        event,
+        new Date().toISOString(),
+        "audit/proposal-approvals.jsonl"
       );
     } catch {
       // Audit logging failures must not break tool execution.
@@ -94,7 +81,16 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
       sourceEvent?: string;
       origin?: string;
     }) => {
-      const record = await proposalQueue.enqueue({ resourceType, name, content, confidence, sourceEvent, origin });
+      const actor = currentActor();
+      const record = await proposalQueue.enqueue({
+        resourceType,
+        name,
+        content,
+        confidence,
+        sourceEvent,
+        origin,
+        createdByActorId: actor.id
+      });
       return { content: [{ type: "text", text: JSON.stringify({ enqueued: record }, null, 2) }] };
     }
   );
@@ -309,7 +305,7 @@ export function registerProposalQueueTools(deps: RegisterProposalQueueToolsDeps)
     "apply_proposal",
     {
       title: "提案を承認＋実適用",
-      description: "保留中の提案を approved/ に移動し、リソースタイプに応じた保存先 (skills/<name>.md, outputs/custom-tools/<slug>.json, outputs/presets/<slug>/v<n>.json) へ書き出します。overwrite=false の場合、既存ファイルがあれば適用をスキップします。",
+      description: "保留中の提案を実適用します。skills は常に skills/<name>.md に反映されます。tools/presets の file 反映は既定無効で、SF_AI_CUSTOM_TOOL_FILE_FALLBACK=true / SF_AI_PRESET_FILE_FALLBACK=true の場合のみ outputs/custom-tools または outputs/presets に書き込みます。overwrite=false の場合、既存ファイルがあれば適用をスキップします。",
       inputSchema: {
         id: z.string().min(1).max(128),
         overwrite: z.boolean().optional()

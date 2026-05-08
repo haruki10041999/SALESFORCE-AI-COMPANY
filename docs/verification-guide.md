@@ -49,7 +49,7 @@ npm run ai -- scaffold -- --non-interactive preset verification-sample --overwri
 
 確認ポイント:
 
-- `outputs/presets/verification-sample.json` が生成される
+- `outputs/setup/scaffold/presets/verification-sample.json` が生成される
 
 ## 変更タイプ別の追加検証
 

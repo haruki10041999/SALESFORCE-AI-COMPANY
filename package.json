@@ -34,6 +34,9 @@
     "docs:error-codes": "tsx scripts/generate-error-codes-doc.ts",
     "docs:build": "tsx scripts/generate-tools-doc.ts && npm run docs:error-codes",
     "ai": "tsx scripts/ai.ts",
+    "replay:session": "tsx scripts/replay-session.ts",
+    "evals:run": "tsx scripts/evals-run.ts",
+    "migrate:tenant-scope": "tsx scripts/migrate-tenant-scope.ts",
     "typecheck": "tsc --noEmit",
     "audit:deps": "npm audit --audit-level=moderate"
   },

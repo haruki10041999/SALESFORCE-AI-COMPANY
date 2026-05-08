@@ -1,6 +1,11 @@
 import { existsSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { createLogger } from "../logging/logger.js";
+import {
+  buildDataRetentionPolicy,
+  resolveRetentionTargets,
+  type DataClassificationLabel
+} from "./data-retention.js";
 
 const logger = createLogger("OutputsCleanup");
 
@@ -12,12 +17,21 @@ type CleanupTarget = {
 export type CleanupOptions = {
   days: number;
   dryRun: boolean;
+  useRetentionPolicy?: boolean;
+  auditLog?: boolean;
+};
+
+export type CleanupRemovedFile = {
+  filePath: string;
+  ageDays: number;
+  action: "removed" | "dry-run";
 };
 
 export type CleanupDirectoryResult = {
   scanned: number;
   removed: number;
   skippedMissing: boolean;
+  removedFiles: CleanupRemovedFile[];
 };
 
 export type CleanupSummary = {
@@ -29,10 +43,25 @@ export type CleanupSummary = {
   results: Array<{ dirPath: string; result: CleanupDirectoryResult }>;
 };
 
+export type RetentionCleanupSummary = {
+  outputsDir: string;
+  dryRun: boolean;
+  totalScanned: number;
+  totalRemoved: number;
+  results: Array<{
+    dirPath: string;
+    classification: DataClassificationLabel;
+    retentionDays: number;
+    result: CleanupDirectoryResult;
+  }>;
+};
+
 export function parseCleanupArgs(argv: string[]): CleanupOptions {
   const result: CleanupOptions = {
     days: 30,
-    dryRun: false
+    dryRun: false,
+    useRetentionPolicy: false,
+    auditLog: true
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -47,6 +76,15 @@ export function parseCleanupArgs(argv: string[]): CleanupOptions {
     }
     if (token === "--dry-run") {
       result.dryRun = true;
+    }
+    if (token === "--retention-policy") {
+      result.useRetentionPolicy = true;
+    }
+    if (token === "--no-audit-log") {
+      result.auditLog = false;
+    }
+    if (token === "--audit-log") {
+      result.auditLog = true;
     }
   }
 
@@ -90,12 +128,13 @@ export function cleanupDirectory(
   target: Pick<CleanupTarget, "recursive"> = {}
 ): CleanupDirectoryResult {
   if (!existsSync(dirPath)) {
-    return { scanned: 0, removed: 0, skippedMissing: true };
+    return { scanned: 0, removed: 0, skippedMissing: true, removedFiles: [] };
   }
 
   const files = listFiles(dirPath, target.recursive ?? false);
   let scanned = 0;
   let removed = 0;
+  const removedFiles: CleanupRemovedFile[] = [];
 
   for (const filePath of files) {
     scanned += 1;
@@ -114,6 +153,7 @@ export function cleanupDirectory(
     if (dryRun) {
       console.error(`[cleanup][dry-run] remove ${filePath} (age=${days}d)`);
       removed += 1;
+      removedFiles.push({ filePath, ageDays: days, action: "dry-run" });
       continue;
     }
 
@@ -121,12 +161,13 @@ export function cleanupDirectory(
       unlinkSync(filePath);
       console.error(`[cleanup][removed] ${filePath} (age=${days}d)`);
       removed += 1;
+      removedFiles.push({ filePath, ageDays: days, action: "removed" });
     } catch (error) {
       logger.warn("failed to remove file", { filePath, error: String(error) });
     }
   }
 
-  return { scanned, removed, skippedMissing: false };
+  return { scanned, removed, skippedMissing: false, removedFiles };
 }
 
 export function cleanupOutputs(outputsDir: string, options: CleanupOptions): CleanupSummary {
@@ -155,6 +196,46 @@ export function cleanupOutputs(outputsDir: string, options: CleanupOptions): Cle
   return {
     outputsDir,
     thresholdDays: options.days,
+    dryRun: options.dryRun,
+    totalScanned,
+    totalRemoved,
+    results
+  };
+}
+
+export function cleanupOutputsByRetentionPolicy(
+  outputsDir: string,
+  options: Pick<CleanupOptions, "dryRun">,
+  env: NodeJS.ProcessEnv = process.env
+): RetentionCleanupSummary {
+  const policy = buildDataRetentionPolicy(env);
+  const targets = resolveRetentionTargets(policy).map((target) => ({
+    dirPath: join(outputsDir, target.relativeDir),
+    recursive: target.recursive,
+    classification: target.classification,
+    retentionDays: target.retentionDays
+  }));
+
+  let totalScanned = 0;
+  let totalRemoved = 0;
+  const results: RetentionCleanupSummary["results"] = [];
+
+  for (const target of targets) {
+    const result = cleanupDirectory(target.dirPath, target.retentionDays, options.dryRun, target);
+    if (!result.skippedMissing) {
+      totalScanned += result.scanned;
+      totalRemoved += result.removed;
+    }
+    results.push({
+      dirPath: target.dirPath,
+      classification: target.classification,
+      retentionDays: target.retentionDays,
+      result
+    });
+  }
+
+  return {
+    outputsDir,
     dryRun: options.dryRun,
     totalScanned,
     totalRemoved,

@@ -40,6 +40,8 @@ interface PromBundle {
   toolExec: PromCounter;
   toolDuration: PromHistogram;
   toolFailures: PromCounter;
+  costUsdTotal: PromCounter;
+  costBudgetExceededTotal: PromCounter;
 }
 
 let bundle: PromBundle | null = null;
@@ -92,8 +94,20 @@ async function initBundle(): Promise<PromBundle | null> {
       labelNames: ["tool", "code"],
       registers: [registry]
     });
+    const costUsdTotal = new mod.Counter({
+      name: "sfai_cost_usd_total",
+      help: "Estimated cost usage in USD by actor, tenant and model.",
+      labelNames: ["actor", "tenant", "model"],
+      registers: [registry]
+    });
+    const costBudgetExceededTotal = new mod.Counter({
+      name: "sfai_cost_budget_exceeded_total",
+      help: "Number of blocked executions due to cost budget limits.",
+      labelNames: ["actor", "tenant", "tool"],
+      registers: [registry]
+    });
 
-    bundle = { registry, toolExec, toolDuration, toolFailures };
+    bundle = { registry, toolExec, toolDuration, toolFailures, costUsdTotal, costBudgetExceededTotal };
     return bundle;
   } catch (err) {
     logger.debug("prom-client not available, prometheus export disabled", err);
@@ -107,6 +121,15 @@ export interface ToolExecutionMetric {
   status: "success" | "error";
   durationMs: number;
   errorCode?: string;
+}
+
+export interface CostBudgetMetric {
+  actorId: string;
+  tenantId?: string;
+  model: string;
+  usd: number;
+  toolName: string;
+  exceeded?: boolean;
 }
 
 /**
@@ -125,6 +148,24 @@ export function recordToolExecutionForPrometheus(metric: ToolExecutionMetric): v
       }
     } catch (err) {
       logger.debug("prometheus record failure", err);
+    }
+  });
+}
+
+export function recordCostBudgetForPrometheus(metric: CostBudgetMetric): void {
+  void initBundle().then((b) => {
+    if (!b) return;
+    try {
+      const tenant = metric.tenantId && metric.tenantId.length > 0 ? metric.tenantId : "_none";
+      b.costUsdTotal.inc(
+        { actor: metric.actorId, tenant, model: metric.model },
+        Number.isFinite(metric.usd) && metric.usd > 0 ? metric.usd : 0
+      );
+      if (metric.exceeded) {
+        b.costBudgetExceededTotal.inc({ actor: metric.actorId, tenant, tool: metric.toolName }, 1);
+      }
+    } catch (err) {
+      logger.debug("prometheus cost record failure", err);
     }
   });
 }

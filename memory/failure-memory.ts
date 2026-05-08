@@ -3,6 +3,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PostgresAnalyticsStore } from "../mcp/core/persistence/postgres-analytics-store.js";
 import { atomicWriteFileSync } from "../mcp/core/io/atomic-write.js";
+import {
+  createAtRestCryptoFromEnv,
+  parseEncryptedEnvelope,
+  type EncryptedEnvelope
+} from "../mcp/core/security/at-rest-crypto.js";
 
 export interface FailureMemoryEntry {
   pattern: string;
@@ -25,6 +30,38 @@ function shouldUseDatabase(): boolean {
   return Boolean(process.env.DATABASE_URL) && resolve(storageFilePath) === resolve(DEFAULT_FAILURE_MEMORY_FILE);
 }
 
+function isEncryptedEnvelope(value: unknown): value is EncryptedEnvelope {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record.alg === "string"
+    && typeof record.keyId === "string"
+    && typeof record.iv === "string"
+    && typeof record.tag === "string"
+    && typeof record.ciphertext === "string";
+}
+
+function tryDecryptPayload(raw: string): string {
+  const atRestCrypto = createAtRestCryptoFromEnv();
+  if (!atRestCrypto) {
+    return raw;
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return raw;
+  }
+  try {
+    const parsed = parseEncryptedEnvelope(trimmed);
+    if (!isEncryptedEnvelope(parsed)) {
+      return raw;
+    }
+    return atRestCrypto.decryptUtf8(parsed);
+  } catch {
+    return raw;
+  }
+}
+
 function loadFromDisk(): void {
   entries.length = 0;
   if (!existsSync(storageFilePath)) {
@@ -33,7 +70,8 @@ function loadFromDisk(): void {
 
   try {
     const raw = readFileSync(storageFilePath, "utf-8");
-    const lines = raw.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    const resolved = tryDecryptPayload(raw);
+    const lines = resolved.split(/\r?\n/).filter((line) => line.trim().length > 0);
     for (const line of lines) {
       try {
         const parsed = JSON.parse(line) as Partial<FailureMemoryEntry>;
@@ -65,7 +103,14 @@ function saveAll(): void {
   try {
     mkdirSync(dirname(storageFilePath), { recursive: true });
     const content = entries.map((entry) => JSON.stringify(entry)).join("\n");
-    atomicWriteFileSync(storageFilePath, content.length > 0 ? `${content}\n` : "", "utf-8");
+    const payload = content.length > 0 ? `${content}\n` : "";
+    const atRestCrypto = createAtRestCryptoFromEnv();
+    if (!atRestCrypto) {
+      atomicWriteFileSync(storageFilePath, payload, "utf-8");
+      return;
+    }
+    const encrypted = atRestCrypto.encryptUtf8(payload);
+    atomicWriteFileSync(storageFilePath, `${JSON.stringify(encrypted)}\n`, "utf-8");
   } catch {
     // keep API non-throwing for tool stability
   }

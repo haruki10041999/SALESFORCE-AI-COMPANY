@@ -1,6 +1,10 @@
 ﻿import { join } from "node:path";
 import { z } from "zod";
 import type { TriggerRule, AgentMessage, OrchestrationSession } from "../core/types/index.js";
+import type { SessionStore } from "../core/persistence/session-store.js";
+import type { OrchestrationQueueStore } from "../core/orchestration/orchestration-queue-store.js";
+import type { OrchestrationJobRunner } from "../core/orchestration/job-runner.js";
+import type { PolicySnapshotManager } from "../core/learning/policy-snapshot.js";
 import type { RegisterGovToolDeps } from "./types.js";
 import {
   evaluateAgentTrust,
@@ -56,19 +60,14 @@ interface RegisterChatOrchestrationToolsDeps extends RegisterGovToolDeps {
     triggerRules: TriggerRule[],
     firedRules: string[]
   ) => { nextAgents: string[]; fired: string[]; reasons: string[] };
-  orchestrationSessions: Map<string, OrchestrationSession>;
-  saveOrchestrationSession: (sessionId: string) => Promise<{ sessionId: string; filePath: string; historyCount: number } | null>;
+  /** Durable session store (Postgres or SQLite). Replaces the former in-memory Map + 3 callbacks. */
+  sessionStore: SessionStore;
+  orchestrationQueueStore: OrchestrationQueueStore;
+  orchestrationJobRunner: OrchestrationJobRunner;
+  /** T-07: Online policy snapshot for posterior-based reranking */
+  policySnapshotManager?: PolicySnapshotManager;
   saveSessionHistory: (topic: string, entries: AgentMessage[]) => Promise<string>;
-  restoreOrchestrationSession: (sessionId: string) => Promise<OrchestrationSession | null>;
   outputsDir: string;
-  listOrchestrationSessions: () => Promise<Array<{
-    id: string;
-    topic: string;
-    agents: string[];
-    queueLength: number;
-    historyCount: number;
-    firedRuleCount: number;
-  }>>;
 }
 
 export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationToolsDeps): void {
@@ -82,21 +81,50 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     emitSystemEvent,
     buildChatPrompt,
     evaluatePseudoHooks,
-    orchestrationSessions,
-    saveOrchestrationSession,
+    sessionStore,
+    orchestrationQueueStore,
+    orchestrationJobRunner,
+    policySnapshotManager,
     saveSessionHistory,
-    restoreOrchestrationSession,
-    outputsDir,
-    listOrchestrationSessions
+    outputsDir
   } = deps;
+
+  // In-process cache for active sessions (avoids repeated DB reads during a single orchestration)
+  const liveSessionCache = new Map<string, OrchestrationSession>();
+
+  async function persistSession(session: OrchestrationSession): Promise<{ sessionId: string; filePath: string; historyCount: number }> {
+    await sessionStore.upsert(session, -1);
+    return {
+      sessionId: session.id,
+      filePath: `store://orchestration_sessions/${session.id}`,
+      historyCount: Array.isArray(session.history) ? session.history.length : 0
+    };
+  }
   const agentGraphFile = join(outputsDir, "agent-graph.jsonl");
   const agentReputationFile = join(outputsDir, "agent-reputation.jsonl");
 
-  async function prioritizeQueueByPolicy(queue: string[], topic: string): Promise<string[]> {
+  async function prioritizeQueueByPolicy(queue: string[], topic: string): Promise<{ ordered: string[]; snapshotVersion: number | null }> {
     if (queue.length <= 1) {
-      return queue;
+      return { ordered: queue, snapshotVersion: policySnapshotManager?.current?.version ?? null };
     }
 
+    // ── T-07: live mode → use online posterior from PolicySnapshotManager ──
+    if (policySnapshotManager?.isLive && policySnapshotManager.current) {
+      const repScores = policySnapshotManager.reputationScores(queue, topic);
+      const topicScores = new Map<string, number>(queue.map(a => [a, scoreByQuery(topic, a)]));
+      const maxTopicScore = Math.max(0, ...Array.from(topicScores.values()));
+      const ordered = [...queue].sort((a, b) => {
+        const repDiff = (repScores.get(b) ?? 0.5) - (repScores.get(a) ?? 0.5);
+        if (Math.abs(repDiff) > 1e-9) { return repDiff; }
+        const topicNorm = maxTopicScore > 0 ? 1 / maxTopicScore : 1;
+        const topicDiff = (topicScores.get(b) ?? 0) * topicNorm - (topicScores.get(a) ?? 0) * topicNorm;
+        if (topicDiff !== 0) { return topicDiff; }
+        return a.localeCompare(b);
+      });
+      return { ordered, snapshotVersion: policySnapshotManager.current.version };
+    }
+
+    // ── shadow / no snapshot: legacy reputation + topic scoring ──
     const reputationRecords = await loadAgentReputationRecords(agentReputationFile);
     const topicScores = new Map<string, number>();
     for (const agent of queue) {
@@ -112,7 +140,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
       return reputation * topicRelevance;
     };
 
-    return [...queue].sort((a, b) => {
+    const ordered = [...queue].sort((a, b) => {
       const pDiff = priority(b) - priority(a);
       if (Math.abs(pDiff) > 1e-9) {
         return pDiff;
@@ -124,16 +152,20 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
       // deterministic fallback when both priority and topic relevance are tied
       return a.localeCompare(b);
     });
+    return { ordered, snapshotVersion: null };
   }
 
   async function getSessionOrRestore(sessionId: string): Promise<OrchestrationSession | undefined> {
-    const inMemory = orchestrationSessions.get(sessionId);
-    if (inMemory) {
-      return inMemory;
+    const cached = liveSessionCache.get(sessionId);
+    if (cached) {
+      return cached;
     }
-
-    const restored = await restoreOrchestrationSession(sessionId);
-    return restored ?? undefined;
+    const fromStore = await sessionStore.getById(sessionId);
+    if (fromStore) {
+      await orchestrationQueueStore.replace(sessionId, fromStore.queue);
+      liveSessionCache.set(sessionId, fromStore);
+    }
+    return fromStore ?? undefined;
   }
 
   govTool(
@@ -260,7 +292,27 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
               : undefined,
             agentTrust: {}
           };
-          orchestrationSessions.set(sessionId, session);
+          liveSessionCache.set(sessionId, session);
+          // Persist to durable store immediately so it survives a crash
+          await sessionStore.upsert(session, -1);
+          await orchestrationQueueStore.replace(sessionId, session.queue);
+          for (const [stepIndex, agent] of session.queue.entries()) {
+            await orchestrationJobRunner.enqueueStep({
+              sessionId,
+              stepIndex,
+              agent,
+              payload: {
+                topic,
+                persona,
+                skills: enabledSkills,
+                filePaths: filePaths ?? []
+              },
+              checkpoint: {
+                queueLength: session.queue.length,
+                mode: dagLayers.length > 0 ? "dag" : "linear"
+              }
+            });
+          }
 
           return {
             content: [
@@ -439,6 +491,24 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
         for (const nextAgent of nextAgents) {
           session.queue.push(nextAgent);
         }
+        await orchestrationQueueStore.replace(session.id, session.queue);
+        const currentMaxStep = session.history.length + session.queue.length - nextAgents.length;
+        for (const [offset, nextAgent] of nextAgents.entries()) {
+          await orchestrationJobRunner.enqueueStep({
+            sessionId: session.id,
+            stepIndex: currentMaxStep + offset,
+            agent: nextAgent,
+            payload: {
+              triggeredBy: lastAgent,
+              reason: hookResult.reasons[offset] ?? null
+            },
+            checkpoint: {
+              queueLength: session.queue.length,
+              firedRules: session.firedRules.length
+            }
+          });
+        }
+        await sessionStore.upsert(session, -1);
       }
 
       await emitSystemEvent("turn_complete", {
@@ -551,18 +621,42 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
         }
       }
 
+      let snapshotVersion: number | null = null;
       if (session.queue.length > 1) {
-        session.queue = await prioritizeQueueByPolicy(session.queue, session.topic);
+        const result = await prioritizeQueueByPolicy(session.queue, session.topic);
+        session.queue = result.ordered;
+        snapshotVersion = result.snapshotVersion;
       }
 
+      await orchestrationQueueStore.replace(session.id, session.queue);
+
       const take = limit ?? 1;
-      const nextAgents: string[] = [];
-      for (let i = 0; i < take; i++) {
-        const agent = session.queue.shift();
-        if (!agent) {
-          break;
+      const nextAgents = await orchestrationQueueStore.dequeue(session.id, take);
+      for (const agent of nextAgents) {
+        await orchestrationJobRunner.markDequeued(session.id, agent);
+      }
+      for (const agent of nextAgents) {
+        const index = session.queue.indexOf(agent);
+        if (index >= 0) {
+          session.queue.splice(index, 1);
         }
-        nextAgents.push(agent);
+      }
+
+      await sessionStore.upsert(session, -1);
+
+      for (const agent of nextAgents) {
+        await orchestrationJobRunner.completeLatestRunningStep({
+          sessionId: session.id,
+          agent,
+          output: {
+            dequeued: true,
+            remainingQueue: session.queue.length
+          },
+          checkpoint: {
+            queueLength: session.queue.length,
+            currentAgent: agent
+          }
+        });
       }
 
       if (session.queue.length === 0) {
@@ -571,7 +665,9 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
           sequence: session.history.map((item) => item.agent),
           success: true
         });
-        const savedSession = await saveOrchestrationSession(sessionId);
+        const savedSession = await persistSession(session);
+        liveSessionCache.delete(sessionId);
+        await orchestrationQueueStore.clear(sessionId);
         const savedHistoryId = session.history.length > 0
           ? await saveSessionHistory(session.topic, session.history)
           : null;
@@ -598,6 +694,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
                 dequeued: nextAgents,
                 remainingQueue: session.queue,
                 graphRecommendation,
+                snapshotVersion,
                 queueProgress: {
                   total: session.agents.length,
                   executed: session.agents.length - session.queue.length,
@@ -664,13 +761,13 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
       }
     },
     async ({ sessionId }: { sessionId: string }) => {
-      await getSessionOrRestore(sessionId);
-      const saved = await saveOrchestrationSession(sessionId);
-      if (!saved) {
+      const session = await getSessionOrRestore(sessionId);
+      if (!session) {
         return {
           content: [{ type: "text", text: "Session not found: " + sessionId }]
         };
       }
+      const saved = await persistSession(session);
 
       return {
         content: [
@@ -702,7 +799,10 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
       }
     },
     async ({ sessionId }: { sessionId: string }) => {
-      const session = await restoreOrchestrationSession(sessionId);
+      const session = await sessionStore.getById(sessionId);
+      if (session) {
+        liveSessionCache.set(sessionId, session);
+      }
       if (!session) {
         return {
           content: [{ type: "text", text: "Saved session not found: " + sessionId }]
@@ -739,7 +839,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
       inputSchema: {}
     },
     async () => {
-      const sessions = await listOrchestrationSessions();
+      const sessions = await sessionStore.list();
 
       return {
         content: [{ type: "text", text: JSON.stringify(sessions, null, 2) }]

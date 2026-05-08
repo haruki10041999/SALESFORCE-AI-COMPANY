@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createGovernedToolRegistrar } from "../mcp/core/governance/governed-tool-registrar.js";
 import { createBanditState } from "../mcp/core/learning/rl-feedback.js";
+import type { ToolRateLimiter } from "../mcp/core/reliability/rate-limiter.js";
 
 type ToolHandler = (input: unknown) => Promise<{ content: Array<{ type: string; text: string }> }>;
 
@@ -177,5 +178,72 @@ test("governed tool registrar retries when error code matches", async () => {
   const result = await handler!({});
   assert.equal(result.content[0].text, "ok");
   assert.equal(attempts, 2);
+  paths.cleanup();
+});
+
+test("governed tool registrar blocks execution when rate limit is exceeded", async () => {
+  const handlers = new Map<string, ToolHandler>();
+  const events: Array<{ event: string; payload: Record<string, unknown> }> = [];
+  const paths = makeTempPaths();
+  const banditState = createBanditState();
+  const banditStateFile = join(paths.outputsDir, "bandit-state.jsonl");
+
+  const rateLimiter: ToolRateLimiter = {
+    check: () => ({
+      allowed: false,
+      scope: "actor",
+      key: "user:test",
+      limit: 1,
+      remaining: 0,
+      retryAfterMs: 500
+    })
+  };
+
+  const { govTool } = createGovernedToolRegistrar({
+    registerTool: (name, _config, handler) => {
+      handlers.set(name, handler as ToolHandler);
+    },
+    isToolDisabled: () => false,
+    normalizeResourceName: (name) => name,
+    outputsDir: paths.outputsDir,
+    serverRoot: paths.serverRoot,
+    emitSystemEvent: async (event, payload) => {
+      events.push({ event, payload });
+    },
+    summarizeValue: (value) => (value instanceof Error ? value.message : String(value)),
+    registerToolFailure: async () => {},
+    getBanditState: () => banditState,
+    banditStateFile,
+    rateLimiter,
+    getRetryConfig: async () => ({
+      retryEnabled: true,
+      maxRetries: 2,
+      baseDelayMs: 10,
+      maxDelayMs: 20,
+      retryablePatterns: ["timeout"],
+      retryableCodes: ["ETIMEDOUT"]
+    })
+  });
+
+  let executed = false;
+  govTool("sample", {}, async () => {
+    executed = true;
+    return {
+      content: [{ type: "text", text: "ok" }]
+    };
+  });
+
+  const handler = handlers.get("sample");
+  assert.ok(handler);
+
+  const result = await handler!({});
+  assert.equal(executed, false);
+  const body = JSON.parse(result.content[0].text) as Record<string, unknown>;
+  assert.equal(body.code, "rate_limited");
+  assert.equal(body.httpStatus, 429);
+  assert.equal(body.scope, "actor");
+
+  const blockedEvent = events.find((e) => e.event === "tool_after_execute" && e.payload.blockedByRateLimit === true);
+  assert.ok(blockedEvent);
   paths.cleanup();
 });

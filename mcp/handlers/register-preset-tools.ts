@@ -1,5 +1,6 @@
 ﻿import { z } from "zod";
 import type { ChatPreset } from "../core/types/index.js";
+import { isEnvFlagEnabled } from "../core/config/env-flags.js";
 import type { RegisterGovToolDeps } from "./types.js";
 
 interface RegisterPresetToolsDeps extends RegisterGovToolDeps {
@@ -32,6 +33,7 @@ export function registerPresetTools(deps: RegisterPresetToolsDeps): void {
     buildChatPrompt,
     emitSystemEvent
   } = deps;
+  const presetFileFallbackEnabled = isEnvFlagEnabled("SF_AI_PRESET_FILE_FALLBACK");
 
   govTool(
     "create_preset",
@@ -74,7 +76,9 @@ export function registerPresetTools(deps: RegisterPresetToolsDeps): void {
               {
                 created: true,
                 name,
-                path: "outputs/presets/" + name.toLowerCase().replace(/\s+/g, "-") + ".json"
+                path: presetFileFallbackEnabled
+                  ? "outputs/presets/" + name.toLowerCase().replace(/\s+/g, "-") + ".json"
+                  : "store://presets/" + name.toLowerCase().replace(/\s+/g, "-")
               },
               null,
               2

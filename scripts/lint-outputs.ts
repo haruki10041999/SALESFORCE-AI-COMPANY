@@ -27,7 +27,9 @@ import { t } from "./support/i18n.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..");
-const outputsDir = resolve(repoRoot, "outputs");
+const outputsDir = process.env.SF_AI_OUTPUTS_DIR?.trim()
+  ? resolve(process.env.SF_AI_OUTPUTS_DIR)
+  : resolve(repoRoot, "outputs");
 const schemaPath = resolve(outputsDir, ".schema.json");
 
 interface Schema {

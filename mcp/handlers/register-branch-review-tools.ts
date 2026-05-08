@@ -9,16 +9,8 @@ import { estimateChangedCoverage } from "../tools/coverage-estimate.js";
 import { buildMetadataDependencyGraph } from "../tools/metadata-dependency-graph.js";
 import { scanSecurityRules } from "../tools/security-rule-scan.js";
 import { simulateDependencyImpact } from "../core/dependency/impact-simulator.js";
+import { escapeXml } from "../core/format/escaping.js";
 import type { GovTool } from "@mcp/tool-types.js";
-
-function escapeXml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;");
-}
 
 function readinessAsJunit(result: {
   comparison: string;

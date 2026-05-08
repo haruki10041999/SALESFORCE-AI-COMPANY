@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { parseBooleanEnv } from "./core/config/env-flags.js";
 import type { Logger } from "./core/logging/logger.js";
 import type { HandlersState } from "./handlers/auto-init.js";
 import { evaluateOllamaStartup } from "./core/llm/ollama-health.js";
@@ -64,7 +65,7 @@ export async function initializeServerRuntime(deps: RuntimeInitDeps): Promise<vo
       throw new Error(`Ollama required but unavailable: ${decision.reason}`);
     }
   } catch (error) {
-    if (process.env.OLLAMA_REQUIRED === "true") {
+    if (parseBooleanEnv(process.env.OLLAMA_REQUIRED, false)) {
       throw error;
     }
     deps.logger.warn("Ollama health evaluation failed. Continuing with ngram fallback.", error);

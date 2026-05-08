@@ -18,6 +18,12 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isEnvFlagEnabled } from "../../config/env-flags.js";
+import {
+  createAtRestCryptoFromEnv,
+  parseEncryptedEnvelope,
+  type EncryptedEnvelope
+} from "../../security/at-rest-crypto.js";
 
 export type ProposalStatus = "pending" | "approved" | "rejected";
 export type ApprovalStage = "reviewer" | "admin";
@@ -58,6 +64,8 @@ export interface ProposalRecord {
   origin?: string;
   /** 提案作成 ISO timestamp */
   createdAt: string;
+  /** 提案作成者 actor id (SoD 用) */
+  createdByActorId?: string;
   /** 承認/却下 ISO timestamp */
   resolvedAt?: string;
   /** 却下理由 (rejected の場合のみ) */
@@ -117,6 +125,7 @@ export interface NewProposalInput {
   confidence?: number;
   sourceEvent?: string;
   origin?: string;
+  createdByActorId?: string;
   requiredApprovalStages?: ApprovalStage[];
 }
 
@@ -156,6 +165,7 @@ export function buildProposal(input: NewProposalInput, now: Date, id: string): P
     confidence,
     sourceEvent: input.sourceEvent,
     origin: input.origin,
+    createdByActorId: input.createdByActorId?.trim() || undefined,
     approval: {
       requiredStages,
       currentStage: requiredStages[0],
@@ -186,6 +196,41 @@ function ensureApprovalState(record: ProposalRecord): ProposalApprovalState {
     completedStages: [],
     history: []
   };
+}
+
+function isSodRelaxedForDev(): boolean {
+  return isEnvFlagEnabled("SF_AI_SOD_RELAX_FOR_DEV");
+}
+
+function enforceSod(
+  record: ProposalRecord,
+  approval: ProposalApprovalState,
+  input: { stage: ApprovalStage; actor: string }
+): string | undefined {
+  const actor = input.actor.trim();
+  if (actor.length === 0) {
+    throw new Error("actor must not be empty");
+  }
+
+  const violations: string[] = [];
+  if (record.createdByActorId && record.createdByActorId === actor) {
+    violations.push("proposer and approver must be different");
+  }
+  if (input.stage === "admin") {
+    const reviewerActor = approval.history.find((entry) => entry.stage === "reviewer")?.actor;
+    if (reviewerActor && reviewerActor === actor) {
+      violations.push("reviewer and admin approver must be different");
+    }
+  }
+  if (violations.length === 0) {
+    return undefined;
+  }
+
+  if (!isSodRelaxedForDev()) {
+    throw new Error(`SoD violation: ${violations.join("; ")}`);
+  }
+
+  return `[SOD_RELAX_FOR_DEV] ${violations.join("; ")}`;
 }
 
 function clamp01(v: number): number {
@@ -222,6 +267,52 @@ function proposalFilePath(dir: string, id: string): string {
   return join(dir, `${id}.json`);
 }
 
+function isEncryptedEnvelope(value: unknown): value is EncryptedEnvelope {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record.alg === "string"
+    && typeof record.keyId === "string"
+    && typeof record.iv === "string"
+    && typeof record.tag === "string"
+    && typeof record.ciphertext === "string";
+}
+
+function writeProposalRecord(filePath: string, record: ProposalRecord): void {
+  const plainText = JSON.stringify(record, null, 2);
+  const atRestCrypto = createAtRestCryptoFromEnv();
+  if (!atRestCrypto) {
+    writeFileSync(filePath, plainText, "utf-8");
+    return;
+  }
+  const encrypted = atRestCrypto.encryptUtf8(plainText);
+  writeFileSync(filePath, `${JSON.stringify(encrypted)}\n`, "utf-8");
+}
+
+function readProposalRecord(filePath: string): ProposalRecord {
+  const raw = readFileSync(filePath, "utf-8");
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    throw new Error(`empty proposal file: ${filePath}`);
+  }
+
+  try {
+    const atRestCrypto = createAtRestCryptoFromEnv();
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (atRestCrypto && isEncryptedEnvelope(parsed)) {
+      return JSON.parse(atRestCrypto.decryptUtf8(parsed)) as ProposalRecord;
+    }
+    return parsed as ProposalRecord;
+  } catch {
+    const parsed = parseEncryptedEnvelope(trimmed);
+    if (isEncryptedEnvelope(parsed)) {
+      throw new Error(`encrypted proposal requires SF_AI_ENCRYPTION_ENABLED=true: ${filePath}`);
+    }
+    return JSON.parse(raw) as ProposalRecord;
+  }
+}
+
 export function enqueueProposal(
   outputsDir: string,
   input: NewProposalInput,
@@ -231,7 +322,7 @@ export function enqueueProposal(
   ensureDirs(paths);
   const id = nextProposalId(now.getTime());
   const record = buildProposal(input, now, id);
-  writeFileSync(proposalFilePath(paths.pendingDir, id), JSON.stringify(record, null, 2), "utf-8");
+  writeProposalRecord(proposalFilePath(paths.pendingDir, id), record);
   return record;
 }
 
@@ -246,12 +337,12 @@ function updatePendingProposal(
   if (!existsSync(fp)) {
     throw new Error(`proposal not found in pending: ${id}`);
   }
-  const current = JSON.parse(readFileSync(fp, "utf-8")) as ProposalRecord;
+  const current = readProposalRecord(fp);
   const next: ProposalRecord = {
     ...current,
     ...patch
   };
-  writeFileSync(fp, JSON.stringify(next, null, 2), "utf-8");
+  writeProposalRecord(fp, next);
   return next;
 }
 
@@ -261,8 +352,7 @@ function readDirRecords(dir: string): ProposalRecord[] {
     .filter((name) => name.endsWith(".json"))
     .map((name) => {
       try {
-        const raw = readFileSync(join(dir, name), "utf-8");
-        return JSON.parse(raw) as ProposalRecord;
+        return readProposalRecord(join(dir, name));
       } catch {
         return null;
       }
@@ -321,7 +411,7 @@ export function getProposal(outputsDir: string, id: string): ProposalRecord | nu
   for (const dir of [paths.pendingDir, paths.approvedDir, paths.rejectedDir]) {
     const fp = proposalFilePath(dir, id);
     if (existsSync(fp)) {
-      try { return JSON.parse(readFileSync(fp, "utf-8")) as ProposalRecord; } catch { return null; }
+      try { return readProposalRecord(fp); } catch { return null; }
     }
   }
   return null;
@@ -339,7 +429,7 @@ function moveProposal(
   if (!existsSync(fromPath)) {
     throw new Error(`proposal not found in pending: ${id}`);
   }
-  const current = JSON.parse(readFileSync(fromPath, "utf-8")) as ProposalRecord;
+  const current = readProposalRecord(fromPath);
   const next: ProposalRecord = {
     ...current,
     ...patch,
@@ -348,7 +438,7 @@ function moveProposal(
   };
   const targetDir = to === "approved" ? paths.approvedDir : paths.rejectedDir;
   const toPath = proposalFilePath(targetDir, id);
-  writeFileSync(toPath, JSON.stringify(next, null, 2), "utf-8");
+  writeProposalRecord(toPath, next);
   if (existsSync(fromPath)) {
     try { unlinkSync(fromPath); } catch { /* noop */ }
   }
@@ -430,6 +520,7 @@ export function approveProposalStage(
   if (approval.currentStage !== input.stage) {
     throw new Error(`current stage is ${approval.currentStage}; requested ${input.stage}`);
   }
+  const sodRelaxNote = enforceSod(current, approval, input);
 
   const now = new Date().toISOString();
   const completedStages = [...new Set([...approval.completedStages, input.stage])];
@@ -440,7 +531,9 @@ export function approveProposalStage(
       actor: input.actor,
       decision: "approved",
       decidedAt: now,
-      comment: input.comment
+      comment: [input.comment, sodRelaxNote]
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .join(" | ") || undefined
     }
   ];
 
@@ -484,6 +577,7 @@ export function rejectProposalStage(
   if (approval.currentStage !== input.stage) {
     throw new Error(`current stage is ${approval.currentStage}; requested ${input.stage}`);
   }
+  const sodRelaxNote = enforceSod(current, approval, input);
   const trimmed = input.reason.trim();
   if (trimmed.length === 0) {
     throw new Error("rejectReason must not be empty");
@@ -496,7 +590,9 @@ export function rejectProposalStage(
       actor: input.actor,
       decision: "rejected",
       decidedAt: now,
-      comment: trimmed
+      comment: [trimmed, sodRelaxNote]
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .join(" | ")
     }
   ];
 

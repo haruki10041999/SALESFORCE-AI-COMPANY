@@ -17,8 +17,13 @@ import type {
 import { getRewardStats } from "./reward-aggregator.js";
 import { loadAgentReputationRecords } from "./agent-reputation.js";
 import { getRewardHealth } from "./feedback-manager.js";
+import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
 
 const DASHBOARD_PATH = resolve("outputs", "dashboards", "learning-progress.json");
+const artifactWriter = new OutputsArtifactWriter({
+  outputsDir: process.env.SF_AI_OUTPUTS_DIR ? resolve(process.env.SF_AI_OUTPUTS_DIR) : resolve("outputs"),
+  databaseUrl: process.env.DATABASE_URL
+});
 
 /**
  * Compute bandit convergence metrics
@@ -289,9 +294,7 @@ export async function saveLearningProgressDashboard(
   dashboard: LearningProgressDashboard
 ): Promise<void> {
   try {
-    const dir = resolve("outputs", "dashboards");
-    await fsPromises.mkdir(dir, { recursive: true });
-    await fsPromises.writeFile(DASHBOARD_PATH, JSON.stringify(dashboard, null, 2));
+    await artifactWriter.writeJson("dashboards/learning-progress.json", dashboard);
   } catch (error) {
     throw new Error(
       `Failed to save dashboard: ${error instanceof Error ? error.message : String(error)}`

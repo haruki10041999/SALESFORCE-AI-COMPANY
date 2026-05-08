@@ -7,8 +7,14 @@ import { promises as fsPromises } from "fs";
 import { resolve } from "path";
 import { randomUUID } from "crypto";
 import { loadAllRewards } from "./reward-aggregator.js";
+import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
 
 export type AdoptionStage = "shadow" | "canary" | "stable" | "rolling-back" | "rolled-back";
+
+const artifactWriter = new OutputsArtifactWriter({
+  outputsDir: process.env.SF_AI_OUTPUTS_DIR ? resolve(process.env.SF_AI_OUTPUTS_DIR) : resolve("outputs"),
+  databaseUrl: process.env.DATABASE_URL
+});
 
 export interface StagedToolProposal {
   /** Unique proposal ID */
@@ -115,7 +121,7 @@ export async function createStagedProposal(
   };
 
   try {
-    await fsPromises.appendFile(STAGED_PROPOSALS_PATH, JSON.stringify(proposal) + "\n");
+    await artifactWriter.appendJsonl("learning/staged-proposals.jsonl", proposal);
   } catch (error) {
     throw new Error(
       `Failed to create staged proposal: ${error instanceof Error ? error.message : String(error)}`
@@ -183,7 +189,7 @@ export async function transitionProposalStage(
   // Save updated proposals
   const updatedContent = proposals.map((p) => JSON.stringify(p)).join("\n") + "\n";
   try {
-    await fsPromises.writeFile(STAGED_PROPOSALS_PATH, updatedContent);
+    await artifactWriter.writeText("learning/staged-proposals.jsonl", updatedContent);
   } catch (error) {
     throw new Error(
       `Failed to update staged proposal: ${error instanceof Error ? error.message : String(error)}`
@@ -387,7 +393,7 @@ export async function executeRollback(proposalId: string): Promise<StagedToolPro
   // Save updated proposals
   const updatedContent = proposals.map((p) => JSON.stringify(p)).join("\n") + "\n";
   try {
-    await fsPromises.writeFile(STAGED_PROPOSALS_PATH, updatedContent);
+    await artifactWriter.writeText("learning/staged-proposals.jsonl", updatedContent);
   } catch (error) {
     throw new Error(
       `Failed to execute rollback: ${error instanceof Error ? error.message : String(error)}`

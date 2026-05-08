@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { normalizeSampleLimit } from "../core/config/normalized-limits.js";
 
 export type OrgInventoryInput = {
   org: string;
@@ -175,7 +176,7 @@ function determineRiskLevel(addedCount: number, missingCount: number, baseTotal:
 
 export function compareOrgMetadata(input: OrgMetadataDiffInput): OrgMetadataDiffResult {
   const baselineOrg = normalizeOrgName(input.baselineOrg);
-  const sampleLimit = Number.isFinite(input.sampleLimit) ? Math.max(1, Math.floor(input.sampleLimit ?? 10)) : 10;
+  const sampleLimit = normalizeSampleLimit(input.sampleLimit, 10);
 
   if (!Array.isArray(input.compareOrgs) || input.compareOrgs.length === 0) {
     throw new Error("compareOrgs は 1 件以上必要です。");

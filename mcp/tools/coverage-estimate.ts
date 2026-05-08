@@ -1,5 +1,13 @@
 import { OrgIdentifierSchema, runSchemaValidation } from "../core/quality/resource-validation.js";
-import { ensureGitRepoAndRefs, getDiffFiles, runGit, unique, validateRef } from "./git-diff-helpers.js";
+import {
+  apexClassNameFromPath,
+  ensureGitRepoAndRefs,
+  getDiffFiles,
+  runGit,
+  unique,
+  uniqueByJson,
+  validateRef
+} from "./git-diff-helpers.js";
 
 export type CoverageEstimateInput = {
   repoPath: string;
@@ -35,11 +43,6 @@ export type CoverageEstimateResult = {
   runCommand?: string;
   summary: string;
 };
-
-function classNameFromPath(path: string): string | null {
-  const match = path.match(/\/classes\/([^/]+)\.cls$/i);
-  return match?.[1] ?? null;
-}
 
 function triggerNameFromPath(path: string): string | null {
   const match = path.match(/\/triggers\/([^/]+)\.trigger$/i);
@@ -124,7 +127,7 @@ export function estimateChangedCoverage(input: CoverageEstimateInput): CoverageE
     }
 
     if (/\/classes\/.*\.cls$/i.test(sourcePath)) {
-      const className = classNameFromPath(sourcePath);
+      const className = apexClassNameFromPath(sourcePath);
       if (!className) continue;
 
       const canonical = [`${className}Test`, `${className}Tests`];
@@ -162,7 +165,7 @@ export function estimateChangedCoverage(input: CoverageEstimateInput): CoverageE
         }
       }
 
-      const deduped = unique(candidates.map((c) => JSON.stringify(c))).map((s) => JSON.parse(s) as CoverageCandidate);
+      const deduped = uniqueByJson<CoverageCandidate>(candidates);
       mappings.push({
         sourcePath,
         sourceName: className,
@@ -212,7 +215,7 @@ export function estimateChangedCoverage(input: CoverageEstimateInput): CoverageE
         }
       }
 
-      const deduped = unique(candidates.map((c) => JSON.stringify(c))).map((s) => JSON.parse(s) as CoverageCandidate);
+      const deduped = uniqueByJson<CoverageCandidate>(candidates);
       mappings.push({
         sourcePath,
         sourceName: triggerName,

@@ -7,8 +7,13 @@ import { promises as fsPromises } from "fs";
 import { resolve } from "path";
 import type { FailureMemoryEntry } from "../../../memory/failure-memory.js";
 import { listFailureMemory } from "../../../memory/failure-memory.js";
+import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
 
 const RAG_INJECTION_CACHE_PATH = resolve("outputs", "learning", "rag-injection-cache.jsonl");
+const artifactWriter = new OutputsArtifactWriter({
+  outputsDir: process.env.SF_AI_OUTPUTS_DIR ? resolve(process.env.SF_AI_OUTPUTS_DIR) : resolve("outputs"),
+  databaseUrl: process.env.DATABASE_URL
+});
 
 export interface ErrorSignature {
   code?: string;
@@ -235,8 +240,7 @@ export async function injectFailureContext(errorData: {
   };
 
   try {
-    await fsPromises.mkdir(resolve("outputs", "learning"), { recursive: true });
-    await fsPromises.appendFile(RAG_INJECTION_CACHE_PATH, JSON.stringify(result) + "\n");
+    await artifactWriter.appendJsonl("learning/rag-injection-cache.jsonl", result);
   } catch {
     // Ignore cache write failures
   }

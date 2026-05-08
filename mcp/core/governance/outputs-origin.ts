@@ -1,7 +1,7 @@
-import { appendFileSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PostgresRuntimeLogStore } from "../persistence/postgres-runtime-log-store.js";
+import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
 
 export interface ExecutionOriginRecord {
   timestamp: string;
@@ -17,9 +17,10 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const DEFAULT_OUTPUTS_DIR = process.env.SF_AI_OUTPUTS_DIR
   ? resolve(process.env.SF_AI_OUTPUTS_DIR)
   : resolve(ROOT, "outputs");
-const runtimeStorePromise = process.env.DATABASE_URL
-  ? PostgresRuntimeLogStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
-  : Promise.resolve(null);
+const artifactWriter = new OutputsArtifactWriter({
+  outputsDir: DEFAULT_OUTPUTS_DIR,
+  databaseUrl: process.env.DATABASE_URL
+});
 
 function shouldUseDatabaseExecutionOrigins(outputsDir: string): boolean {
   return Boolean(process.env.DATABASE_URL) && resolve(outputsDir) === DEFAULT_OUTPUTS_DIR;
@@ -124,19 +125,14 @@ export function buildExecutionOriginRecord(
 
 export function appendExecutionOrigin(outputsDir: string, record: ExecutionOriginRecord): void {
   if (shouldUseDatabaseExecutionOrigins(outputsDir)) {
-    void runtimeStorePromise.then(async (runtimeStore) => {
-      if (!runtimeStore) {
-        return;
-      }
-      try {
-        await runtimeStore.appendExecutionOrigin(record);
-      } catch {
-        // provenance 記録失敗はツール実行を阻害しない
-      }
+    void artifactWriter.appendExecutionOrigin(record).catch(() => {
+      // provenance 記録失敗はツール実行を阻害しない
     });
     return;
   }
 
-  mkdirSync(outputsDir, { recursive: true });
-  appendFileSync(join(outputsDir, "execution-origins.jsonl"), `${JSON.stringify(record)}\n`, "utf-8");
+  const fileWriter = new OutputsArtifactWriter({ outputsDir });
+  void fileWriter.appendExecutionOrigin(record).catch(() => {
+    // provenance 記録失敗はツール実行を阻害しない
+  });
 }

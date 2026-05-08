@@ -1,6 +1,7 @@
 import { promises as fsPromises } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { applyAgentOutcomes, type AgentTrustHistoriesFile } from "../core/quality/agent-trust-store.js";
+import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
 
 type PromptMetrics = {
   estimatedTokens: number;
@@ -158,6 +159,11 @@ export async function runAgentAbTest(
 ): Promise<AgentAbTestResult> {
   // 既定はメモリ返却のみ。必要時のみ reportOutputDir へ保存する。
   const reportDir = input.reportOutputDir ? resolve(input.reportOutputDir) : null;
+  const runtimeOutputsDir = resolve(deps.outputsDir);
+  const artifactWriter = new OutputsArtifactWriter({
+    outputsDir: runtimeOutputsDir,
+    databaseUrl: process.env.DATABASE_URL
+  });
 
   const [agentA, agentB] = await Promise.all([
     runSingle(deps.runChatTool, deps.evaluatePromptMetrics, input, input.agentA),
@@ -201,10 +207,18 @@ export async function runAgentAbTest(
   };
 
   if (reportDir) {
-    await fsPromises.mkdir(reportDir, { recursive: true });
-    await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
-    await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
-    await fsPromises.writeFile(reportMarkdownPath, buildMarkdown(result), "utf-8");
+    const useArtifactWriter = reportDir.toLowerCase().startsWith(runtimeOutputsDir.toLowerCase());
+    if (useArtifactWriter) {
+      const reportRelativeDir = relative(runtimeOutputsDir, reportDir);
+      await artifactWriter.appendJsonl(join(reportRelativeDir, "runs.jsonl"), result);
+      await artifactWriter.writeJson(join(reportRelativeDir, "latest.json"), result);
+      await artifactWriter.writeText(join(reportRelativeDir, "latest.md"), buildMarkdown(result));
+    } else {
+      await fsPromises.mkdir(reportDir, { recursive: true });
+      await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");
+      await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
+      await fsPromises.writeFile(reportMarkdownPath, buildMarkdown(result), "utf-8");
+    }
   }
 
   if (input.applyOutcomeToTrustStore && overall && agentA.agent !== agentB.agent) {

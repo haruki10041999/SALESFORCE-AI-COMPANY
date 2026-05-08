@@ -9,6 +9,7 @@ const TMP_DIR = resolve("outputs", "learning", "metrics-auto-update-test");
 const REWARD_PATH = resolve(TMP_DIR, "rewards.jsonl");
 const REPUTATION_PATH = resolve(TMP_DIR, "agent-reputation.jsonl");
 const REPORT_PATH = resolve(TMP_DIR, "drift-report.jsonl");
+const FREEZE_PATH = resolve(TMP_DIR, "drift-freeze.json");
 
 async function writeJsonl(filePath: string, rows: unknown[]): Promise<void> {
   await fsPromises.mkdir(dirname(filePath), { recursive: true });
@@ -51,6 +52,7 @@ test("metrics-auto-update emits drift alert callback when alert is detected", as
       rewardFilePath: REWARD_PATH,
       reputationFilePath: REPUTATION_PATH,
       driftReportPath: REPORT_PATH,
+      freezeStatePath: FREEZE_PATH,
       onDriftAlert: () => {
         callbackCount += 1;
       }
@@ -58,7 +60,14 @@ test("metrics-auto-update emits drift alert callback when alert is detected", as
 
     assert.equal(result.driftReport?.shouldAlert, true);
     assert.equal(result.driftAlertEmitted, true);
+    assert.equal(result.driftFreezeActivated, true);
     assert.equal(callbackCount, 1);
+    const freezePayload = JSON.parse(await fsPromises.readFile(FREEZE_PATH, "utf-8")) as {
+      frozen?: boolean;
+      sourceReportId?: string;
+    };
+    assert.equal(freezePayload.frozen, true);
+    assert.equal(freezePayload.sourceReportId, result.driftReport?.reportId);
   } finally {
     await cleanup();
   }
@@ -84,6 +93,7 @@ test("metrics-auto-update does not emit drift callback when alert is not detecte
       rewardFilePath: REWARD_PATH,
       reputationFilePath: REPUTATION_PATH,
       driftReportPath: REPORT_PATH,
+      freezeStatePath: FREEZE_PATH,
       onDriftAlert: () => {
         callbackCount += 1;
       }
@@ -91,7 +101,40 @@ test("metrics-auto-update does not emit drift callback when alert is not detecte
 
     assert.equal(result.driftReport?.shouldAlert, false);
     assert.equal(result.driftAlertEmitted, false);
+    assert.equal(result.driftFreezeActivated, false);
     assert.equal(callbackCount, 0);
+    await assert.rejects(async () => fsPromises.readFile(FREEZE_PATH, "utf-8"));
+  } finally {
+    await cleanup();
+  }
+});
+
+test("metrics-auto-update can disable drift freeze activation", async () => {
+  await cleanup();
+  try {
+    const rewards: RewardRecord[] = [];
+    for (let i = 0; i < 30; i++) rewards.push(makeReward(40 + i, 0.9));
+    for (let i = 0; i < 30; i++) rewards.push(makeReward(i % 20, 0.1));
+    await writeJsonl(REWARD_PATH, rewards);
+    await writeJsonl(REPUTATION_PATH, []);
+
+    const result = await runMetricsAutoUpdate({
+      reportingHours: 24,
+      includeDriftDetection: true,
+      driftBaselineHours: 72,
+      driftRecentHours: 24,
+      minRecentRewardSamples: 20,
+      rewardDriftThreshold: 0.15,
+      rewardFilePath: REWARD_PATH,
+      reputationFilePath: REPUTATION_PATH,
+      driftReportPath: REPORT_PATH,
+      freezeOnDriftAlert: false,
+      freezeStatePath: FREEZE_PATH
+    });
+
+    assert.equal(result.driftReport?.shouldAlert, true);
+    assert.equal(result.driftFreezeActivated, false);
+    await assert.rejects(async () => fsPromises.readFile(FREEZE_PATH, "utf-8"));
   } finally {
     await cleanup();
   }

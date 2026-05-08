@@ -1,5 +1,12 @@
 import fs from "node:fs";
+import { normalizeSampleLimit } from "../core/config/normalized-limits.js";
 import { SafeFilePathSchema, runSchemaValidation } from "../core/quality/resource-validation.js";
+import {
+  collectEnabledSystemPermissions,
+  collectPermissionSetBlocks,
+  getPermissionSetBooleanTag,
+  getPermissionSetTagText
+} from "./permission-set-xml.js";
 
 type ObjectPermission = {
   object: string;
@@ -64,54 +71,35 @@ function readXml(filePath: string, fieldName: string): string {
   return fs.readFileSync(filePath, "utf-8");
 }
 
-function getTagText(block: string, tag: string): string {
-  const match = block.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "i"));
-  return match?.[1]?.trim() ?? "";
-}
-
-function getBooleanTag(block: string, tag: string): boolean {
-  return getTagText(block, tag).toLowerCase() === "true";
-}
-
-function collectBlocks(xml: string, tag: string): string[] {
-  return [...xml.matchAll(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "gi"))].map((m) => m[1] ?? "");
-}
-
 function parsePermissionSet(xml: string): ParsedPermissionSet {
   const objectPermissions = new Map<string, ObjectPermission>();
   const fieldPermissions = new Map<string, FieldPermission>();
-  const systemPermissions = new Set<string>();
+  const systemPermissions = collectEnabledSystemPermissions(xml);
 
-  for (const block of collectBlocks(xml, "objectPermissions")) {
-    const objectName = getTagText(block, "object");
+  for (const block of collectPermissionSetBlocks(xml, "objectPermissions")) {
+    const objectName = getPermissionSetTagText(block, "object");
     if (!objectName) continue;
 
     objectPermissions.set(objectName, {
       object: objectName,
-      allowRead: getBooleanTag(block, "allowRead"),
-      allowCreate: getBooleanTag(block, "allowCreate"),
-      allowEdit: getBooleanTag(block, "allowEdit"),
-      allowDelete: getBooleanTag(block, "allowDelete"),
-      viewAllRecords: getBooleanTag(block, "viewAllRecords"),
-      modifyAllRecords: getBooleanTag(block, "modifyAllRecords")
+      allowRead: getPermissionSetBooleanTag(block, "allowRead"),
+      allowCreate: getPermissionSetBooleanTag(block, "allowCreate"),
+      allowEdit: getPermissionSetBooleanTag(block, "allowEdit"),
+      allowDelete: getPermissionSetBooleanTag(block, "allowDelete"),
+      viewAllRecords: getPermissionSetBooleanTag(block, "viewAllRecords"),
+      modifyAllRecords: getPermissionSetBooleanTag(block, "modifyAllRecords")
     });
   }
 
-  for (const block of collectBlocks(xml, "fieldPermissions")) {
-    const fieldName = getTagText(block, "field");
+  for (const block of collectPermissionSetBlocks(xml, "fieldPermissions")) {
+    const fieldName = getPermissionSetTagText(block, "field");
     if (!fieldName) continue;
 
     fieldPermissions.set(fieldName, {
       field: fieldName,
-      readable: getBooleanTag(block, "readable"),
-      editable: getBooleanTag(block, "editable")
+      readable: getPermissionSetBooleanTag(block, "readable"),
+      editable: getPermissionSetBooleanTag(block, "editable")
     });
-  }
-
-  for (const [, rawName, rawValue] of xml.matchAll(/<permissions([A-Za-z0-9_]+)>(true|false)<\/permissions\1>/g)) {
-    if (rawValue.toLowerCase() === "true") {
-      systemPermissions.add(rawName);
-    }
   }
 
   return {
@@ -183,7 +171,7 @@ function buildSuggestions(missingCount: number, excessiveCount: number): string[
 }
 
 export function diffPermissionSet(input: PermissionSetDiffInput): PermissionSetDiffResult {
-  const sampleLimit = Number.isFinite(input.sampleLimit) ? Math.max(1, Math.floor(input.sampleLimit ?? 10)) : 10;
+  const sampleLimit = normalizeSampleLimit(input.sampleLimit, 10);
 
   const baselineXml = readXml(input.baselineFilePath, "baselineFilePath");
   const targetXml = readXml(input.targetFilePath, "targetFilePath");

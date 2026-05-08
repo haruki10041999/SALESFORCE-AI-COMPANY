@@ -8,6 +8,7 @@ import { getActiveTraces, getCompletedTraces } from "../core/trace/trace-context
 import { getMetricsSummary } from "../tools/metrics.js";
 import { runAgentAbTest } from "../tools/agent-ab-test.js";
 import type { RegisterGovToolDeps } from "./types.js";
+import type { PolicySnapshotManager } from "../core/learning/policy-snapshot.js";
 import {
   buildObservabilityDashboard,
   type ObservabilityGovernanceFlagged
@@ -37,6 +38,7 @@ import {
   loadAgentReputationRecords,
   updateAgentReputation
 } from "../core/learning/agent-reputation.js";
+import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
 
 interface RegisterAnalyticsToolsDeps extends RegisterGovToolDeps {
   agentLog: AgentMessage[];
@@ -69,6 +71,8 @@ interface RegisterAnalyticsToolsDeps extends RegisterGovToolDeps {
     triggerMatchRate: number;
   };
   outputsDir: string;
+  /** T-07: optional – when provided, scheduleRefresh on feedback writes */
+  policySnapshotManager?: PolicySnapshotManager;
 }
 
 export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
@@ -88,6 +92,11 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
     evaluatePromptMetrics,
     outputsDir
   } = deps;
+  const { policySnapshotManager } = deps;
+  const artifactWriter = new OutputsArtifactWriter({
+    outputsDir,
+    databaseUrl: process.env.DATABASE_URL
+  });
 
   function starToRating(stars: number): "thumbs-up" | "thumbs-down" | "neutral" {
     if (stars >= 4) return "thumbs-up";
@@ -761,14 +770,13 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
       const dashboardsDir = join(outputsDir, "dashboards");
       const shouldWrite = write === true;
       if (shouldWrite) {
-        await ensureDir(dashboardsDir);
-        await fsPromises.writeFile(join(dashboardsDir, "observability.html"), report.html, "utf-8");
-        await fsPromises.writeFile(join(dashboardsDir, "observability.md"), report.markdown, "utf-8");
-        await fsPromises.writeFile(
-          join(dashboardsDir, "observability.json"),
-          JSON.stringify({ summary: report.summary, correlations: report.correlations, governanceFlagged: report.governanceFlagged }, null, 2),
-          "utf-8"
-        );
+        await artifactWriter.writeText("dashboards/observability.html", report.html);
+        await artifactWriter.writeText("dashboards/observability.md", report.markdown);
+        await artifactWriter.writeJson("dashboards/observability.json", {
+          summary: report.summary,
+          correlations: report.correlations,
+          governanceFlagged: report.governanceFlagged
+        });
       }
 
       const fmt = format ?? "markdown";
@@ -1004,18 +1012,18 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
           minConfidence: confidence,
           recommendations
         };
-        await fsPromises.writeFile(reportPath, JSON.stringify(report, null, 2), "utf-8");
+        await artifactWriter.writeJson("reports/trigger-tuning/latest.json", report);
 
         let appliedPath: string | null = null;
         if (apply) {
-          const triggerRulesPath = resolve(outputsDir, "trigger-rules.json");
+          const triggerRulesPath = resolve(outputsDir, "reports", "trigger-tuning", "applied-rules.json");
           const rules = recommendations.map((r) => ({
             whenAgent: r.whenAgent,
             thenAgent: r.thenAgent,
             reason: r.reason,
             once: r.once
           }));
-          await fsPromises.writeFile(triggerRulesPath, JSON.stringify({ updatedAt: new Date().toISOString(), rules }, null, 2), "utf-8");
+          await artifactWriter.writeJson("reports/trigger-tuning/applied-rules.json", { updatedAt: new Date().toISOString(), rules });
           appliedPath = triggerRulesPath;
         }
 
@@ -1132,7 +1140,7 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
         const filteredComparisons = summary.comparisons.filter((row) => row.runs >= effectiveMinRuns);
 
         const analysisPath = join(dir, "analysis-latest.json");
-        await fsPromises.writeFile(analysisPath, JSON.stringify({
+        const analysisPayload = {
           generatedAt: new Date().toISOString(),
           sourceRunsPath: runsPath,
           minRuns: effectiveMinRuns,
@@ -1140,7 +1148,12 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
           agentRanking: filteredRanking,
           comparisons: filteredComparisons,
           monthlyStrata: summary.monthlyStrata
-        }, null, 2), "utf-8");
+        };
+        if (reportDir) {
+          await fsPromises.writeFile(analysisPath, JSON.stringify(analysisPayload, null, 2), "utf-8");
+        } else {
+          await artifactWriter.writeJson("reports/agent-ab-test/analysis-latest.json", analysisPayload);
+        }
 
         return {
           content: [{
@@ -1364,6 +1377,11 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
           qualityScore: Number(((stars - 1) / 4).toFixed(2)),
           tags: ["tool-execution", `stars:${stars}`, ...(tags ?? [])]
         });
+        // T-07: trigger online policy refresh after feedback
+        if (policySnapshotManager) {
+          policySnapshotManager.scheduleRefresh();
+          void policySnapshotManager.notifyPolicyUpdated();
+        }
 
         return {
           content: [{
@@ -1405,6 +1423,11 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
         tags?: string[];
       }) => {
         const feedback = await recordUserFeedback(input);
+        // T-07: trigger online policy refresh after feedback
+        if (policySnapshotManager) {
+          policySnapshotManager.scheduleRefresh();
+          void policySnapshotManager.notifyPolicyUpdated();
+        }
         return {
           content: [{ type: "text", text: JSON.stringify({ success: true, feedbackId: feedback.feedbackId, timestamp: feedback.timestamp }, null, 2) }]
         };

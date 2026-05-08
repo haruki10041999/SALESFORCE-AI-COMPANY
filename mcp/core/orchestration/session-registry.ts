@@ -3,8 +3,8 @@ import type { OrchestrationSession } from "../types/index.js";
 /**
  * In-memory orchestration session registry.
  *
- * Keep default Map-based behavior, but expose a factory so runtime can
- * swap to another registry implementation if needed.
+ * Used as a short-lived cache during an orchestration run.
+ * Durable storage is handled by SessionStore (postgres-session-store / sqlite-session-store).
  */
 export interface OrchestrationSessionRegistry {
   get(sessionId: string): OrchestrationSession | undefined;
@@ -43,3 +43,4 @@ export const orchestrationSessions = defaultRegistry.asMap();
 export function clearOrchestrationSessionsForTest(): void {
   defaultRegistry.clear();
 }
+

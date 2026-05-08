@@ -5,6 +5,7 @@
  * 副作用なしの純粋関数。HTML/Markdown/Summary を返し、
  * ファイル書き出しは呼び出し側 (handler) が担当する。
  */
+import { escapeHtml } from "../format/escaping.js";
 import type { GovernanceState, GovernedResourceType } from "./governance-state.js";
 
 export interface GovernanceUiOptions {
@@ -34,15 +35,6 @@ export interface GovernanceUiReport {
 }
 
 const RESOURCE_TYPES: GovernedResourceType[] = ["skills", "tools", "presets"];
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 function buildSection(
   type: GovernedResourceType,

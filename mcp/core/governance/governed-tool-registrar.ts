@@ -3,16 +3,27 @@ import type { BanditState } from "../learning/rl-feedback.js";
 import { saveBanditState } from "../learning/rl-feedback.js";
 import { isRetryableByCode, isRetryableError } from "../errors/tool-error.js";
 import { startTrace, endTrace, failTrace } from "../trace/trace-context.js";
+import { ToolExecutionRecorder } from "../trace/tool-recorder.js";
 import { recordMetric } from "../../tools/metrics.js";
 import { addMemory } from "../../../memory/project-memory.js";
 import { addRecord as addVectorRecord } from "../../../memory/vector-store.js";
 import { buildProgressBanner } from "../progress/progress-formatter.js";
 import { PostgresRuntimeLogStore } from "../persistence/postgres-runtime-log-store.js";
+import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
 import { appendExecutionOrigin, buildExecutionOriginRecord } from "./outputs-origin.js";
-import { checkToolAccess } from "./rbac-policy.js";
+import { authorizeToolExecution } from "../identity/rbac.js";
 import { evaluateExecutionPolicy, loadExecutionPolicy } from "./execution-policy.js";
-import { promises as fsPromises } from "node:fs";
-import { resolve } from "node:path";
+import { createPolicyGate, buildBlockedResponse } from "./policy-gate.js";
+import { CostBudgetManager, buildCostUsageFromInputOutput } from "./cost-budget.js";
+import { isEnvFlagEnabled } from "../config/env-flags.js";
+import { getGlobalToolRateLimiter, type ToolRateLimiter } from "../reliability/rate-limiter.js";
+import {
+  extractActorFromToolInput,
+  mergeActorIdentity,
+  resolveDefaultActorFromEnv
+} from "../identity/actor.js";
+import { resolveActorFromOidcInput } from "../identity/oidc-verifier.js";
+import { currentActor, runWithActorContext } from "../identity/actor-context.js";
 
 const PROGRESS_BANNER_SKIP_TOOLS = new Set([
   // 進捗表示の意味が薄い軽量ツール (応答が JSON のみで構造化されているもの含む)
@@ -22,8 +33,7 @@ const PROGRESS_BANNER_SKIP_TOOLS = new Set([
 
 function isProgressBannerEnabled(toolName: string): boolean {
   if (PROGRESS_BANNER_SKIP_TOOLS.has(toolName)) return false;
-  const value = (process.env.SF_AI_PROGRESS_BANNER ?? "true").toLowerCase();
-  return value === "1" || value === "true" || value === "on" || value === "yes";
+  return isEnvFlagEnabled("SF_AI_PROGRESS_BANNER", process.env, true);
 }
 
 function attachProgressBanner<T extends { content?: Array<{ type: string; text: string }> }>(
@@ -52,8 +62,7 @@ const AUTO_MEMORY_SKIP_TOOLS = new Set([
 ]);
 
 function isAutoMemoryEnabled(): boolean {
-  const value = (process.env.SF_AI_AUTO_MEMORY ?? "").toLowerCase();
-  return value === "1" || value === "true" || value === "on" || value === "yes";
+  return isEnvFlagEnabled("SF_AI_AUTO_MEMORY");
 }
 
 function recordToolExecutionToMemory(
@@ -105,6 +114,7 @@ interface CreateGovernedToolRegistrarDeps {
   }>;
   getBanditState: () => BanditState;
   banditStateFile: string;
+  rateLimiter?: ToolRateLimiter;
 }
 
 export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDeps) {
@@ -120,11 +130,39 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
     registerToolFailure,
     getRetryConfig,
     getBanditState,
-    banditStateFile
+    banditStateFile,
+    rateLimiter: injectedRateLimiter
   } = deps;
+  const rateLimiter = injectedRateLimiter ?? getGlobalToolRateLimiter();
   const runtimeStorePromise = databaseUrl
     ? PostgresRuntimeLogStore.open({ databaseUrl }).catch(() => null)
     : Promise.resolve(null);
+  const artifactWriter = new OutputsArtifactWriter({
+    outputsDir,
+    databaseUrl
+  });
+  const toolRecorder = new ToolExecutionRecorder({
+    outputsDir,
+    databaseUrl
+  });
+  const costBudget = new CostBudgetManager({ outputsDir });
+
+  function isCostBudgetEnforcerEnabled(): boolean {
+    return isEnvFlagEnabled("SF_AI_COST_BUDGET_ENFORCER_ENABLED", process.env, true);
+  }
+
+  function resolveModelName(input: unknown): string {
+    if (input && typeof input === "object") {
+      const record = input as Record<string, unknown>;
+      for (const key of ["model", "modelName", "llmModel"]) {
+        const value = record[key];
+        if (typeof value === "string" && value.trim().length > 0) {
+          return value.trim();
+        }
+      }
+    }
+    return process.env.SF_AI_PRIMARY_MODEL ?? "mistral";
+  }
 
   function recordExecutionOrigin(toolName: string, input: unknown, status: "success" | "error"): void {
     try {
@@ -135,31 +173,38 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
   }
 
   async function appendToolAudit(entry: Record<string, unknown>): Promise<void> {
-    const runtimeStore = await runtimeStorePromise;
-    if (runtimeStore) {
-      try {
-        await runtimeStore.appendAuditLog("tool_execution", "tools", {
-          recordedAt: new Date().toISOString(),
-          ...entry
-        }, new Date().toISOString());
-        return;
-      } catch {
-        // fall back to file logging
-      }
-    }
-
-    const auditFile = resolve(outputsDir, "audit", "tool-executions.jsonl");
+    const actor = currentActor();
+    const record = {
+      actorType: actor.type,
+      actorId: actor.id,
+      actorRole: actor.role,
+      actorTenantId: actor.tenantId,
+      ...entry
+    };
     try {
-      await fsPromises.mkdir(resolve(outputsDir, "audit"), { recursive: true });
-      await fsPromises.appendFile(
-        auditFile,
-        `${JSON.stringify({ recordedAt: new Date().toISOString(), ...entry })}\n`,
-        "utf-8"
+      await artifactWriter.appendAuditArtifact(
+        "tool_execution",
+        "tools",
+        record,
+        new Date().toISOString(),
+        "audit/tool-executions.jsonl"
       );
     } catch {
       // audit logging failures should not block tool execution
     }
   }
+
+  // Policy gate enforces dangerous-action catalog before every tool execution
+  const policyGate = createPolicyGate({
+    onBlocked: async (toolName, entry, _input) => {
+      await appendToolAudit({
+        toolName,
+        status: "blocked-policy-gate",
+        riskLevel: entry.riskLevel,
+        actionType: entry.actionType
+      });
+    }
+  });
 
   function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -167,8 +212,23 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
 
   function govTool<TInput = unknown>(name: string, config: GovToolConfig, handler: GovToolHandler<TInput>): void {
     registerTool(name, config, async (input: unknown) => {
+      const baseActor = resolveDefaultActorFromEnv();
+      const actorFromInput = extractActorFromToolInput(input);
+      const actorFromOidc = await resolveActorFromOidcInput(input).catch((error) => {
+        throw new Error(`OIDC verification failed: ${summarizeValue(error, 400)}`);
+      });
+      const actor = actorFromOidc
+        ? mergeActorIdentity(mergeActorIdentity(baseActor, actorFromInput), actorFromOidc)
+        : mergeActorIdentity(baseActor, actorFromInput);
+
+      return runWithActorContext(actor, async () => {
       const startedAt = new Date();
-      const traceId = startTrace(name, { input: summarizeValue(input) });
+      const inputSummary = summarizeValue(input);
+      const traceId = startTrace(name, { input: inputSummary });
+      const sessionId = typeof (input as { sessionId?: unknown } | null | undefined)?.sessionId === "string"
+        ? (input as { sessionId: string }).sessionId
+        : undefined;
+      const modelName = resolveModelName(input);
       // T-OBS-01: OTel span 開始 (no-op when OTEL_ENABLED!=true)
       void import("../observability/otel-tracer.js")
         .then((m) => m.notifyOtelTraceStart(traceId, name))
@@ -176,10 +236,10 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
       await emitSystemEvent("tool_before_execute", {
         toolName: name,
         traceId,
-        input: summarizeValue(input)
+        input: inputSummary
       });
 
-      const access = await checkToolAccess(outputsDir, normalizeResourceName(name), process.env.SF_AI_ROLE);
+      const access = await authorizeToolExecution(actor, normalizeResourceName(name), serverRoot);
       if (!access.allowed) {
         await emitSystemEvent("tool_after_execute", {
           toolName: name,
@@ -259,6 +319,20 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
         };
       }
 
+      // Dangerous-action policy gate: block irreversible operations that require approval
+      const policyCheck = await policyGate.check(name, input);
+      if (policyCheck.blocked) {
+        await emitSystemEvent("tool_after_execute", {
+          toolName: name,
+          traceId,
+          success: false,
+          blockedByPolicyGate: true,
+          riskLevel: policyCheck.entry.riskLevel
+        });
+        endTrace(traceId, { blockedByPolicyGate: true });
+        return buildBlockedResponse(policyCheck);
+      }
+
       if (isToolDisabled(normalizeResourceName(name))) {
         await emitSystemEvent("tool_after_execute", {
           toolName: name,
@@ -294,6 +368,152 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
         };
       }
 
+      const rateLimitDecision = rateLimiter.check({
+        actorId: actor.id,
+        tenantId: actor.tenantId ?? "global",
+        toolName: normalizeResourceName(name)
+      });
+      if (!rateLimitDecision.allowed) {
+        await emitSystemEvent("tool_after_execute", {
+          toolName: name,
+          traceId,
+          success: false,
+          blockedByRateLimit: true,
+          code: "rate_limited",
+          scope: rateLimitDecision.scope,
+          retryAfterMs: rateLimitDecision.retryAfterMs
+        });
+        endTrace(traceId, {
+          blockedByRateLimit: true,
+          scope: rateLimitDecision.scope,
+          retryAfterMs: rateLimitDecision.retryAfterMs
+        });
+        recordMetric({
+          toolName: name,
+          traceId,
+          startedAt: startedAt.toISOString(),
+          durationMs: Date.now() - startedAt.getTime(),
+          status: "error"
+        });
+        await appendToolAudit({
+          toolName: name,
+          traceId,
+          status: "blocked-rate-limit",
+          scope: rateLimitDecision.scope,
+          key: rateLimitDecision.key,
+          limit: rateLimitDecision.limit,
+          remaining: rateLimitDecision.remaining,
+          retryAfterMs: rateLimitDecision.retryAfterMs,
+          input: inputSummary
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  blocked: true,
+                  code: "rate_limited",
+                  httpStatus: 429,
+                  scope: rateLimitDecision.scope,
+                  key: rateLimitDecision.key,
+                  limit: rateLimitDecision.limit,
+                  remaining: rateLimitDecision.remaining,
+                  retryAfterMs: rateLimitDecision.retryAfterMs
+                },
+                null,
+                2
+              )
+            }
+          ]
+        };
+      }
+
+      if (isCostBudgetEnforcerEnabled()) {
+        const config = await costBudget.loadConfig();
+        const estimate = buildCostUsageFromInputOutput({
+          inputSummary,
+          outputRatio: config.outputTokenRatio
+        });
+        const budgetCheck = await costBudget.assertWithin({
+          toolName: name,
+          traceId,
+          actorId: actor.id,
+          tenantId: actor.tenantId,
+          sessionId,
+          model: modelName,
+          inputTokens: estimate.inputTokens,
+          outputTokens: estimate.outputTokens
+        });
+        if (!budgetCheck.allowed) {
+          const usdEstimate = costBudget.estimateUsd(modelName, estimate.inputTokens, estimate.outputTokens);
+          await costBudget.recordUsage({
+            ts: new Date().toISOString(),
+            toolName: name,
+            traceId,
+            actorId: actor.id,
+            tenantId: actor.tenantId,
+            sessionId,
+            model: modelName,
+            inputTokens: estimate.inputTokens,
+            outputTokens: estimate.outputTokens,
+            usdEstimate,
+            status: "blocked",
+            reason: budgetCheck.reason
+          });
+          void import("../observability/prometheus-metrics.js")
+            .then((m) => m.recordCostBudgetForPrometheus({
+              actorId: actor.id,
+              tenantId: actor.tenantId,
+              model: modelName,
+              usd: usdEstimate,
+              toolName: name,
+              exceeded: true
+            }))
+            .catch(() => {});
+          await emitSystemEvent("tool_after_execute", {
+            toolName: name,
+            traceId,
+            success: false,
+            blockedByBudget: true,
+            reason: budgetCheck.reason,
+            code: "budget_exceeded"
+          });
+          endTrace(traceId, { blockedByBudget: true, reason: budgetCheck.reason });
+          recordMetric({
+            toolName: name,
+            traceId,
+            startedAt: startedAt.toISOString(),
+            durationMs: Date.now() - startedAt.getTime(),
+            status: "error"
+          });
+          await appendToolAudit({
+            toolName: name,
+            traceId,
+            status: "blocked-budget",
+            reason: budgetCheck.reason,
+            projectedUsd: budgetCheck.projectedUsd,
+            projectedTokens: budgetCheck.projectedTokens,
+            input: inputSummary
+          });
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  blocked: true,
+                  code: "budget_exceeded",
+                  httpStatus: 429,
+                  reason: budgetCheck.reason,
+                  projectedUsd: budgetCheck.projectedUsd,
+                  projectedTokens: budgetCheck.projectedTokens
+                }, null, 2)
+              }
+            ]
+          };
+        }
+      }
+
       const retryConfig = await getRetryConfig();
       const maxRetries = retryConfig.retryEnabled
         ? Math.max(0, Math.min(5, retryConfig.maxRetries))
@@ -306,16 +526,63 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
       let attempt = 0;
       while (true) {
         try {
-          const result = await handler(input as TInput);
+          const execution = await toolRecorder.execute({
+            toolName: name,
+            input,
+            sessionId,
+            handler: () => handler(input as TInput)
+          });
+          const result = execution.result;
+          const outputSummary = summarizeValue(result);
+          if (isCostBudgetEnforcerEnabled()) {
+            const config = await costBudget.loadConfig();
+            const usage = buildCostUsageFromInputOutput({
+              inputSummary,
+              outputSummary,
+              outputRatio: config.outputTokenRatio
+            });
+            const usdEstimate = costBudget.estimateUsd(modelName, usage.inputTokens, usage.outputTokens);
+            await costBudget.recordUsage({
+              ts: new Date().toISOString(),
+              toolName: name,
+              traceId,
+              actorId: actor.id,
+              tenantId: actor.tenantId,
+              sessionId,
+              model: modelName,
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              usdEstimate,
+              status: "success"
+            });
+            void import("../observability/prometheus-metrics.js")
+              .then((m) => m.recordCostBudgetForPrometheus({
+                actorId: actor.id,
+                tenantId: actor.tenantId,
+                model: modelName,
+                usd: usdEstimate,
+                toolName: name
+              }))
+              .catch(() => {});
+          }
           await emitSystemEvent("tool_after_execute", {
             toolName: name,
             traceId,
             success: true,
             contentCount: Array.isArray(result?.content) ? result.content.length : 0,
+            replayed: execution.replayed,
+            replayMode: execution.mode,
+            argsHash: execution.argsHash,
             attempts: attempt + 1,
             retried: attempt > 0
           });
-          endTrace(traceId, { success: true, attempts: attempt + 1 });
+          endTrace(traceId, {
+            success: true,
+            attempts: attempt + 1,
+            replayed: execution.replayed,
+            replayMode: execution.mode,
+            argsHash: execution.argsHash
+          });
           void import("../observability/otel-tracer.js")
             .then((m) => m.notifyOtelTraceEnd(traceId, { "sfai.attempts": attempt + 1 }))
             .catch(() => {});
@@ -329,8 +596,8 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
           recordToolExecutionToMemory(
             name,
             traceId,
-            summarizeValue(input),
-            summarizeValue(result),
+            inputSummary,
+            outputSummary,
             "success"
           );
           recordExecutionOrigin(name, input, "success");
@@ -338,9 +605,12 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
             toolName: name,
             traceId,
             status: "success",
+            replayed: execution.replayed,
+            replayMode: execution.mode,
+            argsHash: execution.argsHash,
             attempts: attempt + 1,
-            input: summarizeValue(input),
-            output: summarizeValue(result)
+            input: inputSummary,
+            output: outputSummary
           });
           // Save bandit state after successful tool execution
           try {
@@ -359,11 +629,44 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
             isRetryableError(error, patterns) || isRetryableByCode(error, retryableCodes)
           );
           if (!retryable || attempt >= maxRetries) {
+            const errorSummary = summarizeValue(error, 500);
+            if (isCostBudgetEnforcerEnabled()) {
+              const config = await costBudget.loadConfig();
+              const usage = buildCostUsageFromInputOutput({
+                inputSummary,
+                outputSummary: errorSummary,
+                outputRatio: config.outputTokenRatio
+              });
+              const usdEstimate = costBudget.estimateUsd(modelName, usage.inputTokens, usage.outputTokens);
+              await costBudget.recordUsage({
+                ts: new Date().toISOString(),
+                toolName: name,
+                traceId,
+                actorId: actor.id,
+                tenantId: actor.tenantId,
+                sessionId,
+                model: modelName,
+                inputTokens: usage.inputTokens,
+                outputTokens: usage.outputTokens,
+                usdEstimate,
+                status: "error"
+              });
+              void import("../observability/prometheus-metrics.js")
+                .then((m) => m.recordCostBudgetForPrometheus({
+                  actorId: actor.id,
+                  tenantId: actor.tenantId,
+                  model: modelName,
+                  usd: usdEstimate,
+                  toolName: name
+                }))
+                .catch(() => {});
+            }
             await emitSystemEvent("tool_after_execute", {
               toolName: name,
               traceId,
               success: false,
-              error: summarizeValue(error, 500),
+              replayMode: process.env.SF_AI_REPLAY_MODE ?? "passthrough",
+              error: errorSummary,
               attempts: attempt + 1,
               retried: attempt > 0
             });
@@ -382,8 +685,8 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
             recordToolExecutionToMemory(
               name,
               traceId,
-              summarizeValue(input),
-              summarizeValue(error, 500),
+              inputSummary,
+              errorSummary,
               "error"
             );
             recordExecutionOrigin(name, input, "error");
@@ -391,9 +694,10 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
               toolName: name,
               traceId,
               status: "error",
+              replayMode: process.env.SF_AI_REPLAY_MODE ?? "passthrough",
               attempts: attempt + 1,
-              input: summarizeValue(input),
-              error: summarizeValue(error, 500)
+              input: inputSummary,
+              error: errorSummary
             });
             throw error;
           }
@@ -412,6 +716,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
           attempt += 1;
         }
       }
+      });
     });
   }
 

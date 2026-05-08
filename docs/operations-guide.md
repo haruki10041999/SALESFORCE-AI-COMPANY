@@ -2,6 +2,8 @@
 
 このガイドは、開発知識がなくても日常運用できるように作っています。
 
+tenant_id 導入後の既存データ移行が必要な場合は、専用手順の [tenant-migration-runbook.md](./tenant-migration-runbook.md) を参照してください。
+
 ## このガイドでできること
 
 - サービスが動いているか確認する
@@ -37,6 +39,12 @@ docker compose ps
 ```powershell
 Copy-Item .env.operations.sample .env
 ```
+
+補足:
+
+- `.env.operations.sample` には `SF_AI_PROFILE=operations` が含まれます。
+- `SF_AI_PROFILE_STRICT=true` の既定では backend は `postgres/pg-boss/pgvector` に固定されます。
+- 個別 backend を混在させる必要がある検証時のみ `SF_AI_PROFILE_STRICT=false` を明示してください。
 
 バックエンド設定の確認（オプション）:
 
@@ -188,6 +196,12 @@ npm run metrics:update:drift
 
 - `outputs/dashboards/learning-progress.json` が更新されること
 - drift 同時実行時は Postgres に drift report が保存されること（file fallback 時は `outputs/reports/drift-regression.jsonl`）
+- drift alert 発生時は `outputs/learning/drift-freeze.json` が生成され、`PolicySnapshot` は `SF_AI_LEARNING_MODE=live` でも自動的に shadow 動作へ切り替わること
+
+drift freeze の解除:
+
+- 期限付き freeze (`SF_AI_DRIFT_FREEZE_HOURS`) の場合は有効期限後に自動解除されます
+- 手動解除する場合は `outputs/learning/drift-freeze.json` を削除し、次回の `metrics:update` または MCP 再起動で反映します
 
 運用向けダッシュボード再生成:
 
@@ -206,11 +220,54 @@ npm run ai -- observability:dashboard -- --trace-limit 200 --event-limit 1000
 npm run ai -- outputs:cleanup -- --dry-run
 ```
 
+分類別 retention ルールで確認する場合:
+
+```bash
+npm run ai -- outputs:cleanup -- --retention-policy --dry-run
+```
+
 問題なければ実行:
 
 ```bash
 npm run ai -- outputs:cleanup -- --days 30
 ```
+
+分類別 retention ルールで実行する場合:
+
+```bash
+npm run ai -- outputs:cleanup -- --retention-policy
+```
+
+補足:
+
+- cleanup 実行時は既定で `outputs/audit/retention-cleanup.jsonl` に監査ログを書き込みます
+- 監査ログを書き込まない検証実行は `--no-audit-log` を付与します
+- 保持日数は `SF_AI_RETENTION_DAYS_PUBLIC` / `INTERNAL` / `CONFIDENTIAL` / `RESTRICTED` で調整できます
+
+### Audit Log Cold Storage 管理（T-35）
+
+古い audit log をコールドストレージに移送して long-term retention を実現：
+
+**Retention tiers**:
+- **HOT** (0-90日): Postgres （フルアクセス）
+- **WARM** (90日-1年): Postgres （読み取り専用）  
+- **COLD** (1-7年): S3 Glacier （アーカイブ、object lock WORM）
+
+コールドストレージからの検索：
+
+```bash
+# 特定期間の audit log を検索
+npx ts-node scripts/audit-cold-restore.ts --query --from-date 2023-01-01 --actor-id foo
+
+# パーティションを warm storage に復元
+npx ts-node scripts/audit-cold-restore.ts --restore --partition audit_log_202301 --dry-run
+```
+
+見るポイント:
+
+- `outputs/audit/archival-log.jsonl` が更新されていること
+- cold storage への移送の `status` が `completed` であること
+- 7年の WORM 保証がコンプライアンス要件を満たすこと
 
 3. バックアップ作成
 
@@ -307,6 +364,25 @@ npm run ai -- doctor
 
 - 検証で `outputs/state-dev.sqlite` など一時 DB を作成した場合、運用 DB を `state.sqlite` に統一したら不要ファイルを整理する
 - 削除前に `npm run ai -- outputs:version -- backup` で snapshot を作成する
+
+## 例外フロー（T-24 retention 運用）
+
+1. 誤削除が疑われる場合
+
+- 直近の `outputs/audit/retention-cleanup.jsonl` を確認する
+- `eventType=retention_cleanup` または `eventType=outputs_cleanup` の対象ファイルを特定する
+- 必要に応じて `outputs:version -- restore` で復元する
+
+2. 想定より削除件数が多い場合
+
+- いったん `--retention-policy --dry-run` に戻して再確認する
+- `SF_AI_RETENTION_DAYS_*` を一時的に延長して実行範囲を絞る
+- 原因切り分け完了まで本番では `--no-audit-log` を使わず監査ログを残す
+
+3. 監査ログ書き込み失敗時
+
+- `outputs/audit` の書き込み権限と空き容量を確認する
+- 再実行は必ず `--dry-run` で安全確認してから行う
 
 ## どのファイルを見るか
 

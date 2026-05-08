@@ -1,5 +1,12 @@
 import { OrgIdentifierSchema, runSchemaValidation } from "../core/quality/resource-validation.js";
-import { ensureGitRepoAndRefs, getDiffFiles, unique, validateRef } from "./git-diff-helpers.js";
+import {
+  apexClassNameFromPath,
+  ensureGitRepoAndRefs,
+  getDiffFiles,
+  unique,
+  uniqueByJson,
+  validateRef
+} from "./git-diff-helpers.js";
 
 export type ChangedTestsSuggestInput = {
   repoPath: string;
@@ -22,11 +29,6 @@ export type ChangedTestsSuggestResult = {
   runCommand?: string;
   summary: string;
 };
-
-function classNameFromPath(path: string): string | null {
-  const match = path.match(/\/classes\/([^/]+)\.cls$/i);
-  return match?.[1] ?? null;
-}
 
 export function suggestChangedTests(input: ChangedTestsSuggestInput): ChangedTestsSuggestResult {
   const { repoPath, workingBranch, targetOrg } = input;
@@ -58,7 +60,7 @@ export function suggestChangedTests(input: ChangedTestsSuggestInput): ChangedTes
       continue;
     }
 
-    const className = classNameFromPath(path);
+    const className = apexClassNameFromPath(path);
     if (className) {
       suggestions.push({
         testName: `${className}Test`,
@@ -85,7 +87,7 @@ export function suggestChangedTests(input: ChangedTestsSuggestInput): ChangedTes
     }
   }
 
-  const deduped = unique(suggestions.map((s) => JSON.stringify(s))).map((s) => JSON.parse(s) as TestSuggestion);
+  const deduped = uniqueByJson<TestSuggestion>(suggestions);
   const highPriorityNames = deduped.filter((s) => s.priority === "high").map((s) => s.testName);
 
   const runCommand = highPriorityNames.length > 0

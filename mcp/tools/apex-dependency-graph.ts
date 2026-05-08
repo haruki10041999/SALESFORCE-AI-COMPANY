@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import { normalizeSampleLimit } from "../core/config/normalized-limits.js";
 import { SafeFilePathSchema, runSchemaValidation } from "../core/quality/resource-validation.js";
 import { shouldSkipScanDir } from "../core/quality/scan-exclusions.js";
 
@@ -408,7 +409,7 @@ export function buildApexDependencyGraph(input: ApexDependencyGraphInput): ApexD
   const includeFlows = input.includeFlows ?? false;
   const includePermissionSets = input.includePermissionSets ?? false;
   const includeIntegrations = input.includeIntegrations ?? false;
-  const sampleLimit = Number.isFinite(input.sampleLimit) ? Math.max(1, Math.floor(input.sampleLimit ?? 10)) : 10;
+  const sampleLimit = normalizeSampleLimit(input.sampleLimit, 10);
 
   const sourceFiles = collectSourceFiles(rootDir, includeTests);
   const classNames = new Set(sourceFiles.filter((file) => file.kind === "class").map((file) => file.name));

@@ -1,5 +1,6 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { ensureDirectorySync } from "../io/atomic-write.js";
 
 export type OutputsVersioningCommand = "backup" | "list" | "restore" | "prune" | "wipe";
 
@@ -29,12 +30,6 @@ function sanitizeSnapshotName(name: string): string {
     throw new Error(`snapshot 名が不正です: ${name}`);
   }
   return normalized;
-}
-
-function ensureDir(pathValue: string): void {
-  if (!existsSync(pathValue)) {
-    mkdirSync(pathValue, { recursive: true });
-  }
 }
 
 function listEntriesToBackup(outputsDir: string, backupsDirName: string): string[] {
@@ -195,8 +190,8 @@ export function createSnapshot(outputsDir: string, backupsDir: string, snapshotN
     };
   }
 
-  ensureDir(backupsDir);
-  ensureDir(snapshotDir);
+  ensureDirectorySync(backupsDir);
+  ensureDirectorySync(snapshotDir);
 
   for (const name of entries) {
     cpSync(join(outputsDir, name), join(snapshotDir, name), {
@@ -267,7 +262,7 @@ export function restoreSnapshot(
     return { restoredEntries: entries };
   }
 
-  ensureDir(outputsDir);
+  ensureDirectorySync(outputsDir);
   wipeOutputs(outputsDir, backupsDir, false);
 
   for (const name of entries) {

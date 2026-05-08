@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parsePositiveIntOrFallback } from "../mcp/core/config/numeric-parsing.js";
 import { runBenchmarkSuite } from "../mcp/tools/benchmark-suite.js";
 
 type CliOptions = {
@@ -15,18 +16,10 @@ type CliOptions = {
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const DEFAULT_OUTPUT = join(ROOT, "outputs", "reports", "benchmark-suite.json");
 
-function parsePositiveInt(value: string | undefined, fallback: number): number {
-  const parsed = Number.parseInt(value ?? "", 10);
-  if (!Number.isFinite(parsed) || parsed < 1) {
-    return fallback;
-  }
-  return parsed;
-}
-
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     output: DEFAULT_OUTPUT,
-    recentTraceLimit: parsePositiveInt(process.env.SF_AI_BENCHMARK_TRACE_LIMIT, 300),
+    recentTraceLimit: parsePositiveIntOrFallback(process.env.SF_AI_BENCHMARK_TRACE_LIMIT, 300),
     scenarios: [],
     useRegisteredTools: false,
     toolCatalogPath: join(ROOT, "outputs", "tool-catalog.json")
@@ -40,7 +33,7 @@ function parseArgs(argv: string[]): CliOptions {
       continue;
     }
     if (token === "--limit" && argv[i + 1]) {
-      options.recentTraceLimit = parsePositiveInt(argv[i + 1], options.recentTraceLimit);
+      options.recentTraceLimit = parsePositiveIntOrFallback(argv[i + 1], options.recentTraceLimit);
       i += 1;
       continue;
     }

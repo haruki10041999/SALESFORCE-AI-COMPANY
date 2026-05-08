@@ -1,5 +1,11 @@
 import fs from "node:fs";
 import { SafeFilePathSchema, runSchemaValidation } from "../core/quality/resource-validation.js";
+import {
+  collectEnabledSystemPermissions,
+  collectPermissionSetBlocks,
+  getPermissionSetBooleanTag,
+  getPermissionSetTagText
+} from "./permission-set-xml.js";
 
 export type PermissionSetObjectPermission = {
   object: string;
@@ -39,19 +45,6 @@ function countMatches(source: string, pattern: RegExp): number {
   return source.match(pattern)?.length ?? 0;
 }
 
-function getTagText(block: string, tag: string): string {
-  const match = block.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "i"));
-  return match?.[1]?.trim() ?? "";
-}
-
-function getBooleanTag(block: string, tag: string): boolean {
-  return getTagText(block, tag).toLowerCase() === "true";
-}
-
-function collectBlocks(xml: string, tag: string): string[] {
-  return [...xml.matchAll(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "gi"))].map((m) => m[1] ?? "");
-}
-
 export function parsePermissionSetCapabilities(filePath: string): PermissionSetCapabilities {
   const pathCheck = runSchemaValidation(SafeFilePathSchema, filePath);
   if (!pathCheck.success) {
@@ -65,46 +58,44 @@ export function parsePermissionSetCapabilities(filePath: string): PermissionSetC
   const apexClasses = new Set<string>();
   const systemPermissions = new Set<string>();
 
-  for (const block of collectBlocks(xml, "objectPermissions")) {
-    const object = getTagText(block, "object");
+  for (const block of collectPermissionSetBlocks(xml, "objectPermissions")) {
+    const object = getPermissionSetTagText(block, "object");
     if (!object) continue;
 
     objectPermissions.set(object, {
       object,
-      allowRead: getBooleanTag(block, "allowRead"),
-      allowCreate: getBooleanTag(block, "allowCreate"),
-      allowEdit: getBooleanTag(block, "allowEdit"),
-      allowDelete: getBooleanTag(block, "allowDelete"),
-      viewAllRecords: getBooleanTag(block, "viewAllRecords"),
-      modifyAllRecords: getBooleanTag(block, "modifyAllRecords")
+      allowRead: getPermissionSetBooleanTag(block, "allowRead"),
+      allowCreate: getPermissionSetBooleanTag(block, "allowCreate"),
+      allowEdit: getPermissionSetBooleanTag(block, "allowEdit"),
+      allowDelete: getPermissionSetBooleanTag(block, "allowDelete"),
+      viewAllRecords: getPermissionSetBooleanTag(block, "viewAllRecords"),
+      modifyAllRecords: getPermissionSetBooleanTag(block, "modifyAllRecords")
     });
   }
 
-  for (const block of collectBlocks(xml, "fieldPermissions")) {
-    const field = getTagText(block, "field");
+  for (const block of collectPermissionSetBlocks(xml, "fieldPermissions")) {
+    const field = getPermissionSetTagText(block, "field");
     if (!field) continue;
 
     fieldPermissions.set(field, {
       field,
-      readable: getBooleanTag(block, "readable"),
-      editable: getBooleanTag(block, "editable")
+      readable: getPermissionSetBooleanTag(block, "readable"),
+      editable: getPermissionSetBooleanTag(block, "editable")
     });
   }
 
-  for (const block of collectBlocks(xml, "classAccesses")) {
-    if (!getBooleanTag(block, "enabled")) {
+  for (const block of collectPermissionSetBlocks(xml, "classAccesses")) {
+    if (!getPermissionSetBooleanTag(block, "enabled")) {
       continue;
     }
-    const apexClass = getTagText(block, "apexClass");
+    const apexClass = getPermissionSetTagText(block, "apexClass");
     if (apexClass) {
       apexClasses.add(apexClass);
     }
   }
 
-  for (const [, rawName, rawValue] of xml.matchAll(/<permissions([A-Za-z0-9_]+)>(true|false)<\/permissions\1>/g)) {
-    if (rawValue.toLowerCase() === "true") {
-      systemPermissions.add(rawName);
-    }
+  for (const systemPermission of collectEnabledSystemPermissions(xml)) {
+    systemPermissions.add(systemPermission);
   }
 
   return {

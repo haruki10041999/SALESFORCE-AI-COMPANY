@@ -28,6 +28,19 @@
 - ベンチマーク成果物: 既定では保存しません。エクスポート運用時のみ明示保存。
 - 一時的な互換ファイルや手動検証の出力（運用で無効化可能）
 
+### 書き込み制約 (T-25)
+
+- アプリケーションの `OutputsArtifactWriter` は、原則として以下の生成物プレフィックスのみ書き込みを許可します。
+- 許可プレフィックス: `reports/`, `dashboards/`, `exports/`, `recordings/`, `backups/`, `setup/`
+- それ以外の state 系パス (例: `trigger-rules.json`, `audit/*.jsonl`) は禁止されます。
+- 監査/実行 provenance は DB 優先で保存され、互換 fallback は専用 API (`appendAuditArtifact`, `appendExecutionOrigin`) のみで扱います。
+- チャット履歴の file fallback は既定で無効です。必要な場合のみ `SF_AI_HISTORY_FILE_FALLBACK=true` を設定します。
+- プロジェクトメモリの `outputs/memory.jsonl` fallback は既定で無効です。必要な場合のみ `SF_AI_ALLOW_OUTPUTS_STATE_FALLBACK=true` または `SF_AI_MEMORY_FILE` で明示設定します。
+- System Events の `outputs/events/system-events.jsonl` fallback は既定で無効です。必要な場合のみ `SF_AI_EVENTS_FILE_FALLBACK=true` を設定します。
+- Preset 保存の file fallback は既定で無効です。必要な場合のみ `SF_AI_PRESET_FILE_FALLBACK=true` を設定します。
+- Proposal 適用時の Custom Tool/Preset ファイル反映は既定で無効です。必要な場合のみ `SF_AI_CUSTOM_TOOL_FILE_FALLBACK=true` / `SF_AI_PRESET_FILE_FALLBACK=true` を設定します。
+- `npm run ai -- scaffold -- preset ...` / `tool ...` は runtime state を直接作らず、既定では `outputs/setup/scaffold/` 配下に雛形を書き出します。
+
 ## API レスポンスでの保存有無の見分け方
 
 - レポート系ツールは `persisted: boolean` を返します。

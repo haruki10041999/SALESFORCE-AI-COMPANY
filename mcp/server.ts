@@ -3,8 +3,7 @@
 import "./env-loader.js";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { existsSync, promises as fsPromises } from "fs";
-import { join, relative } from "path";
+import { join } from "path";
 import { AppError } from "./core/errors/messages.js";
 import { initializeServerRuntime as initializeServerRuntimeModule } from "./bootstrap.js";
 import { registerServerTools } from "./tool-registry.js";
@@ -72,15 +71,19 @@ import {
 } from "./core/governance/governance-state.js";
 import { createPresetStore } from "./core/context/preset-store.js";
 import { createHistoryStore } from "./core/context/history-store.js";
-import { createOrchestrationSessionStore } from "./core/context/orchestration-session-store.js";
-import { PostgresOrchestrationSessionStore } from "./core/context/postgres-orchestration-session-store.js";
+import { PostgresSessionStore } from "./core/persistence/session-store.postgres.js";
+import { SqliteSessionStore } from "./core/persistence/session-store.sqlite.js";
+import type { SessionStore } from "./core/persistence/session-store.js";
+import { createOrchestrationQueueStore } from "./core/orchestration/orchestration-queue-store.js";
+import { createOrchestrationJobRunner } from "./core/orchestration/job-runner.js";
+import { createPolicySnapshotManager } from "./core/learning/policy-snapshot.js";
 import { createPromptRenderer } from "./core/context/prompt-rendering.js";
+import { isEnvFlagEnabled } from "./core/config/env-flags.js";
 import { evaluatePseudoHooks as evaluatePseudoHooksCore } from "./core/orchestration/pseudo-hooks.js";
 import { createChatToolRunner, generateSessionId } from "./core/orchestration/chat-tool-runner.js";
-import { orchestrationSessions, clearOrchestrationSessionsForTest } from "./core/orchestration/session-registry.js";
+import { clearOrchestrationSessionsForTest } from "./core/orchestration/session-registry.js";
 import { chatInputSchema, triggerRuleSchema } from "./core/orchestration/schemas.js";
 import { getDefaultSchedulesFilePath, loadCleanupSchedules } from "./core/resource/cleanup-scheduler.js";
-import type { OrchestrationSession } from "./core/types/index.js";
 import type { SystemEventType } from "./core/event/event-dispatcher.js";
 import { createLogger } from "./core/logging/logger.js";
 import { getLowRelevanceScoreThreshold } from "./core/config/runtime-config.js";
@@ -270,7 +273,9 @@ const disabledToolsCache = createDisabledToolsCacheManager({
   governanceFilePath: GOVERNANCE_STORAGE_PATH,
   logger,
   loadGovernanceState,
-  normalizeResourceName
+  normalizeResourceName,
+  stateBackend: STATE_BACKEND,
+  databaseUrl: DATABASE_URL
 });
 
 const { govTool } = createGovernedToolRegistrar({
@@ -326,15 +331,15 @@ const runChatTool = createChatToolRunner({
 });
 
 const HISTORY_DIR = join(OUTPUTS_DIR, "history");
-const USE_SQLITE_HISTORY = (process.env.SF_AI_HISTORY_SQLITE ?? "false").toLowerCase() === "true";
+const USE_SQLITE_HISTORY = isEnvFlagEnabled("SF_AI_HISTORY_SQLITE");
+const ALLOW_HISTORY_FILE_FALLBACK = isEnvFlagEnabled("SF_AI_HISTORY_FILE_FALLBACK");
+const ALLOW_PRESET_FILE_FALLBACK = isEnvFlagEnabled("SF_AI_PRESET_FILE_FALLBACK");
 // NOTE: Postgres ベースではディレクトリベースの履歴管理は不要
 // すべて Postgres state_records テーブルに保存される
 const PRESETS_DIR = join(OUTPUTS_DIR, "presets");
-const SESSIONS_DIR = join(OUTPUTS_DIR, "sessions");
 const HISTORY_RETENTION_DAYS = 30;
 const HISTORY_MAX_FILES = 200;
 const SESSION_RETENTION_DAYS = 30;
-const SESSION_MAX_FILES = 200;
 
 // NOTE: Postgres ベースでは ensureDir は不要だが、
 // 既存モジュール互換性のため dummy 実装を提供
@@ -342,40 +347,47 @@ async function ensureDir(_dir: string): Promise<void> {
   // No-op: Postgres ベースでは dir creation は不要
 }
 
-const { createPreset, listPresetsData, getPreset } = createPresetStore({ presetsDir: PRESETS_DIR, ensureDir });
+const { createPreset, listPresetsData, getPreset } = createPresetStore({
+  presetsDir: PRESETS_DIR,
+  ensureDir,
+  allowFileFallback: ALLOW_PRESET_FILE_FALLBACK
+});
 const { saveChatHistory, saveSessionHistory, loadChatHistories, restoreChatHistory } = createHistoryStore({
   historyDir: HISTORY_DIR,
-    ensureDir,
+  ensureDir,
   agentLog,
   maxHistoryFiles: HISTORY_MAX_FILES,
   retentionDays: HISTORY_RETENTION_DAYS,
+  allowFileFallback: ALLOW_HISTORY_FILE_FALLBACK,
   sqlite: {
     enabled: USE_SQLITE_HISTORY,
     dbPath: STATE_DB_PATH
   }
 });
-const orchestrationStore = STATE_BACKEND === "postgres" && DATABASE_URL
-  ? await PostgresOrchestrationSessionStore.open<OrchestrationSession>({
+const sessionStore: SessionStore = STATE_BACKEND === "postgres" && DATABASE_URL
+  ? await PostgresSessionStore.open({
       databaseUrl: DATABASE_URL,
-      getSession: (sessionId: string) => orchestrationSessions.get(sessionId),
-      setSession: (session: OrchestrationSession) => {
-        orchestrationSessions.set(session.id, session);
-      },
-      maxSessionFiles: SESSION_MAX_FILES,
       retentionDays: SESSION_RETENTION_DAYS
     })
-  : createOrchestrationSessionStore<OrchestrationSession>({
-      sessionsDir: SESSIONS_DIR,
-      ensureDir,
-      getSession: (sessionId: string) => orchestrationSessions.get(sessionId),
-      setSession: (session: OrchestrationSession) => {
-        orchestrationSessions.set(session.id, session);
-      },
-      toRelativePosixPath: (absoluteFilePath: string) => toPosixPath(relative(ROOT, absoluteFilePath)),
-      maxSessionFiles: SESSION_MAX_FILES,
+  : SqliteSessionStore.open({
+      dbPath: STATE_DB_PATH,
       retentionDays: SESSION_RETENTION_DAYS
     });
-  const { saveOrchestrationSession, restoreOrchestrationSession, listOrchestrationSessions } = orchestrationStore;
+const orchestrationQueueStore = await createOrchestrationQueueStore({
+  stateBackend: STATE_BACKEND,
+  databaseUrl: DATABASE_URL,
+  queuePrefix: "orchestration-session"
+});
+const orchestrationJobRunner = createOrchestrationJobRunner({
+  stateBackend: STATE_BACKEND,
+  databaseUrl: DATABASE_URL
+});
+const policySnapshotManager = createPolicySnapshotManager({
+  banditStateFile: BANDIT_STATE_FILE,
+  agentReputationFile: join(OUTPUTS_DIR, "agent-reputation.jsonl"),
+  databaseUrl: DATABASE_URL,
+  debounceMs: 200
+});
 const proposalQueue: ProposalQueueStore = await createProposalQueueStore({
   backend: PROPOSAL_QUEUE_BACKEND,
   outputsDir: OUTPUTS_DIR,
@@ -463,11 +475,11 @@ registerServerTools({
     emitSystemEvent: emitSystemEventCompat,
     buildChatPrompt: buildChatPromptCompat,
     evaluatePseudoHooks: evaluatePseudoHooksCore,
-    orchestrationSessions,
-    saveOrchestrationSession,
+    sessionStore,
+    orchestrationQueueStore,
+    orchestrationJobRunner,
+    policySnapshotManager,
     saveSessionHistory,
-    restoreOrchestrationSession,
-    listOrchestrationSessions,
     root: ROOT,
     agentLog,
     loadSystemEvents: loadSystemEventsCompat,
@@ -541,8 +553,11 @@ async function main(): Promise<void> {
   registerShutdownHooks();
   banditState = await loadBanditState(BANDIT_STATE_FILE);
   logger.info(`Bandit state loaded (${banditState.arms.size} arms)`);
+  await policySnapshotManager.start();
+  logger.info(`Policy snapshot started (mode=${policySnapshotManager.mode})`);
 
   const observabilityRuntime = await startObservabilityRuntime(logger);
+  observabilityRuntime.setReady(false);
 
   await initializeServerRuntimeModule({
     logger,
@@ -554,6 +569,8 @@ async function main(): Promise<void> {
     resetDisabledToolsCache: () => disabledToolsCache.resetCache(),
     autoInitializeHandlers
   });
+  observabilityRuntime.setStartupComplete(true);
+  observabilityRuntime.setReady(true);
 
   try {
     await startMcpTransport(server, logger);
@@ -562,9 +579,10 @@ async function main(): Promise<void> {
     if (typeof proposalQueue.close === "function") {
       await proposalQueue.close();
     }
-    if ("close" in orchestrationStore && typeof orchestrationStore.close === "function") {
-      await orchestrationStore.close();
-    }
+    await policySnapshotManager.close();
+    await orchestrationJobRunner.close();
+    await orchestrationQueueStore.close();
+    await sessionStore.close();
     await observabilityRuntime.stop();
   }
 }

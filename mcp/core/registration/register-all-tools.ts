@@ -7,6 +7,10 @@ import type { GovTool } from "@mcp/tool-types.js";
 import type { GovernanceState } from "../governance/governance-state.js";
 import type { SystemEventName, SystemEventRecord } from "../event/system-event-manager.js";
 import type { ProposalQueueStore } from "../resource/proposal/proposal-queue-store.js";
+import type { SessionStore } from "../persistence/session-store.js";
+import type { OrchestrationQueueStore } from "../orchestration/orchestration-queue-store.js";
+import type { OrchestrationJobRunner } from "../orchestration/job-runner.js";
+import type { PolicySnapshotManager } from "../learning/policy-snapshot.js";
 import type {
   AgentMessage,
   ChatSession,
@@ -15,7 +19,6 @@ import type {
   CustomToolDefinition,
   ResourceOperation,
   TriggerRule,
-  OrchestrationSession,
   HandlersDashboardState,
   ExportStatistics
 } from "../types/index.js";
@@ -54,18 +57,12 @@ interface RegisterAllToolsDeps {
     triggerRules: TriggerRule[],
     firedRules: string[]
   ) => { nextAgents: string[]; fired: string[]; reasons: string[] };
-  orchestrationSessions: Map<string, OrchestrationSession>;
-  saveOrchestrationSession: (sessionId: string) => Promise<{ sessionId: string; filePath: string; historyCount: number } | null>;
+  /** Durable session store — replaces the former 4 separate session fields. */
+  sessionStore: SessionStore;
+  orchestrationQueueStore: OrchestrationQueueStore;
+  orchestrationJobRunner: OrchestrationJobRunner;
+  policySnapshotManager: PolicySnapshotManager;
   saveSessionHistory: (topic: string, entries: AgentMessage[]) => Promise<string>;
-  restoreOrchestrationSession: (sessionId: string) => Promise<OrchestrationSession | null>;
-  listOrchestrationSessions: () => Promise<Array<{
-    id: string;
-    topic: string;
-    agents: string[];
-    queueLength: number;
-    historyCount: number;
-    firedRuleCount: number;
-  }>>;
   root: string;
   agentLog: AgentMessage[];
   loadSystemEvents: (limit?: number, event?: SystemEventName) => Promise<SystemEventRecord[]>;

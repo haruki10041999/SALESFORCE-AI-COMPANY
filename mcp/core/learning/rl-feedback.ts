@@ -1,10 +1,18 @@
 import { promises as fsPromises } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
+import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
 
 const analyticsStorePromise = process.env.DATABASE_URL
   ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
   : Promise.resolve(null);
+const runtimeOutputsDir = process.env.SF_AI_OUTPUTS_DIR
+  ? resolve(process.env.SF_AI_OUTPUTS_DIR)
+  : resolve("outputs");
+const artifactWriter = new OutputsArtifactWriter({
+  outputsDir: runtimeOutputsDir,
+  databaseUrl: process.env.DATABASE_URL
+});
 
 /**
  * Reinforcement Learning Feedback (TASK-047)
@@ -297,8 +305,16 @@ export async function saveBanditState(state: BanditState, filePath: string): Pro
   }
 
   const lines = arms.map((arm) => JSON.stringify(arm));
-  await fsPromises.mkdir(dirname(filePath), { recursive: true });
   const content = lines.length > 0 ? `${lines.join("\n")}\n` : "";
+  const resolvedFilePath = resolve(filePath);
+  const relativePath = relative(runtimeOutputsDir, resolvedFilePath);
+  const useArtifactWriter = relativePath.length > 0 && !relativePath.startsWith("..") && !isAbsolute(relativePath);
+  if (useArtifactWriter) {
+    await artifactWriter.writeText(relativePath, content);
+    return;
+  }
+
+  await fsPromises.mkdir(dirname(filePath), { recursive: true });
   await fsPromises.writeFile(filePath, content, "utf-8");
 }
 

@@ -48,6 +48,8 @@ test("Phase2: applyProposal writes skill markdown", () => {
 
 test("Phase2: applyProposal writes tool JSON with proposalId/slug", () => {
   const tmp = withTmp();
+  const prev = process.env.SF_AI_CUSTOM_TOOL_FILE_FALLBACK;
+  process.env.SF_AI_CUSTOM_TOOL_FILE_FALLBACK = "true";
   try {
     const r = applyProposal(
       rec({ id: "prop-x", resourceType: "tools", name: "Demo Tool", content: JSON.stringify({ description: "d", agents: ["captain"] }) }),
@@ -61,11 +63,20 @@ test("Phase2: applyProposal writes tool JSON with proposalId/slug", () => {
     assert.equal(data.description, "d");
     assert.equal(data.action.kind, "compose-prompt");
     assert.deepEqual(data.action.agents, ["captain"]);
-  } finally { tmp.cleanup(); }
+  } finally {
+    if (prev === undefined) {
+      delete process.env.SF_AI_CUSTOM_TOOL_FILE_FALLBACK;
+    } else {
+      process.env.SF_AI_CUSTOM_TOOL_FILE_FALLBACK = prev;
+    }
+    tmp.cleanup();
+  }
 });
 
 test("Phase2: applyProposal writes preset v1.json + latest copy", () => {
   const tmp = withTmp();
+  const prev = process.env.SF_AI_PRESET_FILE_FALLBACK;
+  process.env.SF_AI_PRESET_FILE_FALLBACK = "true";
   try {
     const r = applyProposal(rec({ resourceType: "presets", name: "Salesforce Review",
       content: JSON.stringify({ description: "d", topic: "review", agents: ["x"] }) }),
@@ -77,7 +88,52 @@ test("Phase2: applyProposal writes preset v1.json + latest copy", () => {
     const r2 = applyProposal(rec({ resourceType: "presets", name: "Salesforce Review", content: "{}" }),
       { repoRoot: tmp.repoRoot, outputsDir: tmp.outputsDir });
     assert.match(r2.filePath, /v2\.json$/);
-  } finally { tmp.cleanup(); }
+  } finally {
+    if (prev === undefined) {
+      delete process.env.SF_AI_PRESET_FILE_FALLBACK;
+    } else {
+      process.env.SF_AI_PRESET_FILE_FALLBACK = prev;
+    }
+    tmp.cleanup();
+  }
+});
+
+test("Phase2: applyProposal blocks tool/preset writes when file fallback is disabled", () => {
+  const tmp = withTmp();
+  const prevTool = process.env.SF_AI_CUSTOM_TOOL_FILE_FALLBACK;
+  const prevPreset = process.env.SF_AI_PRESET_FILE_FALLBACK;
+  delete process.env.SF_AI_CUSTOM_TOOL_FILE_FALLBACK;
+  delete process.env.SF_AI_PRESET_FILE_FALLBACK;
+  try {
+    const toolResult = applyProposal(
+      rec({ resourceType: "tools", name: "Demo Tool", content: JSON.stringify({ description: "d" }) }),
+      { repoRoot: tmp.repoRoot, outputsDir: tmp.outputsDir }
+    );
+    const presetResult = applyProposal(
+      rec({ resourceType: "presets", name: "Demo Preset", content: JSON.stringify({ description: "d" }) }),
+      { repoRoot: tmp.repoRoot, outputsDir: tmp.outputsDir }
+    );
+
+    assert.equal(toolResult.applied, false);
+    assert.equal(toolResult.reason, "file-fallback-disabled");
+    assert.equal(existsSync(join(tmp.outputsDir, "custom-tools", "demo-tool.json")), false);
+
+    assert.equal(presetResult.applied, false);
+    assert.equal(presetResult.reason, "file-fallback-disabled");
+    assert.equal(existsSync(join(tmp.outputsDir, "presets", "demo-preset", "v1.json")), false);
+  } finally {
+    if (prevTool === undefined) {
+      delete process.env.SF_AI_CUSTOM_TOOL_FILE_FALLBACK;
+    } else {
+      process.env.SF_AI_CUSTOM_TOOL_FILE_FALLBACK = prevTool;
+    }
+    if (prevPreset === undefined) {
+      delete process.env.SF_AI_PRESET_FILE_FALLBACK;
+    } else {
+      process.env.SF_AI_PRESET_FILE_FALLBACK = prevPreset;
+    }
+    tmp.cleanup();
+  }
 });
 
 test("Phase2: applyProposal skips when file exists and overwrite=false", () => {

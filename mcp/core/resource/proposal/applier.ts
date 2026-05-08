@@ -2,42 +2,47 @@
  * Phase 2: Proposal applier.
  *
  * 承認された (もしくは Auto-apply gate を通過した) ProposalRecord を、
- * 実際のファイル書き込みまで進める。
+ * 実際の反映処理まで進める。
  *
  * 設計方針:
- *   - skill / tool は既存の保存場所に JSON / Markdown を書き込む。
- *   - preset は最小フォーマット (name/description/topic/agents/skills) の
- *     ペイロード JSON として `outputs/presets/<slug>/v1.json` を書く。
- *     既存の preset-store の高度なバージョニングは create_preset 経由を推奨。
+ *   - skill は既存の保存場所に Markdown を書き込む。
+ *   - tool / preset の file 反映は fallback 用であり、
+ *     `SF_AI_CUSTOM_TOOL_FILE_FALLBACK=true` / `SF_AI_PRESET_FILE_FALLBACK=true`
+ *     のときのみ書き込む (既定は無効)。
  *   - quality check / 上限チェックは呼び出し側 (approve / auto gate) が
  *     responsibility を持つ。本モジュールは「物理的な反映」のみを担う。
  *
  * 純粋関数 `slugifyResourceName` と I/O 関数 `applyProposal` を提供。
- * idempotent: 既存ファイルがあれば overwriteFlag=false の場合スキップする。
+ * idempotent: 既存ファイルがあれば overwrite=false の場合スキップする。
  */
 
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { atomicWriteFileSync } from "../../io/atomic-write.js";
+import { atomicWriteFileSync, ensureDirectorySync } from "../../io/atomic-write.js";
+import { isEnvFlagEnabled } from "../../config/env-flags.js";
 import type { ProposalRecord } from "./queue.js";
 import { DeclarativeToolSpecSchema } from "../../declarative/tool-spec.js";
 
 export interface ProposalApplyResult {
   applied: boolean;
   filePath: string;
-  reason?: "already-exists" | "written";
+  reason?: "already-exists" | "written" | "file-fallback-disabled";
 }
 
 export interface ProposalApplyOptions {
   /** リポジトリルート (skills/ 配下を解決するため) */
   repoRoot: string;
-  /** outputs ルート (tools / presets の保存先) */
+  /** outputs ルート (fallback file 保存先) */
   outputsDir: string;
   /** 既存ファイルがあった場合に上書きするかどうか。既定は false。 */
   overwrite?: boolean;
 }
 
 const SLUG_PATTERN = /[^a-z0-9-]+/g;
+
+function isFileFallbackEnabled(envName: string): boolean {
+  return isEnvFlagEnabled(envName);
+}
 
 export function slugifyResourceName(name: string): string {
   const base = name.trim().toLowerCase().replace(/\s+/g, "-").replace(SLUG_PATTERN, "-");
@@ -49,13 +54,9 @@ export function slugifyResourceName(name: string): string {
   return trimmed;
 }
 
-function ensureDir(dir: string): void {
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-}
-
 function applySkill(record: ProposalRecord, options: ProposalApplyOptions): ProposalApplyResult {
   const skillsDir = resolve(options.repoRoot, "skills");
-  ensureDir(skillsDir);
+  ensureDirectorySync(skillsDir);
   const slug = slugifyResourceName(record.name);
   const filePath = join(skillsDir, `${slug}.md`);
   if (existsSync(filePath) && !options.overwrite) {
@@ -67,9 +68,12 @@ function applySkill(record: ProposalRecord, options: ProposalApplyOptions): Prop
 
 function applyTool(record: ProposalRecord, options: ProposalApplyOptions): ProposalApplyResult {
   const toolsDir = join(options.outputsDir, "custom-tools");
-  ensureDir(toolsDir);
   const slug = slugifyResourceName(record.name);
   const filePath = join(toolsDir, `${slug}.json`);
+  if (!isFileFallbackEnabled("SF_AI_CUSTOM_TOOL_FILE_FALLBACK")) {
+    return { applied: false, filePath, reason: "file-fallback-disabled" };
+  }
+  ensureDirectorySync(toolsDir);
   if (existsSync(filePath) && !options.overwrite) {
     return { applied: false, filePath, reason: "already-exists" };
   }
@@ -142,9 +146,16 @@ function nextPresetVersion(versionDir: string): number {
 function applyPreset(record: ProposalRecord, options: ProposalApplyOptions): ProposalApplyResult {
   const slug = slugifyResourceName(record.name);
   const presetsRoot = join(options.outputsDir, "presets");
-  ensureDir(presetsRoot);
+  if (!isFileFallbackEnabled("SF_AI_PRESET_FILE_FALLBACK")) {
+    return {
+      applied: false,
+      filePath: join(presetsRoot, slug, "v1.json"),
+      reason: "file-fallback-disabled"
+    };
+  }
+  ensureDirectorySync(presetsRoot);
   const versionDir = join(presetsRoot, slug);
-  ensureDir(versionDir);
+  ensureDirectorySync(versionDir);
 
   // content を JSON として解釈。失敗したら description のみのプリセットとする。
   let payload: Record<string, unknown>;

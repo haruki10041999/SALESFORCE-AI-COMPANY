@@ -6,10 +6,12 @@ import { tmpdir } from "node:os";
 import { createSystemEventManager } from "../mcp/core/event/system-event-manager.js";
 
 test("system-event-manager rotates logs and keeps archive count within limit", async () => {
+  const prev = process.env.SF_AI_EVENTS_FILE_FALLBACK;
   const root = await mkdtemp(join(tmpdir(), "sf-ai-events-rotate-"));
   const outputsDir = join(root, "outputs");
 
   try {
+    process.env.SF_AI_EVENTS_FILE_FALLBACK = "true";
     const manager = createSystemEventManager({
       rootDir: root,
       outputsDir,
@@ -39,15 +41,22 @@ test("system-event-manager rotates logs and keeps archive count within limit", a
     assert.ok(archiveFiles.length >= 1, "at least one archive should be created");
     assert.ok(archiveFiles.length <= 2, "archive count should respect maxArchivedFiles");
   } finally {
+    if (prev === undefined) {
+      delete process.env.SF_AI_EVENTS_FILE_FALLBACK;
+    } else {
+      process.env.SF_AI_EVENTS_FILE_FALLBACK = prev;
+    }
     await rm(root, { recursive: true, force: true });
   }
 });
 
 test("system-event-manager can load persisted events across rotated files", async () => {
+  const prev = process.env.SF_AI_EVENTS_FILE_FALLBACK;
   const root = await mkdtemp(join(tmpdir(), "sf-ai-events-load-"));
   const outputsDir = join(root, "outputs");
 
   try {
+    process.env.SF_AI_EVENTS_FILE_FALLBACK = "true";
     const manager = createSystemEventManager({
       rootDir: root,
       outputsDir,
@@ -86,6 +95,44 @@ test("system-event-manager can load persisted events across rotated files", asyn
     assert.ok(loaded.length >= 20, "should read persisted events from rotated/current files");
     assert.ok(loaded.every((record) => record.event === "session_start"));
   } finally {
+    if (prev === undefined) {
+      delete process.env.SF_AI_EVENTS_FILE_FALLBACK;
+    } else {
+      process.env.SF_AI_EVENTS_FILE_FALLBACK = prev;
+    }
     await rm(root, { recursive: true, force: true });
   }
 });
+
+  test("system event manager keeps events in-memory by default", async () => {
+    const prev = process.env.SF_AI_EVENTS_FILE_FALLBACK;
+    delete process.env.SF_AI_EVENTS_FILE_FALLBACK;
+    const root = await mkdtemp(join(tmpdir(), "sf-ai-system-events-mem-"));
+    const outputsDir = join(root, "outputs");
+
+    try {
+      const manager = createSystemEventManager({
+        rootDir: root,
+        outputsDir,
+        ensureDir: async (dir) => {
+          await mkdir(dir, { recursive: true });
+        },
+        applyEventAutomation: async () => {},
+        bridgeCoreEvent: async () => {}
+      });
+
+      await manager.emitSystemEvent("session_start", { topic: "default-memory" });
+      const loaded = await manager.loadSystemEvents(10, "session_start");
+      const status = await manager.getSystemEventLogStatus();
+
+      assert.equal(loaded.length, 1);
+      assert.equal(status.eventDir, "in-memory:system_events");
+    } finally {
+      if (prev === undefined) {
+        delete process.env.SF_AI_EVENTS_FILE_FALLBACK;
+      } else {
+        process.env.SF_AI_EVENTS_FILE_FALLBACK = prev;
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  });

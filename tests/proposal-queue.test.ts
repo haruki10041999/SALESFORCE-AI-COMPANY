@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -52,6 +52,50 @@ test("enqueueProposal writes pending JSON file", () => {
     const paths = resolveProposalQueuePaths(tmp.outputsDir);
     assert.ok(existsSync(join(paths.pendingDir, `${r.id}.json`)));
   } finally { tmp.cleanup(); }
+});
+
+test("enqueueProposal writes encrypted file when at-rest encryption is enabled", () => {
+  const tmp = withTmp();
+  const prevEnabled = process.env.SF_AI_ENCRYPTION_ENABLED;
+  const prevKey = process.env.SF_AI_ENCRYPTION_KEY_B64;
+  const prevKeyId = process.env.SF_AI_ENCRYPTION_KEY_ID;
+  const keyB64 = Buffer.from("0123456789abcdef0123456789abcdef", "utf-8").toString("base64");
+
+  try {
+    process.env.SF_AI_ENCRYPTION_ENABLED = "true";
+    process.env.SF_AI_ENCRYPTION_KEY_B64 = keyB64;
+    process.env.SF_AI_ENCRYPTION_KEY_ID = "test-proposal-v1";
+
+    const r = enqueueProposal(tmp.outputsDir, {
+      resourceType: "skills", name: "secure-skill", content: "sensitive content"
+    });
+    const paths = resolveProposalQueuePaths(tmp.outputsDir);
+    const raw = readFileSync(join(paths.pendingDir, `${r.id}.json`), "utf-8");
+    assert.equal(raw.includes("sensitive content"), false);
+    const parsed = JSON.parse(raw.trim()) as Record<string, unknown>;
+    assert.equal(typeof parsed.ciphertext, "string");
+    assert.equal(parsed.keyId, "test-proposal-v1");
+
+    const loaded = getProposal(tmp.outputsDir, r.id);
+    assert.equal(loaded?.content, "sensitive content");
+  } finally {
+    if (typeof prevEnabled === "string") {
+      process.env.SF_AI_ENCRYPTION_ENABLED = prevEnabled;
+    } else {
+      delete process.env.SF_AI_ENCRYPTION_ENABLED;
+    }
+    if (typeof prevKey === "string") {
+      process.env.SF_AI_ENCRYPTION_KEY_B64 = prevKey;
+    } else {
+      delete process.env.SF_AI_ENCRYPTION_KEY_B64;
+    }
+    if (typeof prevKeyId === "string") {
+      process.env.SF_AI_ENCRYPTION_KEY_ID = prevKeyId;
+    } else {
+      delete process.env.SF_AI_ENCRYPTION_KEY_ID;
+    }
+    tmp.cleanup();
+  }
 });
 
 test("listProposals filters by status and resourceType", () => {

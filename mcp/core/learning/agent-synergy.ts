@@ -9,9 +9,10 @@
  * ε-greedy 探索で局所最適を防ぐ (既定 ε = 0.1)。
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
+import { ensureParentDirectorySync } from "../io/atomic-write.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,11 +62,6 @@ function resolvePath(filePath?: string): string {
   return resolve(filePath ?? DEFAULT_PATH);
 }
 
-function ensureDir(filePath: string): void {
-  const dir = dirname(filePath);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-}
-
 /** セッション終了時に記録を追記する。 */
 export function recordAgentSynergySession(
   record: AgentSynergyRecord,
@@ -77,10 +73,10 @@ export function recordAgentSynergySession(
       await analyticsStore.insertAgentSynergyRecord(record);
       return;
     }
-    ensureDir(fp);
+    ensureParentDirectorySync(fp);
     appendFileSync(fp, JSON.stringify(record) + "\n", "utf-8");
   }).catch(() => {
-    ensureDir(fp);
+    ensureParentDirectorySync(fp);
     appendFileSync(fp, JSON.stringify(record) + "\n", "utf-8");
   });
 }

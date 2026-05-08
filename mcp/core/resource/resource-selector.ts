@@ -211,7 +211,7 @@ export function getScoringConfigForTypeWithAgent(
 /**
  * テキスト正規化
  */
-function normalizeForSearch(text: string): string {
+export function normalizeForSearch(text: string): string {
   return text.toLowerCase().replace(/[\s_\-\/]+/g, " ").trim();
 }
 

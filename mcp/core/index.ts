@@ -74,6 +74,46 @@ export {
   createQualityCheckFailedEvent
 } from "./event/event-dispatcher.js";
 
+export {
+  type EventBusBackend,
+  type EventBus,
+  type EventBusMessage,
+  type EventBusHandler,
+  createEventBus,
+  getGlobalEventBus,
+  setGlobalEventBus
+} from "./event/event-bus.js";
+
+// Reliability
+export {
+  type RateLimitConfig,
+  type ToolRateLimitContext,
+  type ToolRateLimitResult,
+  type ToolRateLimiter,
+  InMemoryToolRateLimiter,
+  NoopToolRateLimiter,
+  buildRateLimitConfigFromEnv,
+  getGlobalToolRateLimiter,
+  setGlobalToolRateLimiter
+} from "./reliability/rate-limiter.js";
+
+// Security
+export {
+  AT_REST_ALGORITHM,
+  ENCRYPTION_ENVELOPE_VERSION,
+  type EncryptionKeyMaterial,
+  type KeyProvider,
+  type EncryptedEnvelope,
+  type AtRestCrypto,
+  type AtRestCryptoConfig,
+  EnvKeyProvider,
+  AesGcmAtRestCrypto,
+  buildAtRestCryptoConfigFromEnv,
+  createAtRestCryptoFromEnv,
+  serializeEncryptedEnvelope,
+  parseEncryptedEnvelope
+} from "./security/at-rest-crypto.js";
+
 // Governance Manager
 export {
   type ResourceScore,

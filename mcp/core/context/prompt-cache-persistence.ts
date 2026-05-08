@@ -19,24 +19,16 @@
 import {
   appendFileSync,
   existsSync,
-  mkdirSync,
   readFileSync,
   writeFileSync
 } from "node:fs";
-import { dirname } from "node:path";
+import { ensureParentDirectorySync } from "../io/atomic-write.js";
 
 export interface PersistedCacheEntry<TInput = unknown> {
   key: string;
   prompt: string;
   createdAt: number;
   input: TInput;
-}
-
-function ensureDirSync(filePath: string): void {
-  const dir = dirname(filePath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
 }
 
 /**
@@ -93,7 +85,7 @@ export function appendPromptCacheEntry<TInput = unknown>(
   filePath: string,
   entry: PersistedCacheEntry<TInput>
 ): void {
-  ensureDirSync(filePath);
+  ensureParentDirectorySync(filePath);
   appendFileSync(filePath, JSON.stringify(entry) + "\n", "utf-8");
 }
 
@@ -117,7 +109,7 @@ export function rewritePromptCacheFile<TInput = unknown>(
   filePath: string,
   entries: Iterable<PersistedCacheEntry<TInput>>
 ): void {
-  ensureDirSync(filePath);
+  ensureParentDirectorySync(filePath);
   const lines: string[] = [];
   for (const e of entries) {
     lines.push(JSON.stringify(e));

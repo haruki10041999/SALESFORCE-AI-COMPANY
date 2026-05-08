@@ -2,7 +2,7 @@
 import { createInterface } from "node:readline/promises";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 type ResourceType = "agent" | "skill" | "preset" | "tool";
 
@@ -23,6 +23,11 @@ interface ParsedOptions {
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const TEMPLATE_DIR = join(ROOT, "scripts", "templates");
+
+function getOutputsDir(): string {
+  const configured = process.env.SF_AI_OUTPUTS_DIR?.trim();
+  return configured ? resolve(configured) : join(ROOT, "outputs");
+}
 
 function printUsage(error?: string): void {
   if (error) {
@@ -319,14 +324,14 @@ function resolveToolFilePath(name: string): string {
   if (!isSafeSegment(name)) {
     throw new Error(`tool 名は英小文字・数字・ハイフンのみ使用できます: ${name}`);
   }
-  return join(ROOT, "outputs", "custom-tools", `${name}.json`);
+  return join(getOutputsDir(), "setup", "scaffold", "custom-tools", `${name}.json`);
 }
 
 function resolvePresetFilePath(name: string): string {
   if (!isSafeSegment(name)) {
     throw new Error(`preset 名は英小文字・数字・ハイフンのみ使用できます: ${name}`);
   }
-  return join(ROOT, "outputs", "presets", `${name}.json`);
+  return join(getOutputsDir(), "setup", "scaffold", "presets", `${name}.json`);
 }
 
 async function promptUntil(
@@ -520,7 +525,7 @@ function validateOptions(options: ParsedOptions): void {
   }
 }
 
-async function run(argv: string[]): Promise<number> {
+export async function run(argv: string[]): Promise<number> {
   const { args, nonInteractive, forceInteractive } = normalizeArgs(argv);
   let options: ParsedOptions;
 
@@ -566,4 +571,7 @@ async function run(argv: string[]): Promise<number> {
   }
 }
 
-process.exit(await run(process.argv.slice(2)));
+const invokedDirectly = import.meta.url === pathToFileURL(process.argv[1] ?? "").href;
+if (invokedDirectly) {
+  process.exit(await run(process.argv.slice(2)));
+}

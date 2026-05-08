@@ -46,6 +46,7 @@ test("history store saves chats under day-based directory and can restore", asyn
         await import("node:fs").then((fs) => fs.promises.mkdir(dir, { recursive: true }));
       },
       agentLog,
+      allowFileFallback: true,
       maxHistoryFiles: 20,
       retentionDays: 30
     });
@@ -108,6 +109,41 @@ test("archiveHistoryByDate creates archive json and markdown summary", async () 
     assert.ok(summary.includes("release readiness"));
     assert.ok(summary.includes("Conclusion"));
     assert.ok(summary.includes("Next Actions"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("history store does not write files by default", async () => {
+  const root = mkdtempSync(join(tmpdir(), "sf-ai-history-no-file-test-"));
+  const historyDir = join(root, "outputs", "history");
+  const agentLog = [
+    {
+      agent: "architect",
+      message: "ephemeral save",
+      timestamp: new Date().toISOString(),
+      topic: "no-file"
+    }
+  ];
+
+  try {
+    const store = createHistoryStore({
+      historyDir,
+      ensureDir: async (dir: string) => {
+        await import("node:fs").then((fs) => fs.promises.mkdir(dir, { recursive: true }));
+      },
+      agentLog,
+      maxHistoryFiles: 20,
+      retentionDays: 30
+    });
+
+    const id = await store.saveChatHistory("no-file");
+    const sessions = await store.loadChatHistories();
+    const restored = await store.restoreChatHistory(id);
+
+    assert.equal(sessions.length, 1);
+    assert.equal(restored?.id, id);
+    assert.equal(existsSync(historyDir), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

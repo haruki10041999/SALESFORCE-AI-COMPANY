@@ -2,6 +2,7 @@
 import { existsSync, promises as fsPromises } from "fs";
 import { join } from "path";
 import type { GovTool } from "@mcp/tool-types.js";
+import { isEnvFlagEnabled } from "../config/env-flags.js";
 
 export interface CustomToolDefinition {
   name: string;
@@ -31,6 +32,7 @@ interface CreateCustomToolRegistryDeps {
 export function createCustomToolRegistry(deps: CreateCustomToolRegistryDeps) {
   const { govTool, filterDisabledSkills, buildChatPrompt } = deps;
   const loadedCustomToolNames = new Set<string>();
+  const customToolFileFallbackEnabled = isEnvFlagEnabled("SF_AI_CUSTOM_TOOL_FILE_FALLBACK");
 
   function registerCustomTool(def: CustomToolDefinition): void {
     if (loadedCustomToolNames.has(def.name)) return;
@@ -67,6 +69,7 @@ export function createCustomToolRegistry(deps: CreateCustomToolRegistryDeps) {
   }
 
   async function loadCustomToolsFromDir(dir: string): Promise<void> {
+    if (!customToolFileFallbackEnabled) return;
     if (!existsSync(dir)) return;
     let files: string[];
     try {

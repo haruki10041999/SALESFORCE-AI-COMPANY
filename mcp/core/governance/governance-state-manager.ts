@@ -1,6 +1,8 @@
 import type { GovernanceState } from "./governance-state.js";
+import { Pool } from "pg";
 import { SQLiteStateStore } from "../persistence/sqlite-store.js";
 import { PostgresStateStore } from "../persistence/postgres-store.js";
+import { AdvisoryLockManager } from "../persistence/advisory-lock.js";
 import { resolveStateBackend, type StateBackend, type StateStore } from "../persistence/state-store.js";
 import {
   normalizeDisabledEntries as _normalizeDisabledEntries,
@@ -41,6 +43,13 @@ export function createGovernanceStateManager(deps: GovernanceStateManagerDeps): 
     databaseUrl
   } = deps;
   const backend = stateBackend ?? resolveStateBackend(process.env.SF_AI_STATE_BACKEND);
+  const lockManager = AdvisoryLockManager.open({
+    databaseUrl,
+    lockNamespace: "governance"
+  });
+  const notifyPool = backend === "postgres" && databaseUrl
+    ? new Pool({ connectionString: databaseUrl })
+    : null;
 
   let storePromise: Promise<StateStore | null> | null = null;
 
@@ -151,7 +160,7 @@ export function createGovernanceStateManager(deps: GovernanceStateManagerDeps): 
   }
 
   async function loadFromSqlite(): Promise<GovernanceState> {
-    const loaded = await withStateStore(async (store) => {
+    const loaded = await lockManager.withLock("state", async () => withStateStore(async (store) => {
       const row = await store.getGovernanceStateRow();
       if (!row) {
         const legacy = await _loadGovernanceState(governanceFile, ensureDir, defaultProtectedTools);
@@ -167,7 +176,7 @@ export function createGovernanceStateManager(deps: GovernanceStateManagerDeps): 
         await store.upsertGovernanceStateRow(JSON.stringify(legacy), legacy.updatedAt);
         return legacy;
       }
-    });
+    }));
 
     if (loaded) {
       return loaded;
@@ -179,11 +188,18 @@ export function createGovernanceStateManager(deps: GovernanceStateManagerDeps): 
   async function saveToSqlite(state: GovernanceState): Promise<void> {
     state.updatedAt = new Date().toISOString();
 
-    const saved = await withStateStore(async (store) => {
+    const saved = await lockManager.withLock("state", async () => withStateStore(async (store) => {
       await store.upsertGovernanceStateRow(JSON.stringify(state), state.updatedAt);
-    });
+    }));
 
     if (saved !== null) {
+      if (notifyPool) {
+        try {
+          await notifyPool.query("SELECT pg_notify('governance_state_updated', $1)", [state.updatedAt]);
+        } catch {
+          // best-effort invalidation broadcast
+        }
+      }
       return;
     }
 

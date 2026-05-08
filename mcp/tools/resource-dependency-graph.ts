@@ -1,5 +1,6 @@
 import { existsSync, promises as fsPromises } from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
 
 type ResourceType = "skills" | "agents" | "personas" | "presets";
 
@@ -233,6 +234,13 @@ export async function buildResourceDependencyGraph(
   const rootDir = resolve(input.rootDir);
   const presetsDir = resolve(input.presetsDir);
   const reportDir = input.reportOutputDir ? resolve(input.reportOutputDir) : null;
+  const runtimeOutputsDir = process.env.SF_AI_OUTPUTS_DIR
+    ? resolve(process.env.SF_AI_OUTPUTS_DIR)
+    : resolve("outputs");
+  const artifactWriter = new OutputsArtifactWriter({
+    outputsDir: runtimeOutputsDir,
+    databaseUrl: process.env.DATABASE_URL
+  });
   const includeTypes = new Set<ResourceType>(input.includeTypes ?? ["skills", "agents", "personas", "presets"]);
   const includeIsolated = input.includeIsolated !== false;
   const maxImpacts = Number.isFinite(input.maxImpacts) ? Math.max(1, Math.floor(input.maxImpacts ?? 50)) : 50;
@@ -408,19 +416,23 @@ export async function buildResourceDependencyGraph(
   };
 
   if (reportDir) {
-    await fsPromises.mkdir(reportDir, { recursive: true });
-    await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
-    await fsPromises.writeFile(
-      reportMarkdownPath,
-      toMarkdown({
-        summary,
-        nodes,
-        edges: allEdges,
-        mermaid,
-        impact
-      }),
-      "utf-8"
-    );
+    const markdown = toMarkdown({
+      summary,
+      nodes,
+      edges: allEdges,
+      mermaid,
+      impact
+    });
+    const reportRelativeDir = relative(runtimeOutputsDir, reportDir);
+    const useArtifactWriter = reportRelativeDir.length > 0 && !reportRelativeDir.startsWith("..") && !isAbsolute(reportRelativeDir);
+    if (useArtifactWriter) {
+      await artifactWriter.writeJson(join(reportRelativeDir, basename(reportJsonPath)), result);
+      await artifactWriter.writeText(join(reportRelativeDir, basename(reportMarkdownPath)), markdown);
+    } else {
+      await fsPromises.mkdir(reportDir, { recursive: true });
+      await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");
+      await fsPromises.writeFile(reportMarkdownPath, markdown, "utf-8");
+    }
   }
 
   return result;

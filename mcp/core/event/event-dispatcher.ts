@@ -5,8 +5,10 @@
  */
 
 import { createLogger } from "../logging/logger.js";
+import type { EventBus } from "./event-bus.js";
 
 const logger = createLogger("EventDispatcher");
+const SYSTEM_EVENT_TOPIC = "system_event";
 
 export type SystemEventType =
   | "resource_gap_detected"
@@ -26,6 +28,8 @@ export type EventListener = (event: SystemEvent) => Promise<void>;
 
 export interface EventDispatcherConfig {
   maxListeners?: number;
+  eventBus?: EventBus;
+  instanceId?: string;
 }
 
 interface ListenerFailureState {
@@ -52,16 +56,48 @@ export interface ListenerFailureStat {
 export class EventDispatcher {
   private listeners: Map<SystemEventType, Set<EventListener>> = new Map();
   private eventHistory: SystemEvent[] = [];
-    private maxHistorySize: number;
+  private maxHistorySize: number;
   private listenerFailures: Map<SystemEventType, Map<EventListener, ListenerFailureState>> = new Map();
+  private eventBus?: EventBus;
+  private eventBusUnsubscribe?: () => Promise<void> | void;
+  private readonly instanceId: string;
 
-    constructor(config?: EventDispatcherConfig) {
-      const envMax = Number.parseInt(process.env.EVENT_HISTORY_MAX ?? "1000", 10);
-      this.maxHistorySize = Number.isFinite(envMax) && envMax > 0 ? envMax : 1000;
-      if (config?.maxListeners) {
-        // 必要に応じて max listeners チェック
-      }
+  constructor(config?: EventDispatcherConfig) {
+    const envMax = Number.parseInt(process.env.EVENT_HISTORY_MAX ?? "1000", 10);
+    this.maxHistorySize = Number.isFinite(envMax) && envMax > 0 ? envMax : 1000;
+    this.instanceId = config?.instanceId ?? `dispatcher-${Math.random().toString(36).slice(2, 10)}`;
+
+    if (config?.eventBus) {
+      this.attachEventBus(config.eventBus).catch((error) => {
+        logger.warn("Failed to attach event bus to dispatcher", error);
+      });
     }
+
+    if (config?.maxListeners) {
+      // 必要に応じて max listeners チェック
+    }
+  }
+
+  public async attachEventBus(eventBus: EventBus): Promise<void> {
+    if (this.eventBusUnsubscribe) {
+      await this.eventBusUnsubscribe();
+      this.eventBusUnsubscribe = undefined;
+    }
+    this.eventBus = eventBus;
+    this.eventBusUnsubscribe = await eventBus.subscribe<{ event: SystemEvent; source?: string }>(
+      SYSTEM_EVENT_TOPIC,
+      async (message) => {
+        if (!message.payload || typeof message.payload !== "object") {
+          return;
+        }
+        const payload = message.payload as { event?: SystemEvent; source?: string };
+        if (!payload.event || payload.source === this.instanceId) {
+          return;
+        }
+        await this.emitInternal(payload.event, false);
+      }
+    );
+  }
 
   /**
    * イベントリスナーを登録
@@ -96,6 +132,10 @@ export class EventDispatcher {
    * イベントを発火
    */
   public async emit(event: SystemEvent): Promise<void> {
+    await this.emitInternal(event, true);
+  }
+
+  private async emitInternal(event: SystemEvent, publishToBus: boolean): Promise<void> {
     // 履歴に記録
     this.eventHistory.push(event);
     if (this.eventHistory.length > this.maxHistorySize) {
@@ -104,44 +144,55 @@ export class EventDispatcher {
 
     // リスナーを実行
     const listeners = this.listeners.get(event.type);
-    if (!listeners) return;
+    if (listeners) {
+      const failureMap = this.listenerFailures.get(event.type) ?? new Map<EventListener, ListenerFailureState>();
 
-    const failureMap = this.listenerFailures.get(event.type) ?? new Map<EventListener, ListenerFailureState>();
-
-    const promises = Array.from(listeners)
-      .filter((listener) => {
-        const state = failureMap.get(listener);
-        return !state?.disabled;
-      })
-      .map((listener) =>
-        listener(event)
-          .then(() => {
-            const state = failureMap.get(listener);
-            if (state) {
-              state.consecutiveFailures = 0;
-            }
-          })
-          .catch((err) => {
-            const now = new Date().toISOString();
-            const state = failureMap.get(listener);
-            if (state) {
-              state.failureCount += 1;
-              state.consecutiveFailures += 1;
-              state.lastError = err instanceof Error ? err.message : String(err);
-              state.lastFailedAt = now;
-              if (state.consecutiveFailures >= 3) {
-                state.disabled = true;
+      const promises = Array.from(listeners)
+        .filter((listener) => {
+          const state = failureMap.get(listener);
+          return !state?.disabled;
+        })
+        .map((listener) =>
+          listener(event)
+            .then(() => {
+              const state = failureMap.get(listener);
+              if (state) {
+                state.consecutiveFailures = 0;
               }
-            }
-            logger.error(`Error in event listener for ${event.type}:`, err);
-          })
-      );
+            })
+            .catch((err) => {
+              const now = new Date().toISOString();
+              const state = failureMap.get(listener);
+              if (state) {
+                state.failureCount += 1;
+                state.consecutiveFailures += 1;
+                state.lastError = err instanceof Error ? err.message : String(err);
+                state.lastFailedAt = now;
+                if (state.consecutiveFailures >= 3) {
+                  state.disabled = true;
+                }
+              }
+              logger.error(`Error in event listener for ${event.type}:`, err);
+            })
+        );
 
-    if (!this.listenerFailures.has(event.type)) {
-      this.listenerFailures.set(event.type, failureMap);
+      if (!this.listenerFailures.has(event.type)) {
+        this.listenerFailures.set(event.type, failureMap);
+      }
+
+      await Promise.all(promises);
     }
 
-    await Promise.all(promises);
+    if (publishToBus && this.eventBus) {
+      try {
+        await this.eventBus.publish(SYSTEM_EVENT_TOPIC, {
+          event,
+          source: this.instanceId
+        });
+      } catch (error) {
+        logger.warn("Failed to publish event to event bus", error);
+      }
+    }
   }
 
   /**

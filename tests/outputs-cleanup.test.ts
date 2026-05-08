@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readdir, rm, stat, utimes, writeFile } from "node:fs/pr
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { cleanupOutputs } from "../mcp/core/governance/outputs-cleanup.js";
+import { cleanupOutputs, parseCleanupArgs } from "../mcp/core/governance/outputs-cleanup.js";
 
 async function touchFile(filePath: string, ageDays: number): Promise<void> {
   await mkdir(dirname(filePath), { recursive: true });
@@ -42,6 +42,9 @@ test("cleanupOutputs removes old generated outputs recursively but preserves non
     const summary = cleanupOutputs(outputsDir, { days: 30, dryRun: false });
 
     assert.equal(summary.totalRemoved, 5);
+    const removedFiles = summary.results.flatMap((item) => item.result.removedFiles);
+    assert.equal(removedFiles.length, 5);
+    assert.ok(removedFiles.every((item) => item.action === "removed"));
 
     await assert.rejects(stat(oldHistory));
     await assert.rejects(stat(oldSession));
@@ -69,8 +72,19 @@ test("cleanupOutputs dry-run reports old generated outputs without deleting them
     const remaining = await readdir(join(outputsDir, "reports", "coverage-gap"));
 
     assert.equal(summary.totalRemoved, 1);
+    const removedFiles = summary.results.flatMap((item) => item.result.removedFiles);
+    assert.equal(removedFiles.length, 1);
+    assert.equal(removedFiles[0]?.action, "dry-run");
     assert.deepEqual(remaining, ["old.md"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("parseCleanupArgs supports retention policy and audit flags", () => {
+  const parsed = parseCleanupArgs(["--days", "45", "--dry-run", "--retention-policy", "--no-audit-log"]);
+  assert.equal(parsed.days, 45);
+  assert.equal(parsed.dryRun, true);
+  assert.equal(parsed.useRetentionPolicy, true);
+  assert.equal(parsed.auditLog, false);
 });

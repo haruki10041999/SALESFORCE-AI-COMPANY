@@ -15,6 +15,14 @@ import writeFileAtomic from "write-file-atomic";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
+export function ensureDirectorySync(dirPath: string): void {
+  mkdirSync(dirPath, { recursive: true });
+}
+
+export function ensureParentDirectorySync(filePath: string): void {
+  ensureDirectorySync(dirname(filePath));
+}
+
 /**
  * `content` を `targetPath` にアトミックに書き込む。
  * write-file-atomic の sync API を使用。
@@ -25,8 +33,7 @@ export function atomicWriteFileSync(
   content: string | Buffer,
   encoding: BufferEncoding = "utf-8"
 ): void {
-  const dir = dirname(targetPath);
-  mkdirSync(dir, { recursive: true });
+  ensureParentDirectorySync(targetPath);
 
   writeFileAtomic.sync(targetPath, content, { encoding });
 }

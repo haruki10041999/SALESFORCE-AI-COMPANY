@@ -179,8 +179,9 @@ npm run ai -- scaffold -- --non-interactive agent <name>
 
 - 引数なしの `npm run ai -- scaffold --` は対話型 Wizard を開始します。
 - `--non-interactive` を付けると、既存の引数指定モードで動作します。
-- `preset` は `outputs/presets/*.json` を生成します。
-- `tool` は `outputs/custom-tools/*.json` を生成します。
+- `preset` は `outputs/setup/scaffold/presets/*.json` を生成します。
+- `tool` は `outputs/setup/scaffold/custom-tools/*.json` を生成します。
+- runtime へ直接反映したい場合は、別途 MCP の `create_preset` や提案適用フローを使うか、fallback を明示的に有効化してください。
 
 詳細は [developer-guide.md](developer-guide.md) を参照してください。
 

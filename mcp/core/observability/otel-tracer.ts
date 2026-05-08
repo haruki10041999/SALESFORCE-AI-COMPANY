@@ -17,6 +17,7 @@
  */
 
 import { createLogger } from "../logging/logger.js";
+import { isEnvFlagEnabled } from "../config/env-flags.js";
 
 const logger = createLogger("OtelTracer");
 
@@ -42,7 +43,7 @@ let initAttempted = false;
 const activeSpans = new Map<string, OtelSpan>();
 
 function isEnabled(): boolean {
-  return (process.env.OTEL_ENABLED ?? "false").toLowerCase() === "true";
+  return isEnvFlagEnabled("OTEL_ENABLED");
 }
 
 async function getTracer(): Promise<OtelTracer | null> {

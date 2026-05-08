@@ -1,4 +1,10 @@
-import { ensureGitRepoAndRefs, runGit, validateRef } from "./git-diff-helpers.js";
+import {
+  ensureGitRepoAndRefs,
+  getDiffFiles,
+  getFileExtension,
+  runGit,
+  validateRef
+} from "./git-diff-helpers.js";
 
 export type BranchDiffInput = {
   repoPath: string;
@@ -46,66 +52,6 @@ function statusToKey(status: FileChange["status"]): "added" | "modified" | "dele
   return "modified";
 }
 
-function fileTypeOf(path: string): string {
-  const lastDot = path.lastIndexOf(".");
-  if (lastDot < 0 || lastDot === path.length - 1) return "(no-ext)";
-  return path.slice(lastDot + 1).toLowerCase();
-}
-
-function parseNameStatus(output: string): Map<string, FileChange["status"]> {
-  const result = new Map<string, FileChange["status"]>();
-
-  for (const rawLine of output.split(/\r?\n/)) {
-    if (!rawLine.trim()) continue;
-    const parts = rawLine.split("\t");
-    const rawStatus = parts[0] ?? "";
-    const normalizedStatus = rawStatus[0] as FileChange["status"];
-
-    if (rawStatus.startsWith("R") || rawStatus.startsWith("C")) {
-      const newPath = parts[2];
-      if (newPath) result.set(newPath, normalizedStatus);
-      continue;
-    }
-
-    const filePath = parts[1];
-    if (filePath) result.set(filePath, normalizedStatus);
-  }
-
-  return result;
-}
-
-function parseNumStat(output: string): Map<string, { additions: number; deletions: number }> {
-  const result = new Map<string, { additions: number; deletions: number }>();
-
-  for (const rawLine of output.split(/\r?\n/)) {
-    if (!rawLine.trim()) continue;
-    const parts = rawLine.split("\t");
-    const additions = Number.parseInt(parts[0] ?? "0", 10);
-    const deletions = Number.parseInt(parts[1] ?? "0", 10);
-
-    if (parts.length >= 4) {
-      const path = parts[3];
-      if (path) {
-        result.set(path, {
-          additions: Number.isNaN(additions) ? 0 : additions,
-          deletions: Number.isNaN(deletions) ? 0 : deletions
-        });
-      }
-      continue;
-    }
-
-    const path = parts[2];
-    if (path) {
-      result.set(path, {
-        additions: Number.isNaN(additions) ? 0 : additions,
-        deletions: Number.isNaN(deletions) ? 0 : deletions
-      });
-    }
-  }
-
-  return result;
-}
-
 function parseTouchedSymbolsByFile(output: string): Map<string, string[]> {
   const result = new Map<string, Set<string>>();
   let currentPath = "";
@@ -144,8 +90,7 @@ export function summarizeBranchDiff(input: BranchDiffInput): BranchDiffSummary {
 
   const comparison = `${baseBranch}...${workingBranch}`;
 
-  const nameStatus = parseNameStatus(runGit(repoPath, ["diff", "--name-status", comparison]));
-  const numStat = parseNumStat(runGit(repoPath, ["diff", "--numstat", comparison]));
+  const diffFiles = getDiffFiles(repoPath, comparison);
   const symbolMap = parseTouchedSymbolsByFile(runGit(repoPath, ["diff", "--unified=0", "--no-color", comparison]));
 
   const counters = {
@@ -159,19 +104,20 @@ export function summarizeBranchDiff(input: BranchDiffInput): BranchDiffSummary {
   const fileTypeBreakdown: Record<string, number> = {};
   const fileChanges: FileChange[] = [];
 
-  for (const [path, status] of nameStatus.entries()) {
-    const num = numStat.get(path) ?? { additions: 0, deletions: 0 };
+  for (const file of diffFiles) {
+    const path = file.path;
+    const status = file.status;
     const touchedSymbols = symbolMap.get(path) ?? [];
     counters[statusToKey(status)] += 1;
 
-    const fileType = fileTypeOf(path);
+    const fileType = getFileExtension(path);
     fileTypeBreakdown[fileType] = (fileTypeBreakdown[fileType] ?? 0) + 1;
 
     fileChanges.push({
       path,
       status,
-      additions: num.additions,
-      deletions: num.deletions,
+      additions: file.additions,
+      deletions: file.deletions,
       touchedSymbols
     });
   }

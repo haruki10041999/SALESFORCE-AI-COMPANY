@@ -8,10 +8,12 @@ export type { ChatPreset, StoredPreset };
 interface PresetStoreDeps {
   presetsDir: string;
   ensureDir: (dir: string) => Promise<void>;
+  allowFileFallback?: boolean;
 }
 
 export function createPresetStore(deps: PresetStoreDeps) {
-  const { presetsDir, ensureDir } = deps;
+  const { presetsDir, ensureDir, allowFileFallback = false } = deps;
+  const volatilePresetVersions = new Map<string, ChatPreset[]>();
 
   function toPresetSlug(name: string): string {
     return name.trim().toLowerCase().replace(/\s+/g, "-");
@@ -32,12 +34,17 @@ export function createPresetStore(deps: PresetStoreDeps) {
   }
 
   async function createPreset(preset: ChatPreset): Promise<void> {
-    await ensureDir(presetsDir);
     const slug = toPresetSlug(preset.name);
-    const versionDir = join(presetsDir, slug);
-    await ensureDir(versionDir);
+    const existingVolatile = volatilePresetVersions.get(slug) ?? [];
+    const volatileMaxVersion = existingVolatile.reduce((max, item) => Math.max(max, item.version ?? 0), 0);
+    let nextVersion = volatileMaxVersion + 1;
+    if (allowFileFallback) {
+      await ensureDir(presetsDir);
+      const versionDir = join(presetsDir, slug);
+      await ensureDir(versionDir);
+      nextVersion = Math.max(nextVersion, await resolveNextPresetVersion(versionDir));
+    }
 
-    const nextVersion = await resolveNextPresetVersion(versionDir);
     const now = new Date().toISOString();
     const versionedPreset: ChatPreset = {
       ...preset,
@@ -47,6 +54,15 @@ export function createPresetStore(deps: PresetStoreDeps) {
       skills: preset.skills ?? []
     };
 
+    const mergedVolatile = [...existingVolatile.filter((item) => (item.version ?? 0) !== nextVersion), versionedPreset]
+      .sort((a, b) => (a.version ?? 0) - (b.version ?? 0));
+    volatilePresetVersions.set(slug, mergedVolatile);
+
+    if (!allowFileFallback) {
+      return;
+    }
+
+    const versionDir = join(presetsDir, slug);
     const versionFilePath = join(versionDir, `v${nextVersion}.json`);
     const latestFilePath = join(presetsDir, slug + ".json");
     const payload = JSON.stringify(versionedPreset, null, 2);
@@ -57,8 +73,6 @@ export function createPresetStore(deps: PresetStoreDeps) {
   }
 
   async function listPresetsData(): Promise<StoredPreset[]> {
-    if (!existsSync(presetsDir)) return [];
-    const files = await fsPromises.readdir(presetsDir);
     const latestByName = new Map<string, StoredPreset>();
 
     function keepLatest(preset: ChatPreset): void {
@@ -73,6 +87,18 @@ export function createPresetStore(deps: PresetStoreDeps) {
         latestByName.set(stored.name, stored);
       }
     }
+
+    for (const versions of volatilePresetVersions.values()) {
+      for (const preset of versions) {
+        keepLatest(preset);
+      }
+    }
+
+    if (!allowFileFallback || !existsSync(presetsDir)) {
+      return [...latestByName.values()];
+    }
+
+    const files = await fsPromises.readdir(presetsDir);
 
     for (const file of files) {
       const fullPath = join(presetsDir, file);

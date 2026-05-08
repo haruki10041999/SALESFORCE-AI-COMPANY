@@ -1,8 +1,13 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { Logger } from "../logging/logger.js";
+import { parseBooleanLike } from "../config/env-flags.js";
+import { startHealthServer } from "./health-server.js";
+import { circuitBreakerRegistry } from "../reliability/circuit-breaker.js";
+import { bulkheadRegistry, DEFAULT_EXTERNAL_HTTP_CONCURRENCY } from "../reliability/bulkhead.js";
 
 interface RuntimeHandles {
   stop: () => Promise<void>;
+  setReady: (ready: boolean) => void;
+  setStartupComplete: (started: boolean) => void;
 }
 
 interface NodeSdkLike {
@@ -11,12 +16,6 @@ interface NodeSdkLike {
 }
 
 let activeRuntime: RuntimeHandles | null = null;
-
-function isTruthy(value: string | undefined): boolean {
-  if (!value) return false;
-  const normalized = value.trim().toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
-}
 
 function parsePort(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value ?? "", 10);
@@ -32,7 +31,7 @@ function normalizeOtlpTraceUrl(endpoint: string): string {
 }
 
 function applyLangSmithToggle(logger: Logger): void {
-  const enabled = isTruthy(process.env.SF_AI_LANGSMITH_ENABLED);
+  const enabled = parseBooleanLike(process.env.SF_AI_LANGSMITH_ENABLED, false);
   if (enabled) {
     process.env.LANGCHAIN_TRACING_V2 = "true";
     logger.info("LangSmith tracing enabled (SF_AI_LANGSMITH_ENABLED=true)");
@@ -44,11 +43,23 @@ function applyLangSmithToggle(logger: Logger): void {
 }
 
 async function initOtelSdk(logger: Logger): Promise<NodeSdkLike | null> {
-  if (!isTruthy(process.env.OTEL_ENABLED)) {
+  if (!parseBooleanLike(process.env.OTEL_ENABLED, false)) {
     return null;
   }
 
   try {
+    const otelBulkhead = bulkheadRegistry.get("otlp-exporter", {
+      concurrency: DEFAULT_EXTERNAL_HTTP_CONCURRENCY,
+      maxQueue: 20
+    });
+    const otelCircuit = circuitBreakerRegistry.get("otlp-exporter", {
+      failureRateThreshold: 0.5,
+      minCallsInWindow: 3,
+      cooldownMs: 15_000,
+      windowSize: 10,
+      halfOpenSuccessThreshold: 1
+    });
+
     const sdkMod = await import("@opentelemetry/sdk-node");
     const exporterMod = await import("@opentelemetry/exporter-trace-otlp-http");
     const autoMod = await import("@opentelemetry/auto-instrumentations-node");
@@ -67,7 +78,10 @@ async function initOtelSdk(logger: Logger): Promise<NodeSdkLike | null> {
       traceExporter: exporter,
       instrumentations
     }) as unknown as NodeSdkLike;
-    await sdk.start();
+    await otelBulkhead.execute(async () => otelCircuit.execute(async () => {
+      await sdk.start();
+      return undefined;
+    }));
     logger.info(`OTel SDK started (otlp=${traceUrl})`);
     return sdk;
   } catch (error) {
@@ -76,7 +90,10 @@ async function initOtelSdk(logger: Logger): Promise<NodeSdkLike | null> {
   }
 }
 
-async function initPrometheusHttp(logger: Logger): Promise<{
+async function initPrometheusHttp(
+  logger: Logger,
+  readiness: { isReady: () => boolean; isStartupComplete: () => boolean }
+): Promise<{
   close: () => Promise<void>;
   port: number;
 } | null> {
@@ -86,52 +103,20 @@ async function initPrometheusHttp(logger: Logger): Promise<{
     return null;
   }
 
-  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    try {
-      if (req.method === "GET" && req.url === "/metrics") {
-        const { getPrometheusMetricsText } = await import("./prometheus-metrics.js");
-        const { contentType, text } = await getPrometheusMetricsText();
-        res.statusCode = 200;
-        res.setHeader("Content-Type", contentType);
-        res.end(text);
-        return;
-      }
-      if (req.method === "GET" && req.url === "/healthz") {
-        res.statusCode = 200;
-        res.setHeader("Content-Type", "text/plain; charset=utf-8");
-        res.end("ok\n");
-        return;
-      }
-      res.statusCode = 404;
-      res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.end("not found\n");
-    } catch (error) {
-      logger.warn("metrics endpoint request failed", error);
-      res.statusCode = 500;
-      res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.end("internal error\n");
-    }
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, () => {
-      server.off("error", reject);
-      resolve();
-    });
+  const handle = await startHealthServer({
+    port,
+    logger,
+    isReady: readiness.isReady,
+    isStartupComplete: readiness.isStartupComplete
   }).catch((error) => {
     logger.warn(`Prometheus HTTP endpoint could not bind :${port}`, error);
     return Promise.reject(error);
   });
 
-  logger.info(`Prometheus HTTP endpoint listening on :${port}`);
-
   return {
-    port,
+    port: handle.port,
     close: async () => {
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
-      });
+      await handle.close();
     }
   };
 }
@@ -143,15 +128,28 @@ export async function startObservabilityRuntime(logger: Logger): Promise<Runtime
 
   applyLangSmithToggle(logger);
 
+  let ready = false;
+  let startupComplete = false;
+
   const otelSdk = await initOtelSdk(logger);
   let metricsServer: Awaited<ReturnType<typeof initPrometheusHttp>> | null = null;
   try {
-    metricsServer = await initPrometheusHttp(logger);
+    metricsServer = await initPrometheusHttp(logger, {
+      isReady: () => ready,
+      isStartupComplete: () => startupComplete
+    });
   } catch {
     metricsServer = null;
   }
+  startupComplete = true;
 
   activeRuntime = {
+    setReady: (value: boolean) => {
+      ready = value;
+    },
+    setStartupComplete: (value: boolean) => {
+      startupComplete = value;
+    },
     stop: async () => {
       if (metricsServer) {
         await metricsServer.close();

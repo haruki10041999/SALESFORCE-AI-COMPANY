@@ -167,6 +167,31 @@
         "/^node --import tsx --test tests/vector-store-large-load\\.test\\.ts tests/memory-prompt\\.test\\.ts 2>&1 \\| Select-Object -Last 180$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^npx tsc --noEmit 2>&1 \\| Select-Object -First 60$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "npx tsc": true,
+        "/^npx tsc --noEmit 2>&1 ; node --test tests/actor-identity-context\\.test\\.ts 2>&1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx tsc --noEmit 2>&1 ; node --import tsx --test tests/advisory-lock\\.test\\.ts 2>&1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/registry/plugin-manifest\\.test\\.ts tests/registry/plugin-registry\\.test\\.ts tests/registry/plugin-loader\\.test\\.ts$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/security/secrets-rotation\\.test\\.ts$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --import tsx --test tests/memory/chunker\\.test\\.ts tests/memory/hierarchical-retrieval\\.integration\\.test\\.ts tests/learning/replay-ab\\.integration\\.test\\.ts tests/security/secrets-rotation\\.test\\.ts$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     },
     "sqltools.connections": [

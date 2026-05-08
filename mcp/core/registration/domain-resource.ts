@@ -123,7 +123,8 @@ export function registerResourceDomain(deps: Deps): void {
     ensureDir,
     runChatTool,
     evaluatePromptMetrics,
-    outputsDir: join(root, "outputs")
+    outputsDir: join(root, "outputs"),
+    policySnapshotManager: deps.policySnapshotManager
   });
 
   registerResourceGovernanceTools({

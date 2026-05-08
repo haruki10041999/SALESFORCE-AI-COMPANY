@@ -11,6 +11,8 @@
  * - resource governance flagged のリソースを併記
  */
 
+import { escapeHtml } from "../format/escaping.js";
+
 export interface ObservabilityTrace {
   traceId: string;
   toolName: string;
@@ -81,15 +83,6 @@ function safeTime(iso: string | undefined): number | null {
   if (!iso) return null;
   const ms = new Date(iso).getTime();
   return Number.isFinite(ms) ? ms : null;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 function buildSummary(input: ObservabilityInput): ObservabilitySummary {

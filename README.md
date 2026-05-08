@@ -70,6 +70,13 @@ npm run ai -- outputs:cleanup -- --dry-run
 
 `.env.local.sample` で SQLite/file/tfidf、`.env.operations.sample` で Postgres/pg-boss/PGVector が既定値。
 
+`SF_AI_PROFILE` を設定した場合は backend 組み合わせを固定します。
+
+- `SF_AI_PROFILE=local` -> `sqlite/file/tfidf`
+- `SF_AI_PROFILE=operations` -> `postgres/pg-boss/pgvector`
+
+既定の `SF_AI_PROFILE_STRICT=true` では上記 3 変数を強制適用します。
+
 ### Observability Stack
 
 - **OTel Auto-instrumentation**: NodeSDK + 自動計装（http/db/fs）+ Prometheus exporter

@@ -91,6 +91,21 @@ const COMMANDS: Record<string, CliCommand> = {
     description: "過去チャット履歴を再評価してレポート化",
     passThroughArgs: true
   },
+  replay: {
+    script: "replay:session",
+    description: "記録済みツール実行を session 単位で再生/一覧表示",
+    passThroughArgs: true
+  },
+  "evals:run": {
+    script: "evals:run",
+    description: "Eval Harness でオフラインベンチマークを実行 (--suite, --baseline, --ci)",
+    passThroughArgs: true
+  },
+  "migrate:tenant-scope": {
+    script: "migrate:tenant-scope",
+    description: "既存データの tenant_id を一括付与 (--tenant, --dry-run)",
+    passThroughArgs: true
+  },
   scaffold: {
     script: "scaffold",
     description: "agent/skill/preset/tool の雛形を生成",
@@ -115,7 +130,11 @@ function buildHelpText(): string {
     "  npm run ai -- dev",
     "  npm run ai -- outputs:cleanup -- --dry-run",
     "  npm run ai -- observability:dashboard -- --trace-limit 100",
-    "  npm run ai -- learning:replay -- --limit 20"
+    "  npm run ai -- learning:replay -- --limit 20",
+    "  npm run ai -- replay -- --session sess-42",
+    "  npm run ai -- evals:run -- --suite agent-selection --ci",
+    "  npm run ai -- evals:run -- --save-baseline",
+    "  npm run ai -- migrate:tenant-scope -- --tenant tenant-a --dry-run"
   ].join("\n");
 }
 

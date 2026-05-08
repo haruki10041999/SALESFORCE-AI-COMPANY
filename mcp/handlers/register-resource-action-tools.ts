@@ -8,6 +8,7 @@ import type { SystemEventRecord } from "../core/event/system-event-manager.js";
 import type { HandlersStatistics } from "./statistics-manager.js";
 import { buildResourceActivityIndex } from "./statistics-manager.js";
 import { suggestCleanupResources } from "../tools/suggest-cleanup-resources.js";
+import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
 import { evaluateCascadeDeletion, renderCascadeImpactMarkdown, type CascadeMode } from "../core/resource/cascading-delete.js";
 import {
   loadCleanupSchedules,
@@ -89,6 +90,10 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
     cleanupScheduleSync
   } = deps;
   const auditFile = join(dirname(governanceFile), "audit", "resource-actions.jsonl");
+  const artifactWriter = new OutputsArtifactWriter({
+    outputsDir: dirname(governanceFile),
+    databaseUrl: process.env.DATABASE_URL
+  });
 
   function renderCleanupMarkdown(payload: {
     generatedAt: string;
@@ -508,7 +513,6 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
       }
 
       try {
-        await ensureDir(dirname(auditFile));
         const timestamp = new Date().toISOString();
         const records = results.map((result) => JSON.stringify({
           timestamp,
@@ -520,7 +524,16 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
           outcome: result.result
         }));
         if (records.length > 0) {
-          await fsPromises.appendFile(auditFile, `${records.join("\n")}\n`, "utf-8");
+          for (const row of records) {
+            const payload = JSON.parse(row) as Record<string, unknown>;
+            await artifactWriter.appendAuditArtifact(
+              "resource_action",
+              typeof payload.resourceType === "string" ? payload.resourceType : null,
+              payload,
+              typeof payload.timestamp === "string" ? payload.timestamp : new Date().toISOString(),
+              "audit/resource-actions.jsonl"
+            );
+          }
         }
       } catch {
         // audit logging failures must not break tool execution
@@ -611,14 +624,13 @@ export function registerResourceActionTools(deps: RegisterResourceActionToolsDep
 
       const outputsDir = dirname(governanceFile);
       const reportsDir = join(outputsDir, "reports", "cleanup-suggestions");
-      await fsPromises.mkdir(reportsDir, { recursive: true });
       const runsJsonlPath = join(reportsDir, "runs.jsonl");
       const jsonPath = join(reportsDir, "latest.json");
       const mdPath = join(reportsDir, "latest.md");
 
-      await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(suggestion)}\n`, "utf-8");
-      await fsPromises.writeFile(jsonPath, JSON.stringify(suggestion, null, 2), "utf-8");
-      await fsPromises.writeFile(mdPath, renderCleanupMarkdown(suggestion), "utf-8");
+      await artifactWriter.appendJsonl("reports/cleanup-suggestions/runs.jsonl", suggestion);
+      await artifactWriter.writeJson("reports/cleanup-suggestions/latest.json", suggestion);
+      await artifactWriter.writeText("reports/cleanup-suggestions/latest.md", renderCleanupMarkdown(suggestion));
 
       return {
         content: [

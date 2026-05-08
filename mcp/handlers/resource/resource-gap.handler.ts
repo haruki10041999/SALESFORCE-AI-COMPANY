@@ -18,6 +18,7 @@ import {
   checkForDuplicates,
   type SimilarityCheckResult
 } from "../../core/quality/deduplication.js";
+import { isEnvFlagEnabled } from "../../core/config/env-flags.js";
 
 /**
  * ハンドラー実行結果
@@ -70,7 +71,7 @@ export const DEFAULT_HANDLER_CONFIG: HandlerConfig = {
  *   SF_AI_AUTO_APPLY_MAX_PER_DAY=<number> → maxCreationsPerDay
  */
 export function buildHandlerConfig(overrides: Partial<HandlerConfig> = {}): HandlerConfig {
-  const autoApply = process.env.SF_AI_AUTO_APPLY === "true";
+  const autoApply = isEnvFlagEnabled("SF_AI_AUTO_APPLY");
   const minimumScore = Number.parseInt(process.env.SF_AI_AUTO_APPLY_MIN_SCORE ?? "70", 10);
   const maxPerDay = Number.parseInt(process.env.SF_AI_AUTO_APPLY_MAX_PER_DAY ?? "5", 10);
   return {

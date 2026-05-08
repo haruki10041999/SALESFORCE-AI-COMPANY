@@ -10,6 +10,7 @@
 
 import { OllamaClient, getDefaultOllamaClient } from "./ollama-client.js";
 import { LRUCache } from "lru-cache";
+import { parseBooleanEnv } from "../config/env-flags.js";
 
 export type OllamaAvailability =
   | { status: "available"; models: string[]; checkedAt: number }
@@ -92,7 +93,7 @@ export interface OllamaPolicy {
 }
 
 export function readOllamaPolicy(env: OllamaPolicyEnvSource = process.env): OllamaPolicy {
-  const required = (env.OLLAMA_REQUIRED ?? "").toLowerCase() === "true";
+  const required = parseBooleanEnv(env.OLLAMA_REQUIRED, false);
   const provider = (env.EMBEDDING_PROVIDER ?? "ngram").toLowerCase();
   const embeddingProvider: "ngram" | "ollama" = provider === "ollama" ? "ollama" : "ngram";
   return {

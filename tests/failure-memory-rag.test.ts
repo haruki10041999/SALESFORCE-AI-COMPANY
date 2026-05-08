@@ -19,6 +19,7 @@ import {
 import type { FailureMemoryEntry } from "../memory/failure-memory.js";
 import {
   configureFailureMemoryStorageForTest,
+  listFailureMemory,
   recordFailureMemory
 } from "../memory/failure-memory.js";
 
@@ -85,6 +86,60 @@ at Module._compile (internal/modules/cjs/loader.js:1099:13)`,
   assert.ok(sig.messageKeywords.includes("module"));
   assert.ok(sig.stackPatterns.length > 0);
   assert.equal(sig.context.tool, "reward-aggregator");
+});
+
+test("failure-memory persists encrypted payload when at-rest encryption is enabled", async () => {
+  const encryptedPath = resolve("outputs", "learning", "failure-memory-encrypted-test.jsonl");
+  const prevEnabled = process.env.SF_AI_ENCRYPTION_ENABLED;
+  const prevKey = process.env.SF_AI_ENCRYPTION_KEY_B64;
+  const prevKeyId = process.env.SF_AI_ENCRYPTION_KEY_ID;
+  const keyB64 = Buffer.from("0123456789abcdef0123456789abcdef", "utf-8").toString("base64");
+
+  try {
+    await fsPromises.mkdir(resolve("outputs", "learning"), { recursive: true });
+    process.env.SF_AI_ENCRYPTION_ENABLED = "true";
+    process.env.SF_AI_ENCRYPTION_KEY_B64 = keyB64;
+    process.env.SF_AI_ENCRYPTION_KEY_ID = "test-failure-v1";
+
+    configureFailureMemoryStorageForTest(encryptedPath);
+    await recordFailureMemory({
+      pattern: "sensitive-pattern",
+      reason: "contains private context",
+      preventiveAction: "mask secrets before logging",
+      tags: ["security"]
+    });
+
+    const raw = await fsPromises.readFile(encryptedPath, "utf-8");
+    assert.equal(raw.includes("sensitive-pattern"), false);
+    const parsed = JSON.parse(raw.trim()) as Record<string, unknown>;
+    assert.equal(typeof parsed.ciphertext, "string");
+    assert.equal(parsed.keyId, "test-failure-v1");
+
+    configureFailureMemoryStorageForTest(encryptedPath);
+    const rows = await listFailureMemory(20);
+    assert.ok(rows.some((row) => row.pattern === "sensitive-pattern"));
+  } finally {
+    if (typeof prevEnabled === "string") {
+      process.env.SF_AI_ENCRYPTION_ENABLED = prevEnabled;
+    } else {
+      delete process.env.SF_AI_ENCRYPTION_ENABLED;
+    }
+    if (typeof prevKey === "string") {
+      process.env.SF_AI_ENCRYPTION_KEY_B64 = prevKey;
+    } else {
+      delete process.env.SF_AI_ENCRYPTION_KEY_B64;
+    }
+    if (typeof prevKeyId === "string") {
+      process.env.SF_AI_ENCRYPTION_KEY_ID = prevKeyId;
+    } else {
+      delete process.env.SF_AI_ENCRYPTION_KEY_ID;
+    }
+    try {
+      await fsPromises.unlink(encryptedPath);
+    } catch {
+      // ignore cleanup failure
+    }
+  }
 });
 
 test("calculateErrorSimilarity returns 0 for completely different errors", () => {

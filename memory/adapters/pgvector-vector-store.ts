@@ -2,6 +2,10 @@ import pgvector from "pgvector/pg";
 import { Pool, type PoolClient } from "pg";
 import { createEmbeddingProvider, type VectorEmbeddingProvider } from "../../mcp/core/llm/embedding-provider.js";
 import { getDefaultLangChainEmbeddingProvider } from "../../mcp/core/llm/langchain-embedding.js";
+import { circuitBreakerRegistry } from "../../mcp/core/reliability/circuit-breaker.js";
+import { bulkheadRegistry, DEFAULT_PGVECTOR_CONCURRENCY } from "../../mcp/core/reliability/bulkhead.js";
+import { currentTenantId } from "../../mcp/core/identity/tenant-context.js";
+import { ensureTenantRlsPolicy, resetTenantSetting, setTenantSetting } from "../../mcp/core/persistence/postgres-tenant-context.js";
 import type { EmbeddingProvider, MemoryRecord, VectorSearchOptions, VectorStoreAdapter } from "../vector-store-adapter.js";
 
 function toIsoNow(): string {
@@ -26,6 +30,17 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
   private readonly pool: Pool;
   private embeddingProvider: VectorEmbeddingProvider;
   private readonly pendingWrites = new Set<Promise<void>>();
+  private readonly circuitBreaker = circuitBreakerRegistry.get("pgvector", {
+    failureRateThreshold: 0.5,
+    minCallsInWindow: 5,
+    cooldownMs: 15_000,
+    windowSize: 20,
+    halfOpenSuccessThreshold: 1
+  });
+  private readonly bulkhead = bulkheadRegistry.get("pgvector", {
+    concurrency: DEFAULT_PGVECTOR_CONCURRENCY,
+    maxQueue: 100
+  });
   private schemaReady = false;
   private schemaPromise: Promise<void> | null = null;
 
@@ -81,26 +96,36 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
   public addRecord(record: MemoryRecord): void {
     const writePromise = this.withClient(async (client) => {
       await this.ensureSchema();
+      const tenantId = currentTenantId() ?? null;
+      const dim = this.embeddingProvider.dimension ?? 768;
       const embedding = normalizeVectorDimension(
         await this.embeddingProvider.embed(`${record.text} ${(record.tags ?? []).join(" ")}`),
-        768
+        dim
       );
       await client.query(
         [
-          "INSERT INTO memory_records(id, text, tags_json, embedding, updated_at)",
-          "VALUES ($1, $2, $3::jsonb, $4::vector, $5::timestamptz)",
+          "INSERT INTO memory_records(id, tenant_id, text, tags_json, embedding, updated_at, embedding_model, embedding_dim, embedding_norm)",
+          "VALUES ($1, $2, $3, $4::jsonb, $5::vector, $6::timestamptz, $7, $8, $9)",
           "ON CONFLICT(id) DO UPDATE SET",
+          "  tenant_id = EXCLUDED.tenant_id,",
           "  text = EXCLUDED.text,",
           "  tags_json = EXCLUDED.tags_json,",
           "  embedding = EXCLUDED.embedding,",
-          "  updated_at = EXCLUDED.updated_at"
+          "  updated_at = EXCLUDED.updated_at,",
+          "  embedding_model = EXCLUDED.embedding_model,",
+          "  embedding_dim = EXCLUDED.embedding_dim,",
+          "  embedding_norm = EXCLUDED.embedding_norm"
         ].join("\n"),
         [
           record.id,
+          tenantId,
           record.text,
           JSON.stringify(record.tags ?? []),
           pgvector.toSql(embedding),
-          toIsoNow()
+          toIsoNow(),
+          this.embeddingProvider.name,
+          dim,
+          true
         ]
       );
     });
@@ -120,7 +145,10 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
     }
 
     await this.flushPendingWrites();
-    const queryVector = normalizeVectorDimension(await this.embeddingProvider.embed(query), 768);
+    const tenantId = currentTenantId();
+    const dim = this.embeddingProvider.dimension ?? 768;
+    const modelName = this.embeddingProvider.name;
+    const queryVector = normalizeVectorDimension(await this.embeddingProvider.embed(query), dim);
     const limit = Math.max(1, options.limit ?? 10);
     const minScore = options.minScore ?? -1;
 
@@ -135,10 +163,15 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
         [
           "SELECT id, text, tags_json, 1 - (embedding <=> $1::vector) AS score",
           "FROM memory_records",
+          tenantId
+            ? "WHERE embedding_model = $3 AND embedding_dim = $4 AND tenant_id = $5"
+            : "WHERE embedding_model = $3 AND embedding_dim = $4 AND tenant_id IS NULL",
           "ORDER BY embedding <=> $1::vector ASC",
           "LIMIT $2"
         ].join("\n"),
-        [pgvector.toSql(queryVector), limit]
+        tenantId
+          ? [pgvector.toSql(queryVector), limit, modelName, dim, tenantId]
+          : [pgvector.toSql(queryVector), limit, modelName, dim]
       );
 
       return result.rows
@@ -175,12 +208,19 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
   }
 
   private async withClient<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect();
-    try {
-      return await work(client);
-    } finally {
-      client.release();
-    }
+    const tenantId = currentTenantId();
+    return this.bulkhead.execute(async () => {
+      return this.circuitBreaker.execute(async () => {
+        const client = await this.pool.connect();
+        try {
+          await setTenantSetting(client, tenantId);
+          return await work(client);
+        } finally {
+          await resetTenantSetting(client);
+          client.release();
+        }
+      });
+    });
   }
 
   private async ensureSchema(): Promise<void> {
@@ -197,16 +237,32 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
             [
               "CREATE TABLE IF NOT EXISTS memory_records(",
               "  id text PRIMARY KEY,",
+              "  tenant_id text,",
               "  text text NOT NULL,",
               "  tags_json jsonb NOT NULL DEFAULT '[]'::jsonb,",
               "  embedding vector(768) NOT NULL,",
-              "  updated_at timestamptz NOT NULL DEFAULT now()",
+              "  updated_at timestamptz NOT NULL DEFAULT now(),",
+              "  embedding_model text NOT NULL DEFAULT 'legacy-768',",
+              "  embedding_dim integer NOT NULL DEFAULT 768,",
+              "  embedding_norm boolean NOT NULL DEFAULT true",
               ")"
             ].join("\n")
           );
+          // Back-fill columns for pre-existing databases that lack the metadata columns
+          await client.query("ALTER TABLE memory_records ADD COLUMN IF NOT EXISTS tenant_id text");
+          await client.query("ALTER TABLE memory_records ADD COLUMN IF NOT EXISTS embedding_model text NOT NULL DEFAULT 'legacy-768'");
+          await client.query("ALTER TABLE memory_records ADD COLUMN IF NOT EXISTS embedding_dim integer NOT NULL DEFAULT 768");
+          await client.query("ALTER TABLE memory_records ADD COLUMN IF NOT EXISTS embedding_norm boolean NOT NULL DEFAULT true");
           await client.query(
             "CREATE INDEX IF NOT EXISTS idx_memory_records_embedding_cosine ON memory_records USING hnsw (embedding vector_cosine_ops)"
           );
+          await client.query(
+            "CREATE INDEX IF NOT EXISTS idx_memory_records_model_dim ON memory_records (embedding_model, embedding_dim)"
+          );
+          await client.query(
+            "CREATE INDEX IF NOT EXISTS idx_memory_records_tenant_model_dim ON memory_records (tenant_id, embedding_model, embedding_dim)"
+          );
+          await ensureTenantRlsPolicy(client, "memory_records", "memory_records_tenant_isolation");
           this.schemaReady = true;
         } finally {
           client.release();

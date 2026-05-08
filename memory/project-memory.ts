@@ -5,6 +5,12 @@ import { gzipSync } from "node:zlib";
 import { PostgresAnalyticsStore } from "../mcp/core/persistence/postgres-analytics-store.js";
 import { createLogger } from "../mcp/core/logging/logger.js";
 import { atomicWriteFileSync } from "../mcp/core/io/atomic-write.js";
+import { isEnvFlagEnabled } from "../mcp/core/config/env-flags.js";
+import {
+  createAtRestCryptoFromEnv,
+  parseEncryptedEnvelope,
+  type EncryptedEnvelope
+} from "../mcp/core/security/at-rest-crypto.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_MEMORY_FILE = join(ROOT, "outputs", "memory.jsonl");
@@ -14,12 +20,19 @@ const logger = createLogger("ProjectMemory");
 let storageFilePath = process.env.SF_AI_MEMORY_FILE ?? DEFAULT_MEMORY_FILE;
 let maxRecords = Number.parseInt(process.env.SF_AI_MEMORY_MAX_RECORDS ?? "2000", 10);
 let maxBytes = Number.parseInt(process.env.SF_AI_MEMORY_MAX_BYTES ?? `${1024 * 1024}`, 10);
+const outputsStateFallbackEnabled = isEnvFlagEnabled("SF_AI_ALLOW_OUTPUTS_STATE_FALLBACK");
 const analyticsStorePromise = process.env.DATABASE_URL
   ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
   : Promise.resolve(null);
 
 function shouldUseDatabase(): boolean {
   return Boolean(process.env.DATABASE_URL) && resolve(storageFilePath) === resolve(DEFAULT_MEMORY_FILE);
+}
+
+function shouldUseFilePersistence(): boolean {
+  const explicitFilePath = typeof process.env.SF_AI_MEMORY_FILE === "string" && process.env.SF_AI_MEMORY_FILE.trim().length > 0;
+  const nonDefaultPath = resolve(storageFilePath) !== resolve(DEFAULT_MEMORY_FILE);
+  return !shouldUseDatabase() && (explicitFilePath || nonDefaultPath || outputsStateFallbackEnabled);
 }
 
 function normalizeLimits(): void {
@@ -65,16 +78,52 @@ function archivePayloadIfNeeded(payload: string): string {
   return trimmed.length > 0 ? `${trimmed}\n` : "";
 }
 
+function isEncryptedEnvelope(value: unknown): value is EncryptedEnvelope {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record.alg === "string"
+    && typeof record.keyId === "string"
+    && typeof record.iv === "string"
+    && typeof record.tag === "string"
+    && typeof record.ciphertext === "string";
+}
+
+function tryDecryptPayload(raw: string): string {
+  const atRestCrypto = createAtRestCryptoFromEnv();
+  if (!atRestCrypto) {
+    return raw;
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return raw;
+  }
+  try {
+    const parsed = parseEncryptedEnvelope(trimmed);
+    if (!isEncryptedEnvelope(parsed)) {
+      return raw;
+    }
+    return atRestCrypto.decryptUtf8(parsed);
+  } catch {
+    return raw;
+  }
+}
+
 function loadFromDisk(): void {
   memory.length = 0;
   normalizeLimits();
+  if (!shouldUseFilePersistence()) {
+    return;
+  }
   if (!existsSync(storageFilePath)) {
     return;
   }
 
   try {
     const raw = readFileSync(storageFilePath, "utf-8");
-    const lines = raw.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    const resolved = tryDecryptPayload(raw);
+    const lines = resolved.split(/\r?\n/).filter((line) => line.trim().length > 0);
 
     for (const line of lines) {
       try {
@@ -93,6 +142,9 @@ function loadFromDisk(): void {
 }
 
 function saveToDisk(): void {
+  if (!shouldUseFilePersistence()) {
+    return;
+  }
   try {
     normalizeLimits();
     applyRetention();
@@ -101,7 +153,13 @@ function saveToDisk(): void {
       .map((text) => JSON.stringify({ text, savedAt: new Date().toISOString() }))
       .join("\n");
     const content = archivePayloadIfNeeded(payload.length > 0 ? `${payload}\n` : "");
-    atomicWriteFileSync(storageFilePath, content, "utf-8");
+    const atRestCrypto = createAtRestCryptoFromEnv();
+    if (!atRestCrypto) {
+      atomicWriteFileSync(storageFilePath, content, "utf-8");
+      return;
+    }
+    const encrypted = atRestCrypto.encryptUtf8(content);
+    atomicWriteFileSync(storageFilePath, `${JSON.stringify(encrypted)}\n`, "utf-8");
   } catch {
     // Keep API non-throwing for tool execution stability.
   }

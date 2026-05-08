@@ -4,8 +4,10 @@
  */
 
 import { fileURLToPath } from "url";
+import { parseBooleanLike } from "../config/env-flags.js";
 import { updateLearningProgressDashboard } from "./learning-dashboard-generator.js";
 import { runDriftDetectionAndPersist, type DriftReport } from "./drift-detector.js";
+import { activateDriftFreeze } from "./drift-freeze.js";
 
 export interface MetricsAutoUpdateOptions {
   reportingHours?: number;
@@ -22,6 +24,9 @@ export interface MetricsAutoUpdateOptions {
   rewardFilePath?: string;
   reputationFilePath?: string;
   driftReportPath?: string;
+  freezeOnDriftAlert?: boolean;
+  freezeDurationHours?: number;
+  freezeStatePath?: string;
   onDriftAlert?: (report: DriftReport) => Promise<void> | void;
 }
 
@@ -29,6 +34,7 @@ export interface MetricsAutoUpdateResult {
   dashboardUpdated: boolean;
   driftReport?: DriftReport;
   driftAlertEmitted: boolean;
+  driftFreezeActivated: boolean;
   updatedAt: string;
 }
 
@@ -58,23 +64,29 @@ export async function runMetricsAutoUpdate(
   }
 
   let driftAlertEmitted = false;
+  let driftFreezeActivated = false;
   if (driftReport?.shouldAlert && options.onDriftAlert) {
     await options.onDriftAlert(driftReport);
     driftAlertEmitted = true;
+  }
+
+  if (driftReport?.shouldAlert && (options.freezeOnDriftAlert ?? true)) {
+    await activateDriftFreeze({
+      reason: `drift_alert:${driftReport.alerts.join(" | ")}`,
+      sourceReportId: driftReport.reportId,
+      durationHours: options.freezeDurationHours,
+      statePath: options.freezeStatePath
+    });
+    driftFreezeActivated = true;
   }
 
   return {
     dashboardUpdated: true,
     driftReport,
     driftAlertEmitted,
+    driftFreezeActivated,
     updatedAt: new Date().toISOString()
   };
-}
-
-function parseBooleanFlag(value: string | undefined): boolean {
-  if (!value) return false;
-  const normalized = value.trim().toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes";
 }
 
 function parseOptionalNumber(value: string | undefined): number | undefined {
@@ -86,9 +98,10 @@ function parseOptionalNumber(value: string | undefined): number | undefined {
 async function main(): Promise<void> {
   const reportingHours = parseOptionalNumber(process.env.SF_AI_METRICS_REPORTING_HOURS) ?? 24;
   const includeDriftDetection =
-    parseBooleanFlag(process.env.SF_AI_METRICS_WITH_DRIFT) ||
+    parseBooleanLike(process.env.SF_AI_METRICS_WITH_DRIFT, false) ||
     process.argv.includes("--with-drift") ||
     process.argv.includes("--drift");
+  const freezeOnDriftAlert = parseBooleanLike(process.env.SF_AI_DRIFT_FREEZE_ENABLED, true);
 
   const result = await runMetricsAutoUpdate({
     reportingHours,
@@ -98,7 +111,7 @@ async function main(): Promise<void> {
     minRecentRewardSamples: parseOptionalNumber(process.env.SF_AI_DRIFT_MIN_REWARD_SAMPLES),
     rewardDriftThreshold: parseOptionalNumber(process.env.SF_AI_DRIFT_THRESHOLD),
     adaptiveRewardDriftThreshold: process.env.SF_AI_DRIFT_ADAPTIVE_THRESHOLD
-      ? parseBooleanFlag(process.env.SF_AI_DRIFT_ADAPTIVE_THRESHOLD)
+      ? parseBooleanLike(process.env.SF_AI_DRIFT_ADAPTIVE_THRESHOLD, false)
       : undefined,
     minAdaptiveRewardDriftThreshold: parseOptionalNumber(process.env.SF_AI_DRIFT_ADAPTIVE_MIN_THRESHOLD),
     maxAdaptiveRewardDriftThreshold: parseOptionalNumber(process.env.SF_AI_DRIFT_ADAPTIVE_MAX_THRESHOLD),
@@ -106,13 +119,15 @@ async function main(): Promise<void> {
       process.env.SF_AI_DRIFT_MIN_REPUTATION_SAMPLES
     ),
     regressionThreshold: parseOptionalNumber(process.env.SF_AI_REGRESSION_THRESHOLD),
-    driftReportPath: process.env.SF_AI_DRIFT_REPORT_PATH
+    driftReportPath: process.env.SF_AI_DRIFT_REPORT_PATH,
+    freezeOnDriftAlert,
+    freezeDurationHours: parseOptionalNumber(process.env.SF_AI_DRIFT_FREEZE_HOURS),
+    freezeStatePath: process.env.SF_AI_DRIFT_FREEZE_STATE_PATH
   });
 
   if (result.driftReport?.shouldAlert) {
-    console.log(
-      `[metrics-auto-update] completed with alerts: ${result.driftReport.alerts.join(" | ")}`
-    );
+    const freezeSuffix = result.driftFreezeActivated ? " (freeze activated)" : "";
+    console.log(`[metrics-auto-update] completed with alerts: ${result.driftReport.alerts.join(" | ")}${freezeSuffix}`);
   } else {
     console.log("[metrics-auto-update] completed");
   }

@@ -1,0 +1,35 @@
+{
+  "version": "1.0",
+  "defaultRole": "viewer",
+  "rules": [
+    { "role": "admin", "resource": "tool:*", "action": "*", "effect": "allow" },
+
+    { "role": "reviewer", "resource": "tool:list_proposals", "action": "execute", "effect": "allow" },
+    { "role": "reviewer", "resource": "tool:get_proposal", "action": "execute", "effect": "allow" },
+    { "role": "reviewer", "resource": "tool:approve_proposal_stage", "action": "execute", "effect": "allow" },
+    { "role": "reviewer", "resource": "tool:reject_proposal_stage", "action": "execute", "effect": "allow" },
+    { "role": "reviewer", "resource": "tool:health_check", "action": "execute", "effect": "allow" },
+    { "role": "reviewer", "resource": "tool:get_system_events", "action": "execute", "effect": "allow" },
+
+    { "role": "operator", "resource": "tool:health_check", "action": "execute", "effect": "allow" },
+    { "role": "operator", "resource": "tool:get_system_events", "action": "execute", "effect": "allow" },
+    { "role": "operator", "resource": "tool:get_handlers_dashboard", "action": "execute", "effect": "allow" },
+    { "role": "operator", "resource": "tool:export_handlers_statistics", "action": "execute", "effect": "allow" },
+    { "role": "operator", "resource": "tool:update_event_automation_config", "action": "execute", "effect": "deny" },
+    { "role": "operator", "resource": "tool:apply_resource_actions", "action": "execute", "effect": "deny" },
+
+    { "role": "developer", "resource": "tool:*", "action": "execute", "effect": "allow" },
+    { "role": "developer", "resource": "tool:apply_resource_actions", "action": "execute", "effect": "deny" },
+
+    { "role": "viewer", "resource": "tool:health_check", "action": "execute", "effect": "allow" },
+    { "role": "viewer", "resource": "tool:get_system_events", "action": "execute", "effect": "allow" },
+    { "role": "viewer", "resource": "tool:get_handlers_dashboard", "action": "execute", "effect": "allow" },
+
+    { "role": "service", "resource": "tool:*", "action": "execute", "effect": "allow" },
+
+    { "role": "agent", "resource": "tool:chat", "action": "execute", "effect": "allow" },
+    { "role": "agent", "resource": "tool:smart_chat", "action": "execute", "effect": "allow" },
+    { "role": "agent", "resource": "tool:orchestrate_chat", "action": "execute", "effect": "allow" },
+    { "role": "agent", "resource": "tool:apply_resource_actions", "action": "execute", "effect": "deny" }
+  ]
+}

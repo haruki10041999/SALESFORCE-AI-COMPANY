@@ -1,5 +1,6 @@
 ﻿import { z } from "zod";
 import type { RegisterGovToolDeps } from "./types.js";
+import { isEnvFlagEnabled } from "../core/config/env-flags.js";
 import { createLogger } from "../core/logging/logger.js";
 import { getRubricCriteriaOverrideByAgent } from "../core/config/runtime-config.js";
 import { tunePromptTemplates } from "../tools/tune-prompt-templates.js";
@@ -108,7 +109,7 @@ function buildDiagnostics(metrics: {
 export function registerVectorPromptTools(deps: RegisterVectorPromptToolsDeps): void {
   const { govTool, addRecord, searchByKeyword, searchByKeywordAsync, buildPrompt, evaluatePromptMetrics } = deps;
   const logger = createLogger("VectorPromptTools");
-  const verbosePromptDebug = process.env.SF_AI_DEBUG_VERBOSE_PROMPT === "true";
+  const verbosePromptDebug = isEnvFlagEnabled("SF_AI_DEBUG_VERBOSE_PROMPT");
 
   govTool(
     "add_vector_record",
