@@ -14,6 +14,16 @@ Salesforce 開発業務を対象に、MCP サーバとして次の機能を提�
 
 ## 2. レイヤ構成
 
+### Runtime 4層（T-17 段階移行）
+
+- `surface`: MCP サーバの公開面・構成エントリ（`mcp/surface/`）
+- `runtime`: 実行制御（orchestration / event / reliability / observability）
+- `domain`: 業務ルール（governance / quality / resource / security）
+- `persistence`: 永続化・受動アダプタ（state/session/queue、schema/loader）
+
+現行コードは移行期間中のため、`mcp/core/*` 直下の既存ディレクトリを維持しつつ
+`mcp/core/layer-manifest.ts` で 4 層依存方向を管理しています。
+
 ### Entry / Composition
 
 - `mcp/server.ts`

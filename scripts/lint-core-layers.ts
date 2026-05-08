@@ -4,7 +4,7 @@
  *
  * Walks every .ts file under `mcp/core/`, extracts relative imports, classifies
  * the source and target by directory segment, and reports edges that violate
- * the declared dependency direction (data <- logic <- observable).
+ * the declared dependency direction (surface -> runtime -> domain -> persistence).
  *
  * Exit code:
  *   - 0: no violations

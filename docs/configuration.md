@@ -69,6 +69,28 @@ Copy-Item .env.local.sample .env
 Copy-Item .env.operations.sample .env
 ```
 
+### profile固定 (T-26)
+
+`SF_AI_PROFILE` を設定すると backend switcher をプロファイル値に固定します。
+
+- `SF_AI_PROFILE=local`:
+	- `SF_AI_STATE_BACKEND=sqlite`
+	- `SF_AI_PROPOSAL_QUEUE_BACKEND=file`
+	- `SF_AI_VECTOR_BACKEND=tfidf`
+- `SF_AI_PROFILE=operations`:
+	- `SF_AI_STATE_BACKEND=postgres`
+	- `SF_AI_PROPOSAL_QUEUE_BACKEND=pg-boss`
+	- `SF_AI_VECTOR_BACKEND=pgvector`
+
+既定では `SF_AI_PROFILE_STRICT=true` で動作し、上記 3 変数を強制上書きします。
+`SF_AI_PROFILE_STRICT=false` の場合は既存値を優先し、強制上書きしません。
+
+優先順位:
+
+1. `.env` 読み込み
+2. `SF_AI_PROFILE` / `SF_AI_RUNTIME_PROFILE` の適用
+3. サーバ起動時の backend 解決
+
 ## バックアップ関連
 
 | 変数名 | 何に使うか | 既定値 |
@@ -158,8 +180,34 @@ Copy-Item .env.operations.sample .env
 | `SF_AI_DRIFT_THRESHOLD` | reward drift 判定しきい値（平均シフト/スコア） | `0.15` |
 | `SF_AI_REGRESSION_THRESHOLD` | agent regression 判定しきい値 | `0.1` |
 | `SF_AI_DRIFT_REPORT_PATH` | drift / regression レポートの互換 JSONL 保存先。`DATABASE_URL` 未設定時や test override 時に利用 | `outputs/reports/drift-regression.jsonl` |
+| `SF_AI_DRIFT_FREEZE_ENABLED` | drift alert 検知時に学習 freeze 状態を有効化するか (`true`/`false`) | `true` |
+| `SF_AI_DRIFT_FREEZE_HOURS` | freeze の有効期間（時間）。未設定または `0` 以下の場合は手動解除まで継続 | 未設定 |
+| `SF_AI_DRIFT_FREEZE_STATE_PATH` | freeze 状態ファイルの保存先 | `outputs/learning/drift-freeze.json` |
 | `SF_AI_AUTO_MEMORY` | チャット/ツール実行のたびに input/output サマリを `memory.jsonl` と `vector-store.jsonl` へ自動追記する。`1`/`true`/`on`/`yes` で有効。memory/vector 系ツール自身は再帰防止のため除外 | `false` |
 | `SF_AI_PROGRESS_BANNER` | ツール応答テキストの先頭に進捗タイムライン (フェーズ別開始時刻・所要時間) を追加表示する。`false`/`0`/`off`/`no` で無効。`get_tool_progress` / `ping` は対象外 | `true` |
+| `SF_AI_RATE_LIMIT_ENABLED` | actor/tenant/tool 単位の固定ウィンドウ rate limit を有効化する (`true`/`false`) | `true` |
+| `SF_AI_RATE_LIMIT_WINDOW_MS` | rate limit 判定ウィンドウ（ミリ秒） | `60000` |
+| `SF_AI_RATE_LIMIT_ACTOR_MAX` | actor ごとのウィンドウ内最大実行回数 | `120` |
+| `SF_AI_RATE_LIMIT_TENANT_MAX` | tenant ごとのウィンドウ内最大実行回数 | `600` |
+| `SF_AI_RATE_LIMIT_TOOL_MAX` | tool ごとのウィンドウ内最大実行回数 | `300` |
+| `SF_AI_RATE_LIMIT_MAX_KEYS` | in-memory カウンタの最大キー数（超過時は古い窓を prune） | `10000` |
+| `SF_AI_ENCRYPTION_ENABLED` | 保存時暗号化 (at-rest encryption) を有効化する (`true`/`false`) | `false` |
+| `SF_AI_ENCRYPTION_KEY_B64` | AES-256-GCM 用の 32byte 鍵を base64 で指定（有効時は必須） | 未設定 |
+| `SF_AI_SECRET_BACKEND` | Secret backend 種別（`env` / `file` / `vault` / `aws-sm`） | `env` |
+| `SF_AI_SECRET_BOOTSTRAP` | 起動時の secret hydration を有効化（`true`/`false`） | `true` |
+| `SF_AI_SECRET_ENV_MAP` | 追加 hydration マップ(JSON)。例: `{ "SERVICE_KEY": "config/service-key" }` | 未設定 |
+| `SF_AI_SECRET_FILE_PATH` | `SF_AI_SECRET_BACKEND=file` 時の secrets ディレクトリ | `.secrets` |
+| `SF_AI_VAULT_ADDR` | `SF_AI_SECRET_BACKEND=vault` 時の Vault URL | 未設定 |
+| `SF_AI_VAULT_TOKEN` | `SF_AI_SECRET_BACKEND=vault` 時の Vault token | 未設定 |
+| `SF_AI_VAULT_MOUNT` | `SF_AI_SECRET_BACKEND=vault` 時の KV mount 名 | `secret` |
+| `SF_AI_VAULT_VALUE_FIELD` | Vault secret payload から取り出す value フィールド名 | `value` |
+| `SF_AI_AWS_REGION` | `SF_AI_SECRET_BACKEND=aws-sm` 時の AWS region | `ap-northeast-1` |
+| `SF_AI_ENCRYPTION_KEY_SECRET_NAME` | `SF_AI_ENCRYPTION_KEY_B64` を hydration する secret 名 | 未設定 |
+| `SF_AI_ENCRYPTION_KEY_ID` | 暗号化 envelope に記録する鍵 ID | `local-env-v1` |
+| `SF_AI_RETENTION_DAYS_PUBLIC` | T-24 分類 `public` の保持日数 | `365` |
+| `SF_AI_RETENTION_DAYS_INTERNAL` | T-24 分類 `internal` の保持日数 | `180` |
+| `SF_AI_RETENTION_DAYS_CONFIDENTIAL` | T-24 分類 `confidential` の保持日数 | `90` |
+| `SF_AI_RETENTION_DAYS_RESTRICTED` | T-24 分類 `restricted` の保持日数 | `30` |
 | `LOG_LEVEL` | ログ出力レベル（`error` / `warn` / `info` / `debug`） | `info` |
 | `SF_AI_DEBUG_VERBOSE_PROMPT` | `LOG_LEVEL=debug` 時にプロンプト本文までログ出力するか | `false` |
 | `SF_AI_LOCALE` | `AppError` 等のローカライズ言語（`ja` / `en`）。未対応値は `ja` にフォールバック (TASK-F8) | `ja` |

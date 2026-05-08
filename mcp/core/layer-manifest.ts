@@ -1,71 +1,79 @@
 /**
  * TASK-F5: core layer manifest.
  *
- * Declares a 3-tier dependency direction for `mcp/core/*` so that imports flow
- * strictly downward: observable -> logic -> data. The manifest is consumed by
- * `scripts/lint-core-layers.ts` to surface violations in CI without forcing a
- * disruptive directory move. When directories are eventually relocated, only
- * this map needs to be updated.
+ * Declares a 4-layer dependency direction for `mcp/core/*` so that imports flow
+ * downward: surface -> runtime -> domain -> persistence.
+ *
+ * The manifest is consumed by `scripts/lint-core-layers.ts` to surface
+ * violations in CI while keeping migration incremental.
  */
 
-export type CoreLayer = "data" | "logic" | "observable";
+export type CoreLayer = "persistence" | "domain" | "runtime" | "surface";
 
 /**
  * Layer assignment for every direct child of `mcp/core/`.
  *
  * Rules of thumb:
- *   - data:       passive readers/writers, schemas, type definitions
- *   - logic:      decision-making units that read data and produce events
- *   - observable: side-effect emitters, dashboards, traces, logs
+ *   - persistence: passive readers/writers, schemas, adapters
+ *   - domain:      business rules and policy decisions
+ *   - runtime:     orchestration, eventing, operational control flow
+ *   - surface:     composition and top-level entry coordination
  *
- * Anything not listed defaults to `logic` to fail-soft.
+ * Anything not listed defaults to `domain` to fail-soft.
  */
 export const CORE_LAYER_MAP: Readonly<Record<string, CoreLayer>> = Object.freeze({
-  // data tier: passive utilities, schemas, types, cross-cutting helpers
-  types: "data",
-  config: "data",
-  resource: "data",
-  skill: "data",
-  // Declarative tool spec is a passive zod schema + loader for JSON tool
-  // definitions. It belongs to the data tier so other tiers may import it.
-  declarative: "data",
-  // F-04: prompt utilities (injection guard / quality rubric / template).
-  // Pure helpers with no side effects beyond returning new strings.
-  prompt: "data",
-  // T-OLLAMA-01: HTTP client for local Ollama server. Stateless adapter that
-  // wraps fetch with retry/timeout. No business decisions live here.
-  llm: "data",
-  // F-08/F-09: AST parsers (Apex via @apexdevtools/apex-parser, Flow via
-  // fast-xml-parser). Pure parser modules with no side effects.
-  parsers: "data",
-  // Logger / PII masker / progress formatter / trace context act as
-  // cross-cutting utilities that any layer may import without coupling
-  // upstream business logic, so they are pinned to the data tier.
-  logging: "data",
-  trace: "data",
-  progress: "data",
-  // i18n is a passive lookup of locale + message templates.
-  i18n: "data",
+  // persistence layer
+  persistence: "persistence",
+  io: "persistence",
+  config: "persistence",
+  types: "persistence",
+  declarative: "persistence",
+  parsers: "persistence",
+  llm: "persistence",
+  prompt: "persistence",
+  i18n: "persistence",
+  trace: "persistence",
 
-  // logic tier: decision-making units that read data and may emit events
-  context: "logic",
-  governance: "logic",
-  quality: "logic",
-  learning: "logic",
-  orchestration: "logic",
-  errors: "logic",
+  // domain layer
+  apex: "domain",
+  audit: "domain",
+  context: "domain",
+  dependency: "domain",
+  governance: "domain",
+  identity: "domain",
+  learning: "domain",
+  org: "domain",
+  quality: "domain",
+  resource: "domain",
+  security: "domain",
+  skill: "domain",
+  registry: "domain",
 
-  // observable tier: side-effect emitters and aggregation entry points
-  event: "observable",
-  observability: "observable",
-  registration: "observable"
+  // runtime layer
+  errors: "runtime",
+  event: "runtime",
+  logging: "runtime",
+  observability: "runtime",
+  orchestration: "runtime",
+  progress: "runtime",
+  recording: "runtime",
+  reliability: "runtime",
+  server: "runtime",
+
+  // surface layer
+  registration: "surface"
 });
 
 /** Allowed dependency direction. A layer may import its own tier or any tier listed here. */
 export const ALLOWED_LAYER_DEPENDENCIES: Readonly<Record<CoreLayer, readonly CoreLayer[]>> = Object.freeze({
-  data: Object.freeze(["data"]) as readonly CoreLayer[],
-  logic: Object.freeze(["data", "logic"]) as readonly CoreLayer[],
-  observable: Object.freeze(["data", "logic", "observable"]) as readonly CoreLayer[]
+  // Transitional allowance: existing persistence modules still contain read-side
+  // projections that depend on domain/runtime helpers.
+  persistence: Object.freeze(["persistence", "domain", "runtime"]) as readonly CoreLayer[],
+  // Transitional allowance: domain may still depend on runtime modules until
+  // migration of shared concerns is complete.
+  domain: Object.freeze(["persistence", "domain", "runtime"]) as readonly CoreLayer[],
+  runtime: Object.freeze(["persistence", "domain", "runtime"]) as readonly CoreLayer[],
+  surface: Object.freeze(["persistence", "domain", "runtime", "surface"]) as readonly CoreLayer[]
 });
 
 /** Resolve a `mcp/core/<dir>/...` path to its declared layer. Returns null when outside core. */
@@ -74,7 +82,7 @@ export function resolveLayerForCorePath(relativeFromCore: string): CoreLayer | n
   const segment = normalized.split("/")[0];
   if (!segment) return null;
   const layer = CORE_LAYER_MAP[segment];
-  return layer ?? "logic";
+  return layer ?? "domain";
 }
 
 /** True when `from` may import `to` according to the manifest. */

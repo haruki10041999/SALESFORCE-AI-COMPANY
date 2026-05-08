@@ -15,6 +15,8 @@ import { config as loadDotenv } from "dotenv";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { applyRuntimeProfile } from "./core/config/runtime-profile.js";
+import { hydrateEnvFromSecrets } from "./core/security/secrets.js";
 
 function findUpwards(startDir: string, target: string, maxDepth = 6): string | undefined {
   let current = startDir;
@@ -26,6 +28,61 @@ function findUpwards(startDir: string, target: string, maxDepth = 6): string | u
     current = parent;
   }
   return undefined;
+}
+
+function parseSecretMap(raw: string | undefined): Record<string, string> {
+  if (!raw || raw.trim().length === 0) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const out: Record<string, string> = {};
+    for (const [envKey, secretName] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof secretName === "string" && secretName.trim().length > 0) {
+        out[envKey] = secretName.trim();
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+async function hydrateSecretsIntoEnv(): Promise<void> {
+  const bootstrapEnabled = (process.env.SF_AI_SECRET_BOOTSTRAP ?? "true").toLowerCase() !== "false";
+  if (!bootstrapEnabled) {
+    return;
+  }
+
+  const backend = (process.env.SF_AI_SECRET_BACKEND ?? "env").trim();
+  const extraMap = parseSecretMap(process.env.SF_AI_SECRET_ENV_MAP);
+
+  if (backend === "env" && Object.keys(extraMap).length === 0) {
+    return;
+  }
+
+  const map: Record<string, string> = {
+    SF_AI_ENCRYPTION_KEY_B64: process.env.SF_AI_ENCRYPTION_KEY_SECRET_NAME ?? "",
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY_SECRET_NAME ?? "",
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY_SECRET_NAME ?? "",
+    LANGSMITH_API_KEY: process.env.LANGSMITH_API_KEY_SECRET_NAME ?? "",
+    ...extraMap,
+  };
+
+  const { loaded, failed } = await hydrateEnvFromSecrets(map);
+  if ((process.env.LOG_LEVEL ?? "info") !== "error") {
+    if (loaded.length > 0) {
+      process.stderr.write(`[INFO][EnvLoader] hydrated secrets: ${loaded.join(", ")}\n`);
+    }
+    if (failed.length > 0) {
+      process.stderr.write(
+        `[WARN][EnvLoader] secret hydration failed for keys: ${failed.map((v) => v.envKey).join(", ")}\n`,
+      );
+    }
+  }
 }
 
 if ((process.env.SF_AI_DOTENV_DISABLE ?? "").toLowerCase() !== "1") {
@@ -41,12 +98,21 @@ if ((process.env.SF_AI_DOTENV_DISABLE ?? "").toLowerCase() !== "1") {
   if (found) {
     try {
       loadDotenv({ path: found, override: false });
+      const applied = applyRuntimeProfile(process.env);
       // info ログは logger 経由ではなく stderr に直接 (この時点で logger は未初期化のことがあるため)
       if ((process.env.LOG_LEVEL ?? "info") !== "error") {
         process.stderr.write(`[INFO][EnvLoader] .env loaded from ${found}\n`);
+        if (applied.profile !== "custom") {
+          process.stderr.write(`[INFO][EnvLoader] runtime profile applied: ${applied.profile}\n`);
+          if (applied.overridden.length > 0) {
+            process.stderr.write(`[INFO][EnvLoader] profile override keys: ${applied.overridden.join(", ")}\n`);
+          }
+        }
       }
     } catch (error) {
       process.stderr.write(`[WARN][EnvLoader] Failed to load .env: ${String(error)}\n`);
     }
   }
 }
+
+await hydrateSecretsIntoEnv();
