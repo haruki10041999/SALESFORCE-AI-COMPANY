@@ -22,7 +22,7 @@ test("system-event-manager rotates logs and keeps archive count within limit", a
         await mkdir(dir, { recursive: true });
       },
       applyEventAutomation: async () => undefined,
-      bridgeCoreEvent: async () => undefined
+      forwardCoreEvent: async () => undefined
     });
 
     for (let i = 0; i < 40; i++) {
@@ -67,7 +67,7 @@ test("system-event-manager can load persisted events across rotated files", asyn
         await mkdir(dir, { recursive: true });
       },
       applyEventAutomation: async () => undefined,
-      bridgeCoreEvent: async () => undefined
+      forwardCoreEvent: async () => undefined
     });
 
     for (let i = 0; i < 20; i++) {
@@ -88,7 +88,7 @@ test("system-event-manager can load persisted events across rotated files", asyn
         await mkdir(dir, { recursive: true });
       },
       applyEventAutomation: async () => undefined,
-      bridgeCoreEvent: async () => undefined
+      forwardCoreEvent: async () => undefined
     });
 
     const loaded = await reloaded.loadSystemEvents(100, "session_start");
@@ -118,7 +118,7 @@ test("system-event-manager can load persisted events across rotated files", asyn
           await mkdir(dir, { recursive: true });
         },
         applyEventAutomation: async () => {},
-        bridgeCoreEvent: async () => {}
+        forwardCoreEvent: async () => {}
       });
 
       await manager.emitSystemEvent("session_start", { topic: "default-memory" });

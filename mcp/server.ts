@@ -11,6 +11,8 @@ import {
   startMcpTransport,
   runWithLifecycle
 } from "./surface/index.js";
+import type { HandlerContext } from "./core/application/handler-context.js";
+import type { ToolDefinition } from "./core/registry/define-tool.js";
 
 // ============================================================
 // Core Modules
@@ -29,7 +31,6 @@ import { emitEvent } from "./core/event/event-dispatcher.js";
 import {
   createSystemEventManager,
   summarizeValue,
-  type SystemEventRecord,
   type SystemEventName
 } from "./core/event/system-event-manager.js";
 
@@ -38,8 +39,7 @@ import {
 // ============================================================
 import {
   initializeHandlersState,
-  autoInitializeHandlers,
-  generateHandlersDashboard
+  autoInitializeHandlers
 } from "./handlers/auto-init.js";
 
 // ============================================================
@@ -59,6 +59,7 @@ import {
   exportStatisticsAsCsv,
   exportStatisticsAsJson
 } from "./handlers/statistics-manager.js";
+import type { HandlersDashboardState } from "./core/types/index.js";
 import {
   checkDailyLimitExceeded
 } from "./core/governance/governance-manager.js";
@@ -136,30 +137,26 @@ function getMdFileAsync(dir: string, name: string): Promise<string> {
   return getMdFileAsyncFromCatalog(ROOT, dir, name);
 }
 
-function truncateContentCompat(text: string, maxChars: number, label?: string): string {
+function truncatePromptContent(text: string, maxChars: number, label?: string): string {
   return truncateContent(text, maxChars, label ?? "");
 }
 
 // TASK-F2: prompt rendering wired through a single facade so server.ts stays
 // focused on tool registration and lifecycle, not prompt composition details.
-const { buildChatPrompt, buildChatPromptCompat } = createPromptRenderer({
+const { buildChatPrompt, buildChatPromptCompat: buildChatPromptForTools } = createPromptRenderer({
   root: ROOT,
   findMdFilesRecursive,
   toPosixPath,
-  truncateContent: truncateContentCompat,
+  truncateContent: truncatePromptContent,
   getMdFileAsync
 });
 
-function isCoreBridgeableEvent(event: SystemEventName): event is Extract<SystemEventName, SystemEventType> {
+function isCoreEventForwardable(event: SystemEventName): event is Extract<SystemEventName, SystemEventType> {
   return event === "error_aggregate_detected" || event === "governance_threshold_exceeded";
 }
 
-async function emitSystemEventCompat(event: string, payload: Record<string, unknown>): Promise<void> {
+async function emitSystemEventFromTools(event: string, payload: Record<string, unknown>): Promise<void> {
   await emitSystemEvent(event as SystemEventName, payload);
-}
-
-async function loadSystemEventsCompat(limit?: number, event?: string): Promise<SystemEventRecord[]> {
-  return loadSystemEvents(limit, event as SystemEventName | undefined);
 }
 
 // エージェントメッセージログ
@@ -172,6 +169,12 @@ interface AgentMessage {
 
 const agentLog: AgentMessage[] = [];
 const handlersState = initializeHandlersState();
+const generateHandlersDashboardState = (state: HandlersDashboardState): HandlersDashboardState => ({
+  createdTracker: state.createdTracker,
+  deletedTracker: state.deletedTracker,
+  errorTracker: state.errorTracker,
+  qualityTracker: state.qualityTracker
+});
 // NOTE: Postgres ベースではファイルベースのログは不要（audit_logs テーブル使用）
 const { loadRecentOperations, appendOperationLog } = createOperationLog({
   logFile: "",
@@ -215,8 +218,8 @@ const { emitSystemEvent, loadSystemEvents, registerToolFailure, getSystemEventLo
   databaseUrl: DATABASE_URL,
   ensureDir,
   applyEventAutomation,
-  bridgeCoreEvent: async (event: SystemEventName, timestamp: string, payload: Record<string, unknown>) => {
-    if (isCoreBridgeableEvent(event)) {
+  forwardCoreEvent: async (event: SystemEventName, timestamp: string, payload: Record<string, unknown>) => {
+    if (isCoreEventForwardable(event)) {
       await emitEvent({
         type: event,
         timestamp,
@@ -235,6 +238,7 @@ type RegisteredToolHandler = (input: unknown) => Promise<{ content: Array<{ type
 
 const registeredToolHandlers = new Map<string, RegisteredToolHandler>();
 const registeredToolMetadata = new Map<string, { title?: string; description?: string; tags?: string[] }>();
+const registeredToolDefinitions = new Map<string, ToolDefinition>();
 const registerToolOriginal = server.registerTool.bind(server);
 
 (server as unknown as {
@@ -255,6 +259,10 @@ const registerToolOriginal = server.registerTool.bind(server);
 
 export function listRegisteredToolNamesForTest(): string[] {
   return [...registeredToolHandlers.keys()].sort();
+}
+
+export function listRegisteredToolDefinitionsForTest(): ToolDefinition[] {
+  return [...registeredToolDefinitions.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function invokeRegisteredToolForTest(name: string, input: unknown): Promise<{ content: Array<{ type: string; text: string }> }> {
@@ -296,11 +304,14 @@ const { govTool } = createGovernedToolRegistrar({
   outputsDir: OUTPUTS_DIR,
   databaseUrl: DATABASE_URL,
   serverRoot: ROOT,
-  emitSystemEvent: emitSystemEventCompat,
+  emitSystemEvent: emitSystemEventFromTools,
   summarizeValue,
   registerToolFailure,
   getBanditState: () => banditState,
   banditStateFile: BANDIT_STATE_FILE,
+  onToolDefined: (definition) => {
+    registeredToolDefinitions.set(definition.name, definition);
+  },
   getRetryConfig: async () => {
     const state = await loadGovernanceState();
     return state.config.toolExecution;
@@ -329,7 +340,7 @@ async function isPresetDisabled(presetName: string): Promise<boolean> {
 const runChatTool = createChatToolRunner({
   listSkills: () => listMdFiles("skills"),
   filterDisabledSkills,
-  emitSystemEvent: emitSystemEventCompat,
+  emitSystemEvent: emitSystemEventFromTools,
   buildChatPrompt
 });
 
@@ -434,7 +445,7 @@ if (
 const { loadedCustomToolNames, registerCustomTool, unregisterCustomTool, loadCustomToolsFromDir } = createCustomToolRegistry({
   govTool,
   filterDisabledSkills,
-  buildChatPrompt: buildChatPromptCompat
+  buildChatPrompt: buildChatPromptForTools
 });
 
 const {
@@ -450,7 +461,8 @@ const {
   findMdFilesRecursive,
   toPosixPath,
   listPresetsData,
-  loadedCustomToolNames
+  loadedCustomToolNames,
+  listRegisteredToolNames: () => [...registeredToolMetadata.keys()]
 });
 
 const governanceEventAutomation = createGovernanceEventAutomationManager({
@@ -468,97 +480,209 @@ async function applyEventAutomation(event: SystemEventName, payload: Record<stri
   await governanceEventAutomation.applyEventAutomation(event, payload);
 }
 
-registerServerTools({
-    govTool,
-    chatInputSchema,
-    triggerRuleSchema,
-    runChatTool,
-    generateSessionId,
-    filterDisabledSkills,
-    emitSystemEvent: emitSystemEventCompat,
-    buildChatPrompt: buildChatPromptCompat,
-    evaluatePseudoHooks: evaluatePseudoHooksCore,
-    sessionStore,
-    orchestrationQueueStore,
-    orchestrationJobRunner,
-    policySnapshotManager,
-    saveSessionHistory,
-    onSessionCompleted: async ({ sessionId, topic, history }) => {
-      if (!history || history.length === 0) {
-        return null;
-      }
+type RegisterServerToolsOptions = Parameters<typeof registerServerTools>[0];
 
-      const lines = [
-        `session: ${sessionId}`,
-        `topic: ${topic}`,
-        ...history.slice(-30).map((entry) => `${entry.agent}: ${entry.message}`)
-      ];
+const toolCoreDeps = {
+  govTool,
+  chatInputSchema,
+  triggerRuleSchema,
+  root: ROOT,
+  agentLog
+} satisfies Pick<RegisterServerToolsOptions, "govTool" | "chatInputSchema" | "triggerRuleSchema" | "root" | "agentLog">;
 
-      const result = ingestKnowledgeSummary(lines.join("\n"));
-      return {
-        entities: result.entities.length,
-        relations: result.relations.length
-      };
-    },
-    root: ROOT,
-    agentLog,
-    loadSystemEvents: loadSystemEventsCompat,
-    loadGovernanceState,
-    saveGovernanceState,
-    buildDefaultGovernanceState,
-    normalizeProtectedTools,
-    saveChatHistory,
-    loadChatHistories,
-    restoreChatHistory,
-    listMdFiles,
-    getMdFile,
-    listPresetsData,
-    scoreByQuery,
-    lowRelevanceScoreThreshold: LOW_RELEVANCE_SCORE_THRESHOLD,
-    registeredToolMetadata,
-    createPreset,
-    getPreset,
-    isPresetDisabled,
-    getSystemEventLogStatus,
-    generateHandlersDashboard,
-    handlersState,
-    exportStatisticsAsCsv,
-    exportStatisticsAsJson,
-    ensureDir,
-    addMemory,
-    searchMemory,
-    listMemory,
-    clearMemory,
-    recordFailureMemory,
-    searchFailureMemory,
-    listFailureMemory,
-    findMdFilesRecursive,
-    toPosixPath,
-    addRecord,
-    searchByKeyword,
-    searchByKeywordAsync,
-    buildPrompt,
-    evaluatePromptMetrics,
-    presetsDir: PRESETS_DIR,
-    toolProposalsDir: TOOL_PROPOSALS_DIR,
-    customToolsDir: CUSTOM_TOOLS_DIR,
-    governanceFile: GOVERNANCE_FILE,
-    loadRecentOperations,
-    checkDailyLimitExceeded,
-    listSkillsCatalog,
-    listPresetsCatalog,
-    listToolsCatalog,
-    validateAndCreateSkillWithQuality,
-    validateAndCreatePresetWithQuality,
-    validateAndCreateToolWithQuality,
-    registerCustomTool,
-    unregisterCustomTool,
-    refreshDisabledToolsCache: () => disabledToolsCache.refresh("tool-call"),
-    appendOperationLog,
-    emitEvent,
-    resourceScore,
-    proposalQueue
-  });
+const chatAndSessionDeps = {
+  runChatTool,
+  generateSessionId,
+  filterDisabledSkills,
+  emitSystemEvent: emitSystemEventFromTools,
+  buildChatPrompt: buildChatPromptForTools,
+  evaluatePseudoHooks: evaluatePseudoHooksCore,
+  sessionStore,
+  orchestrationQueueStore,
+  orchestrationJobRunner,
+  policySnapshotManager,
+  saveSessionHistory,
+  onSessionCompleted: async ({ sessionId, topic, history }) => {
+    if (!history || history.length === 0) {
+      return null;
+    }
+
+    const lines = [
+      `session: ${sessionId}`,
+      `topic: ${topic}`,
+      ...history.slice(-30).map((entry) => `${entry.agent}: ${entry.message}`)
+    ];
+
+    const result = ingestKnowledgeSummary(lines.join("\n"));
+    return {
+      entities: result.entities.length,
+      relations: result.relations.length
+    };
+  }
+} satisfies Pick<
+  RegisterServerToolsOptions,
+  | "runChatTool"
+  | "generateSessionId"
+  | "filterDisabledSkills"
+  | "emitSystemEvent"
+  | "buildChatPrompt"
+  | "evaluatePseudoHooks"
+  | "sessionStore"
+  | "orchestrationQueueStore"
+  | "orchestrationJobRunner"
+  | "policySnapshotManager"
+  | "saveSessionHistory"
+  | "onSessionCompleted"
+>;
+
+const governanceAndEventDeps = {
+  loadSystemEvents,
+  loadGovernanceState,
+  saveGovernanceState,
+  buildDefaultGovernanceState,
+  normalizeProtectedTools,
+  getSystemEventLogStatus,
+  generateHandlersDashboard: generateHandlersDashboardState,
+  handlersState,
+  exportStatisticsAsCsv,
+  exportStatisticsAsJson,
+  loadRecentOperations,
+  checkDailyLimitExceeded,
+  appendOperationLog,
+  emitEvent,
+  resourceScore,
+  proposalQueue
+} satisfies Pick<
+  RegisterServerToolsOptions,
+  | "loadSystemEvents"
+  | "loadGovernanceState"
+  | "saveGovernanceState"
+  | "buildDefaultGovernanceState"
+  | "normalizeProtectedTools"
+  | "getSystemEventLogStatus"
+  | "generateHandlersDashboard"
+  | "handlersState"
+  | "exportStatisticsAsCsv"
+  | "exportStatisticsAsJson"
+  | "loadRecentOperations"
+  | "checkDailyLimitExceeded"
+  | "appendOperationLog"
+  | "emitEvent"
+  | "resourceScore"
+  | "proposalQueue"
+>;
+
+const presetAndPromptDeps = {
+  saveChatHistory,
+  loadChatHistories,
+  restoreChatHistory,
+  listMdFiles,
+  getMdFile,
+  listPresetsData,
+  scoreByQuery,
+  lowRelevanceScoreThreshold: LOW_RELEVANCE_SCORE_THRESHOLD,
+  registeredToolMetadata,
+  createPreset,
+  getPreset,
+  isPresetDisabled,
+  buildPrompt,
+  evaluatePromptMetrics
+} satisfies Pick<
+  RegisterServerToolsOptions,
+  | "saveChatHistory"
+  | "loadChatHistories"
+  | "restoreChatHistory"
+  | "listMdFiles"
+  | "getMdFile"
+  | "listPresetsData"
+  | "scoreByQuery"
+  | "lowRelevanceScoreThreshold"
+  | "registeredToolMetadata"
+  | "createPreset"
+  | "getPreset"
+  | "isPresetDisabled"
+  | "buildPrompt"
+  | "evaluatePromptMetrics"
+>;
+
+const memoryAndIoDeps = {
+  ensureDir,
+  addMemory,
+  searchMemory,
+  listMemory,
+  clearMemory,
+  recordFailureMemory,
+  searchFailureMemory,
+  listFailureMemory,
+  presetsDir: PRESETS_DIR,
+  toolProposalsDir: TOOL_PROPOSALS_DIR,
+  customToolsDir: CUSTOM_TOOLS_DIR,
+  governanceFile: GOVERNANCE_FILE
+} satisfies Pick<
+  RegisterServerToolsOptions,
+  | "ensureDir"
+  | "addMemory"
+  | "searchMemory"
+  | "listMemory"
+  | "clearMemory"
+  | "recordFailureMemory"
+  | "searchFailureMemory"
+  | "listFailureMemory"
+  | "presetsDir"
+  | "toolProposalsDir"
+  | "customToolsDir"
+  | "governanceFile"
+>;
+
+const searchAndCatalogDeps = {
+  findMdFilesRecursive,
+  toPosixPath,
+  addRecord,
+  searchByKeyword,
+  searchByKeywordAsync,
+  listSkillsCatalog,
+  listPresetsCatalog,
+  listToolsCatalog,
+  validateAndCreateSkillWithQuality,
+  validateAndCreatePresetWithQuality,
+  validateAndCreateToolWithQuality
+} satisfies Pick<
+  RegisterServerToolsOptions,
+  | "findMdFilesRecursive"
+  | "toPosixPath"
+  | "addRecord"
+  | "searchByKeyword"
+  | "searchByKeywordAsync"
+  | "listSkillsCatalog"
+  | "listPresetsCatalog"
+  | "listToolsCatalog"
+  | "validateAndCreateSkillWithQuality"
+  | "validateAndCreatePresetWithQuality"
+  | "validateAndCreateToolWithQuality"
+>;
+
+const customToolDeps = {
+  registerCustomTool,
+  unregisterCustomTool,
+  refreshDisabledToolsCache: () => disabledToolsCache.refresh("tool-call")
+} satisfies Pick<RegisterServerToolsOptions, "registerCustomTool" | "unregisterCustomTool" | "refreshDisabledToolsCache">;
+
+const { handlerContext } = registerServerTools({
+  ...toolCoreDeps,
+  ...chatAndSessionDeps,
+  ...governanceAndEventDeps,
+  ...presetAndPromptDeps,
+  ...memoryAndIoDeps,
+  ...searchAndCatalogDeps,
+  ...customToolDeps
+});
+
+export function getHandlerContextForTest(): HandlerContext {
+  return handlerContext;
+}
+
+// Backward compatible alias for existing tests/helpers.
+export const getHandlerContextBridgeForTest = getHandlerContextForTest;
 
 const { persistShutdownState, registerShutdownHooks } = createShutdownStatePersistence({
   getBanditState: () => banditState,

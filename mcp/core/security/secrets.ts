@@ -4,6 +4,7 @@ import { EnvSecretsBackend } from "./secrets-backends/env-backend.js";
 import { FileSecretsBackend } from "./secrets-backends/file-backend.js";
 import { VaultSecretsBackend } from "./secrets-backends/vault-backend.js";
 import { AwsSecretsManagerBackend } from "./secrets-backends/aws-sm-backend.js";
+import { getNodeEnv, getSecretsEnvConfig } from "../config/runtime-config.js";
 
 /**
  * Configuration for secrets manager
@@ -176,7 +177,7 @@ export class SecretsManager extends EventEmitter {
     for (const [name] of this.cache) {
       try {
         await this.getSecret(name, { checkRotation: true });
-      } catch (error) {
+      } catch {
         // Silently skip if backend fails
       }
     }
@@ -196,10 +197,11 @@ export class SecretsManager extends EventEmitter {
     try {
       // TODO: Integrate with audit-writer when needed
       // For now, just log to console in development
-      if (process.env.NODE_ENV !== "production") {
+      if (getNodeEnv() !== "production") {
         console.debug(`[Secrets] ${action}: ${name}`);
       }
-    } catch (error) {
+    } catch {
+      // audit logging should never block secret access
     }
   }
 
@@ -265,18 +267,17 @@ export function getSecretsManager(
   config?: SecretsConfig,
 ): SecretsManager {
   if (!globalSecretsManager) {
-    const backend =
-      (process.env.SF_AI_SECRET_BACKEND as SecretsConfig["backend"]) || "env";
+    const envConfig = getSecretsEnvConfig();
+    const backend = envConfig.backend ?? "env";
     globalSecretsManager = new SecretsManager({
       backend,
-      auditEnabled:
-        process.env.SF_AI_SECRET_AUDIT_ENABLED !== "false",
-      filePath: process.env.SF_AI_SECRET_FILE_PATH,
-      vaultAddr: process.env.SF_AI_VAULT_ADDR,
-      vaultToken: process.env.SF_AI_VAULT_TOKEN,
-      vaultMount: process.env.SF_AI_VAULT_MOUNT,
-      vaultValueField: process.env.SF_AI_VAULT_VALUE_FIELD,
-      awsRegion: process.env.SF_AI_AWS_REGION,
+      auditEnabled: envConfig.auditEnabled,
+      filePath: envConfig.filePath,
+      vaultAddr: envConfig.vaultAddr,
+      vaultToken: envConfig.vaultToken,
+      vaultMount: envConfig.vaultMount,
+      vaultValueField: envConfig.vaultValueField,
+      awsRegion: envConfig.awsRegion,
       ...config,
     });
   }

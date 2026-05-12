@@ -3,6 +3,7 @@ import { ChatOllama } from "@langchain/ollama";
 import type { OllamaChatRequest, OllamaChatResponse } from "./ollama-client.js";
 import { circuitBreakerRegistry } from "../reliability/circuit-breaker.js";
 import { bulkheadRegistry, DEFAULT_OLLAMA_CONCURRENCY } from "../reliability/bulkhead.js";
+import { getOllamaBaseUrl } from "../config/runtime-config.js";
 
 export interface LangChainLlmClientOptions {
   baseUrl?: string;
@@ -41,7 +42,7 @@ export class LangChainLlmClient {
   });
 
   constructor(options: LangChainLlmClientOptions = {}) {
-    this.baseUrl = options.baseUrl ?? process.env.OLLAMA_BASE_URL;
+    this.baseUrl = options.baseUrl ?? getOllamaBaseUrl();
   }
 
   public async chat(req: OllamaChatRequest): Promise<OllamaChatResponse> {

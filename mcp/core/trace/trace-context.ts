@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createLogger } from "../logging/logger.js";
+import { getPrimaryDatabaseUrl, getTraceFilePath, getTraceHistoryMax } from "../config/runtime-config.js";
 import { PostgresRuntimeLogStore } from "../persistence/postgres-runtime-log-store.js";
 
 const logger = createLogger("TraceContext");
@@ -61,18 +62,18 @@ export interface ReasoningStep {
 const activeTraces = new Map<string, TraceEntry>();
 
 /** 直近 N 件の完了トレースをリングバッファで保持 */
-const MAX_COMPLETED = Number.parseInt(process.env.TRACE_HISTORY_MAX ?? "500", 10);
+const MAX_COMPLETED = getTraceHistoryMax();
 const completedTraces: TraceEntry[] = [];
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const DEFAULT_TRACE_FILE = join(ROOT, "outputs", "events", "trace-log.jsonl");
-let traceFilePath = process.env.SF_AI_TRACE_FILE ?? DEFAULT_TRACE_FILE;
-const runtimeStorePromise = process.env.DATABASE_URL
-  ? PostgresRuntimeLogStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
+let traceFilePath = getTraceFilePath(DEFAULT_TRACE_FILE);
+const runtimeStorePromise = getPrimaryDatabaseUrl()
+  ? PostgresRuntimeLogStore.open({ databaseUrl: getPrimaryDatabaseUrl()! }).catch(() => null)
   : Promise.resolve(null);
 
 function shouldUseDatabaseTraceStorage(): boolean {
-  return Boolean(process.env.DATABASE_URL) && resolve(traceFilePath) === resolve(DEFAULT_TRACE_FILE);
+  return Boolean(getPrimaryDatabaseUrl()) && resolve(traceFilePath) === resolve(DEFAULT_TRACE_FILE);
 }
 
 async function loadTracesFromStore(): Promise<void> {

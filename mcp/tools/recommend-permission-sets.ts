@@ -7,6 +7,7 @@ import {
 } from "./permission-set-analyzer.js";
 import { diffPermissionSet, type PermissionSetDiffResult } from "./permission-set-diff.js";
 import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
+import { getOutputsDir, getPrimaryDatabaseUrl } from "../core/config/runtime-config.js";
 
 export type PermissionUsageSignals = {
   objects?: string[];
@@ -228,12 +229,10 @@ function buildMarkdown(result: RecommendPermissionSetsResult): string {
 }
 
 export async function recommendPermissionSets(input: RecommendPermissionSetsInput): Promise<RecommendPermissionSetsResult> {
-  const runtimeOutputsDir = process.env.SF_AI_OUTPUTS_DIR
-    ? resolve(process.env.SF_AI_OUTPUTS_DIR)
-    : resolve("outputs");
+  const runtimeOutputsDir = resolve(getOutputsDir());
   const artifactWriter = new OutputsArtifactWriter({
     outputsDir: runtimeOutputsDir,
-    databaseUrl: process.env.DATABASE_URL
+    databaseUrl: getPrimaryDatabaseUrl()
   });
   if (!Array.isArray(input.permissionSetFiles) || input.permissionSetFiles.length === 0) {
     throw new Error("permissionSetFiles must include at least one file path");

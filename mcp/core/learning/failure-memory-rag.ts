@@ -8,11 +8,12 @@ import { resolve } from "path";
 import type { FailureMemoryEntry } from "../../../memory/failure-memory.js";
 import { listFailureMemory } from "../../../memory/failure-memory.js";
 import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
+import { getOutputsDir, getPrimaryDatabaseUrl } from "../config/runtime-config.js";
 
 const RAG_INJECTION_CACHE_PATH = resolve("outputs", "learning", "rag-injection-cache.jsonl");
 const artifactWriter = new OutputsArtifactWriter({
-  outputsDir: process.env.SF_AI_OUTPUTS_DIR ? resolve(process.env.SF_AI_OUTPUTS_DIR) : resolve("outputs"),
-  databaseUrl: process.env.DATABASE_URL
+  outputsDir: resolve(getOutputsDir()),
+  databaseUrl: getPrimaryDatabaseUrl()
 });
 
 export interface ErrorSignature {

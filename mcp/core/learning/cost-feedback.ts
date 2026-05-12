@@ -1,11 +1,7 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname } from "node:path";
-import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
+import { getAnalyticsStore } from "../persistence/analytics-store-provider.js";
 import { appendTextFileAtomic, writeTextFileAtomic } from "../persistence/unit-of-work.js";
-
-const analyticsStorePromise = process.env.DATABASE_URL
-  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
-  : Promise.resolve(null);
 
 export interface OutputRatioFeedbackEntry {
   recordedAt: string;
@@ -60,7 +56,7 @@ export async function appendOutputRatioFeedback(
     traceId: entry.traceId
   };
 
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore && filePath.endsWith("output-ratio.jsonl")) {
     await analyticsStore.insertOutputRatioFeedback(normalized);
     return normalized;
@@ -72,7 +68,7 @@ export async function appendOutputRatioFeedback(
 }
 
 export async function loadOutputRatioFeedback(filePath: string): Promise<OutputRatioFeedbackEntry[]> {
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore && filePath.endsWith("output-ratio.jsonl")) {
     return analyticsStore.listOutputRatioFeedback();
   }

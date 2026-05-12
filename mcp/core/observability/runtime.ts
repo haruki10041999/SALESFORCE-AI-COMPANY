@@ -1,5 +1,13 @@
 import type { Logger } from "../logging/logger.js";
 import { parseBooleanLike } from "../config/env-flags.js";
+import {
+  getLangSmithEnabled,
+  getOtelEnabled,
+  getOtelExporterEndpoint,
+  getOtelServiceName,
+  getPrometheusMetricsPort,
+  setLangchainTracingV2Enabled
+} from "../config/runtime-config.js";
 import { startHealthServer } from "./health-server.js";
 import { circuitBreakerRegistry } from "../reliability/circuit-breaker.js";
 import { bulkheadRegistry, DEFAULT_EXTERNAL_HTTP_CONCURRENCY } from "../reliability/bulkhead.js";
@@ -31,19 +39,19 @@ function normalizeOtlpTraceUrl(endpoint: string): string {
 }
 
 function applyLangSmithToggle(logger: Logger): void {
-  const enabled = parseBooleanLike(process.env.SF_AI_LANGSMITH_ENABLED, false);
+  const enabled = getLangSmithEnabled();
   if (enabled) {
-    process.env.LANGCHAIN_TRACING_V2 = "true";
+    setLangchainTracingV2Enabled(true);
     logger.info("LangSmith tracing enabled (SF_AI_LANGSMITH_ENABLED=true)");
     return;
   }
 
   // Keep LangSmith explicitly opt-in so default runs remain local-only.
-  process.env.LANGCHAIN_TRACING_V2 = "false";
+  setLangchainTracingV2Enabled(false);
 }
 
 async function initOtelSdk(logger: Logger): Promise<NodeSdkLike | null> {
-  if (!parseBooleanLike(process.env.OTEL_ENABLED, false)) {
+  if (!getOtelEnabled()) {
     return null;
   }
 
@@ -65,7 +73,7 @@ async function initOtelSdk(logger: Logger): Promise<NodeSdkLike | null> {
     const autoMod = await import("@opentelemetry/auto-instrumentations-node");
     const pgMod = await import("@opentelemetry/instrumentation-pg");
 
-    const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "http://localhost:4318";
+    const endpoint = getOtelExporterEndpoint();
     const traceUrl = normalizeOtlpTraceUrl(endpoint);
     const exporter = new exporterMod.OTLPTraceExporter({ url: traceUrl });
     const instrumentations = [
@@ -74,7 +82,7 @@ async function initOtelSdk(logger: Logger): Promise<NodeSdkLike | null> {
     ];
 
     const sdk = new sdkMod.NodeSDK({
-      serviceName: process.env.OTEL_SERVICE_NAME ?? "salesforce-ai-company",
+      serviceName: getOtelServiceName(),
       traceExporter: exporter,
       instrumentations
     }) as unknown as NodeSdkLike;
@@ -97,7 +105,7 @@ async function initPrometheusHttp(
   close: () => Promise<void>;
   port: number;
 } | null> {
-  const port = parsePort(process.env.PROMETHEUS_METRICS_PORT, 0);
+  const port = parsePort(String(getPrometheusMetricsPort(0)), 0);
   if (!Number.isFinite(port) || port <= 0) {
     logger.info("Prometheus HTTP endpoint disabled (PROMETHEUS_METRICS_PORT<=0)");
     return null;

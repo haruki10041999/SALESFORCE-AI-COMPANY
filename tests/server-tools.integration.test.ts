@@ -9,6 +9,9 @@ import { execFileSync } from "node:child_process";
 
 const serverTestOutputsDir = mkdtempSync(join(tmpdir(), "sf-ai-server-outputs-"));
 process.env.SF_AI_OUTPUTS_DIR = serverTestOutputsDir;
+process.env.SF_AI_PROFILE = "custom";
+process.env.SF_AI_RUNTIME_PROFILE = "custom";
+process.env.SF_AI_PROFILE_STRICT = "false";
 process.env.SF_AI_STATE_BACKEND = "sqlite";
 process.env.SF_AI_PROPOSAL_QUEUE_BACKEND = "file";
 process.env.DATABASE_URL = "";

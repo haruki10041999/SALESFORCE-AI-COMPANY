@@ -1,11 +1,7 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname } from "node:path";
-import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
+import { getAnalyticsStore } from "../persistence/analytics-store-provider.js";
 import { appendTextFileAtomic, writeTextFileAtomic } from "../persistence/unit-of-work.js";
-
-const analyticsStorePromise = process.env.DATABASE_URL
-  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
-  : Promise.resolve(null);
 
 export type SkillRatingEntry = {
   skill: string;
@@ -134,7 +130,7 @@ export async function appendSkillRatings(logFilePath: string, entries: SkillRati
   if (entries.length === 0) {
     return;
   }
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore) {
     await analyticsStore.appendSkillRatingEntries(entries);
     return;
@@ -145,7 +141,7 @@ export async function appendSkillRatings(logFilePath: string, entries: SkillRati
 }
 
 export async function loadSkillRatings(logFilePath: string): Promise<SkillRatingEntry[]> {
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore) {
     return analyticsStore.listSkillRatingEntries();
   }
@@ -261,7 +257,7 @@ export function buildSkillRatingModel(
 }
 
 export async function saveSkillRatingModel(modelFilePath: string, model: SkillRatingModel): Promise<void> {
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore) {
     await analyticsStore.saveNamedModel("skill-rating-model", model as unknown as Record<string, unknown>);
     return;

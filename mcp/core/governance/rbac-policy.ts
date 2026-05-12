@@ -1,5 +1,6 @@
 import { promises as fsPromises } from "node:fs";
 import { resolve } from "node:path";
+import { getRoleFromRuntimeEnv } from "../config/runtime-config.js";
 
 export interface RbacRolePolicy {
   allow: string[];
@@ -96,7 +97,7 @@ export async function loadRbacPolicy(outputsDir: string): Promise<RbacPolicy> {
 }
 
 export function evaluateRbacAccess(policy: RbacPolicy, toolName: string, roleFromEnv?: string): RbacAccessResult {
-  const role = roleFromEnv || process.env.SF_AI_ROLE || policy.defaultRole || "admin";
+  const role = roleFromEnv || getRoleFromRuntimeEnv() || policy.defaultRole || "admin";
   const rolePolicy = policy.roles[role];
   if (!rolePolicy) {
     return {

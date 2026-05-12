@@ -1,7 +1,13 @@
-﻿import { z } from "zod";
-import type { RegisterGovToolDeps } from "./types.js";
+﻿import type { RegisterGovToolDeps } from "./types.js";
+import { defineAddMemoryTool } from "./memory/add-memory.js";
+import { defineSearchMemoryTool } from "./memory/search-memory.js";
+import { defineListMemoryTool } from "./memory/list-memory.js";
+import { defineClearMemoryTool } from "./memory/clear-memory.js";
+import { defineRecordFailureTool } from "./memory/record-failure.js";
+import { defineSearchFailuresTool } from "./memory/search-failures.js";
+import { defineListFailuresTool } from "./memory/list-failures.js";
 
-interface RegisterMemoryToolsDeps extends RegisterGovToolDeps {
+export interface RegisterMemoryToolsDeps extends RegisterGovToolDeps {
   addMemory: (text: string) => Promise<void>;
   searchMemory: (query: string) => Promise<string[]>;
   listMemory: () => Promise<string[]>;
@@ -35,168 +41,11 @@ interface RegisterMemoryToolsDeps extends RegisterGovToolDeps {
 }
 
 export function registerMemoryTools(deps: RegisterMemoryToolsDeps): void {
-  const {
-    govTool,
-    addMemory,
-    searchMemory,
-    listMemory,
-    clearMemory,
-    recordFailureMemory,
-    searchFailureMemory,
-    listFailureMemory
-  } = deps;
-
-  govTool(
-    "add_memory",
-    {
-      title: "メモリ追加",
-      description: "メモリに新しい項目を追加します。",
-      inputSchema: {
-        text: z.string().min(1)
-      }
-    },
-    async ({ text }: { text: string }) => {
-      await addMemory(text);
-      return {
-        content: [{ type: "text", text: `保存しました: ${text.slice(0, 80)}${text.length > 80 ? "..." : ""}` }]
-      };
-    }
-  );
-
-  govTool(
-    "search_memory",
-    {
-      title: "メモリ検索",
-      description: "メモリ内容を検索します。",
-      inputSchema: {
-        query: z.string().min(1)
-      }
-    },
-    async ({ query }: { query: string }) => {
-      const results = await searchMemory(query);
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({ query, results, count: results.length }, null, 2)
-          }
-        ]
-      };
-    }
-  );
-
-  govTool(
-    "list_memory",
-    {
-      title: "メモリ一覧",
-      description: "メモリ項目を一覧表示します。",
-      inputSchema: {}
-    },
-    async () => {
-      const items = await listMemory();
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({ count: items.length, items }, null, 2)
-          }
-        ]
-      };
-    }
-  );
-
-  govTool(
-    "clear_memory",
-    {
-      title: "メモリクリア",
-      description: "メモリ内容をすべてクリアします。",
-      inputSchema: {}
-    },
-    async () => {
-      await clearMemory();
-      return {
-        content: [{ type: "text", text: "Memory cleared." }]
-      };
-    }
-  );
-
-  govTool(
-    "record_failure",
-    {
-      title: "失敗メモリ記録",
-      description: "失敗パターンと再発防止策を記録します。",
-      inputSchema: {
-        pattern: z.string().min(1),
-        reason: z.string().min(1),
-        preventiveAction: z.string().min(1),
-        tags: z.array(z.string().min(1)).optional()
-      }
-    },
-    async ({ pattern, reason, preventiveAction, tags }: {
-      pattern: string;
-      reason: string;
-      preventiveAction: string;
-      tags?: string[];
-    }) => {
-      const recorded = await recordFailureMemory({
-        pattern,
-        reason,
-        preventiveAction,
-        tags
-      });
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({ recorded }, null, 2)
-          }
-        ]
-      };
-    }
-  );
-
-  govTool(
-    "search_failures",
-    {
-      title: "失敗メモリ検索",
-      description: "失敗パターン専用メモリを検索します。",
-      inputSchema: {
-        query: z.string().min(1),
-        limit: z.number().int().min(1).max(100).optional()
-      }
-    },
-    async ({ query, limit }: { query: string; limit?: number }) => {
-      const results = await searchFailureMemory(query, limit ?? 10);
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({ query, count: results.length, results }, null, 2)
-          }
-        ]
-      };
-    }
-  );
-
-  govTool(
-    "list_failures",
-    {
-      title: "失敗メモリ一覧",
-      description: "記録済み失敗パターンを一覧表示します。",
-      inputSchema: {
-        limit: z.number().int().min(1).max(200).optional()
-      }
-    },
-    async ({ limit }: { limit?: number }) => {
-      const items = await listFailureMemory(limit ?? 50);
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({ count: items.length, items }, null, 2)
-          }
-        ]
-      };
-    }
-  );
+  defineAddMemoryTool(deps);
+  defineSearchMemoryTool(deps);
+  defineListMemoryTool(deps);
+  defineClearMemoryTool(deps);
+  defineRecordFailureTool(deps);
+  defineSearchFailuresTool(deps);
+  defineListFailuresTool(deps);
 }

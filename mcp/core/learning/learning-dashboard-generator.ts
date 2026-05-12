@@ -18,11 +18,12 @@ import { getRewardStats } from "./reward-aggregator.js";
 import { loadAgentReputationRecords } from "./agent-reputation.js";
 import { getRewardHealth } from "./feedback-manager.js";
 import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
+import { getOutputsDir, getPrimaryDatabaseUrl } from "../config/runtime-config.js";
 
 const DASHBOARD_PATH = resolve("outputs", "dashboards", "learning-progress.json");
 const artifactWriter = new OutputsArtifactWriter({
-  outputsDir: process.env.SF_AI_OUTPUTS_DIR ? resolve(process.env.SF_AI_OUTPUTS_DIR) : resolve("outputs"),
-  databaseUrl: process.env.DATABASE_URL
+  outputsDir: resolve(getOutputsDir()),
+  databaseUrl: getPrimaryDatabaseUrl()
 });
 
 /**

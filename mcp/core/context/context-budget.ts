@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { getContextBudgetFilePath } from "../config/runtime-config.js";
 
 /**
  * TASK-F6: weighted context budget allocator.
@@ -95,7 +96,7 @@ export function loadCategoryWeightsFromFile(filePath?: string): CategoryWeights 
 }
 
 export const DEFAULT_CATEGORY_WEIGHTS: CategoryWeights = Object.freeze(
-  loadCategoryWeightsFromFile(process.env.SF_AI_CONTEXT_BUDGET_FILE) ?? FALLBACK_CATEGORY_WEIGHTS
+  loadCategoryWeightsFromFile(getContextBudgetFilePath()) ?? FALLBACK_CATEGORY_WEIGHTS
 );
 
 export interface CategoryItemCounts {

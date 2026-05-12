@@ -1,4 +1,5 @@
 import { Pool, type PoolClient } from "pg";
+import { getOrCreatePgPool, releasePgPoolKey } from "./pg-pool-registry.js";
 import type { ToolMetricSample } from "../../tools/metrics.js";
 import type { UserFeedback, RewardRecord } from "../types/feedback.js";
 import type { CleanupSchedule, CleanupSchedulesFile } from "../resource/cleanup-scheduler.js";
@@ -17,20 +18,28 @@ export interface PostgresAnalyticsStoreOptions {
 
 export class PostgresAnalyticsStore {
   private readonly pool: Pool;
+  private readonly poolKey: string;
   private schemaReady = false;
 
-  private constructor(pool: Pool) {
+  private constructor(pool: Pool, poolKey: string) {
     this.pool = pool;
+    this.poolKey = poolKey;
   }
 
   public static async open(options: PostgresAnalyticsStoreOptions): Promise<PostgresAnalyticsStore> {
     if (!options.databaseUrl || options.databaseUrl.trim().length === 0) {
       throw new Error("DATABASE_URL is required for PostgresAnalyticsStore");
     }
-    const pool = new Pool({ connectionString: options.databaseUrl });
-    const store = new PostgresAnalyticsStore(pool);
+    const normalizedUrl = options.databaseUrl.trim();
+    const poolKey = `analytics-store:${normalizedUrl}`;
+    const pool = getOrCreatePgPool(poolKey, normalizedUrl);
+    const store = new PostgresAnalyticsStore(pool, poolKey);
     await store.ensureSchema();
     return store;
+  }
+
+  public async close(): Promise<void> {
+    await releasePgPoolKey(this.poolKey);
   }
 
   public async loadCleanupSchedules(): Promise<CleanupSchedulesFile> {

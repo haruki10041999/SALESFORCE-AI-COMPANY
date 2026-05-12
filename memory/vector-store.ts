@@ -2,7 +2,7 @@ import { JsonlVectorStoreAdapter } from "./adapters/jsonl-vector-store.js";
 import { PgvectorVectorStoreAdapter } from "./adapters/pgvector-vector-store.js";
 import type { EmbeddingProvider, MemoryRecord } from "./vector-store-adapter.js";
 
-let defaultAdapter = buildAdapter();
+let defaultAdapter: JsonlVectorStoreAdapter | PgvectorVectorStoreAdapter | null = null;
 
 function resolveVectorBackend(): string {
   return (process.env.SF_AI_VECTOR_BACKEND ?? "tfidf").trim().toLowerCase();
@@ -20,40 +20,49 @@ function buildAdapter() {
   return new JsonlVectorStoreAdapter();
 }
 
+function getAdapter(): JsonlVectorStoreAdapter | PgvectorVectorStoreAdapter {
+  if (!defaultAdapter) {
+    defaultAdapter = buildAdapter();
+  }
+  return defaultAdapter;
+}
+
 export type { MemoryRecord, EmbeddingProvider };
 
 export function configureVectorStoreForTest(filePath: string): void {
-  defaultAdapter.configureStorageForTest(filePath);
+  getAdapter().configureStorageForTest(filePath);
 }
 
 export function configureVectorStoreLimitsForTest(limits: { maxRecords?: number; maxBytes?: number }): void {
-  defaultAdapter.configureLimitsForTest(limits);
+  getAdapter().configureLimitsForTest(limits);
 }
 
 export function configureEmbeddingProviderForTest(provider: EmbeddingProvider): void {
-  defaultAdapter.configureEmbeddingProviderForTest(provider);
+  getAdapter().configureEmbeddingProviderForTest(provider);
 }
 
 export function clearRecords(): void {
-  defaultAdapter.clearRecords();
+  getAdapter().clearRecords();
 }
 
 export function addRecord(record: MemoryRecord): void {
-  defaultAdapter.addRecord(record);
+  getAdapter().addRecord(record);
 }
 
 export function searchByKeyword(query: string): MemoryRecord[] {
-  return defaultAdapter.searchByKeyword(query);
+  return getAdapter().searchByKeyword(query);
 }
 
 export async function searchByKeywordAsync(
   query: string,
   options: { limit?: number; minScore?: number } = {}
 ): Promise<Array<MemoryRecord & { score?: number }>> {
-  return defaultAdapter.searchByKeywordAsync(query, options);
+  return getAdapter().searchByKeywordAsync(query, options);
 }
 
 export function resetVectorBackendForTest(): void {
-  defaultAdapter.resetBackendForTest();
-  defaultAdapter = buildAdapter();
+  if (defaultAdapter) {
+    defaultAdapter.resetBackendForTest();
+  }
+  defaultAdapter = null;
 }

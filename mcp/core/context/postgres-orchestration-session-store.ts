@@ -1,4 +1,5 @@
 import { Pool, type PoolClient } from "pg";
+import { getOrCreatePgPool, releasePgPoolKey } from "../persistence/pg-pool-registry.js";
 
 interface OrchestrationSessionShape {
   id: string;
@@ -24,14 +25,16 @@ export interface PostgresOrchestrationSessionStoreOptions<TSession extends Orche
 
 export class PostgresOrchestrationSessionStore<TSession extends OrchestrationSessionShape> {
   private readonly pool: Pool;
+  private readonly poolKey: string;
   private readonly getSession: (sessionId: string) => TSession | undefined;
   private readonly setSession: (session: TSession) => void;
   private readonly maxSessionFiles: number;
   private readonly retentionDays: number;
   private schemaReady = false;
 
-  private constructor(pool: Pool, options: PostgresOrchestrationSessionStoreOptions<TSession>) {
+  private constructor(pool: Pool, poolKey: string, options: PostgresOrchestrationSessionStoreOptions<TSession>) {
     this.pool = pool;
+    this.poolKey = poolKey;
     this.getSession = options.getSession;
     this.setSession = options.setSession;
     this.maxSessionFiles = options.maxSessionFiles ?? 200;
@@ -45,14 +48,16 @@ export class PostgresOrchestrationSessionStore<TSession extends OrchestrationSes
       throw new Error("DATABASE_URL is required for PostgresOrchestrationSessionStore");
     }
 
-    const pool = new Pool({ connectionString: options.databaseUrl });
-    const store = new PostgresOrchestrationSessionStore(pool, options);
+    const normalizedUrl = options.databaseUrl.trim();
+    const poolKey = `orchestration-session-store:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const pool = getOrCreatePgPool(poolKey, normalizedUrl);
+    const store = new PostgresOrchestrationSessionStore(pool, poolKey, options);
     await store.ensureSchema();
     return store;
   }
 
   public async close(): Promise<void> {
-    await this.pool.end();
+    await releasePgPoolKey(this.poolKey);
   }
 
   public async deleteOldSessions(): Promise<{ deletedByAge: number; deletedByCount: number; remaining: number }> {

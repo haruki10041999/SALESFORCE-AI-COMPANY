@@ -1,7 +1,11 @@
 import { existsSync, readFileSync, promises as fsPromises } from "fs";
 import { join, relative } from "path";
 import { createHash } from "crypto";
-import { getPromptCacheMaxEntries, getPromptCacheTtlSeconds } from "../config/runtime-config.js";
+import {
+  getPromptCacheFilePathFromEnv,
+  getPromptCacheMaxEntries,
+  getPromptCacheTtlSeconds
+} from "../config/runtime-config.js";
 import { renderPersonaStyleSection } from "./persona-style-registry.js";
 import { renderSpeechStyleSection } from "./speech-style-registry.js";
 import { allocateCategoryBudgets } from "./context-budget.js";
@@ -62,7 +66,7 @@ const promptCache = new Map<string, { prompt: string; createdAt: number; input: 
  * 未設定や空文字列なら永続化は無効 (従来振る舞い)。
  */
 function getPromptCacheFilePath(): string | null {
-  const value = process.env.PROMPT_CACHE_FILE;
+  const value = getPromptCacheFilePathFromEnv();
   if (!value || value.trim().length === 0) return null;
   return value.trim();
 }

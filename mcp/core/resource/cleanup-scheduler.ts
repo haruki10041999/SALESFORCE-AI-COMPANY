@@ -18,7 +18,7 @@ import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Cron } from "croner";
-import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
+import { getAnalyticsStore } from "../persistence/analytics-store-provider.js";
 import { writeTextFileAtomic } from "../persistence/unit-of-work.js";
 
 export type CleanupScheduleStatus = "active" | "paused";
@@ -48,9 +48,6 @@ export interface CleanupSchedulesFile {
 export const CLEANUP_SCHEDULES_FILE_VERSION = 1;
 
 const DEFAULT_RELATIVE_PATH = join("outputs", "cleanup-schedules.json");
-const analyticsStorePromise = process.env.DATABASE_URL
-  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
-  : Promise.resolve(null);
 
 function isPositiveInt(value: unknown, max?: number): boolean {
   if (typeof value !== "number" || !Number.isFinite(value)) return false;
@@ -169,7 +166,7 @@ export function getDefaultSchedulesFilePath(rootDir: string): string {
 }
 
 export async function loadCleanupSchedules(filePath: string): Promise<CleanupSchedulesFile> {
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore) {
     return analyticsStore.loadCleanupSchedules();
   }
@@ -227,7 +224,7 @@ export async function saveCleanupSchedules(
   filePath: string,
   data: CleanupSchedulesFile
 ): Promise<void> {
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore) {
     await analyticsStore.saveCleanupSchedules({
       ...data,

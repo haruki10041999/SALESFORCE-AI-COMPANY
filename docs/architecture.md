@@ -76,6 +76,26 @@ Salesforce 開発業務を対象に、MCP サーバとして次の機能を提�
   - `project-memory.ts`, `vector-store.ts`
   - Postgres/PGVector 優先 + file fallback + LRU ベースのレコード管理
 
+### Postgres Pool ライフサイクル方針
+
+- `pg` の pool 生成は `mcp/core/persistence/pg-pool-registry.ts` に集約する
+- 各モジュールでの `new Pool(...)` 直呼び出しは禁止（例外は registry 内のみ）
+- pool 利用モジュールは `open()` などの初期化時に `getOrCreatePgPool(key, connectionString)` を使う
+- `close()` は `pool.end()` を直接呼ばず、`releasePgPoolKey(key)` を呼んで参照カウントを解放する
+- 共有キーとインスタンスキーの使い分け:
+  - 共有キー: プロセス全体で再利用したい長寿命コンポーネント（例: analytics, audit notify）
+  - インスタンスキー: インスタンスごとに `close()` と対で管理したいコンポーネント（例: queue/store/runner）
+
+キー命名規約（推奨）:
+
+- 固定共有: `<component>:<normalizedConnectionString>`
+- インスタンス単位: `<component>:<timestamp>:<randomSuffix>`
+
+補足:
+
+- テスト teardown やプロセス終了時は `closeAllPgPools()` による一括解放を許可する
+- `DATABASE_URL` 直読は段階的に縮小し、`SF_AI_DB_URL_PRIMARY` 優先の解決ポリシーへ統一する
+
 ## 3. 代表的な処理フロー
 
 ### Smart Chat

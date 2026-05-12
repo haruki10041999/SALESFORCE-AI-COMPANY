@@ -2,6 +2,7 @@ export type LogLevel = "error" | "warn" | "info" | "debug";
 
 import pino from "pino";
 import pretty from "pino-pretty";
+import { getLogLevelFromEnv } from "../config/runtime-config.js";
 import { maskLogMessage, maskUnknown } from "./pii-masker.js";
 
 function normalizeLogLevel(value: string | undefined): LogLevel {
@@ -80,7 +81,7 @@ function writeLog(logger: pino.Logger, level: LogLevel, message: string, args: u
 }
 
 export function createLogger(scope: string, configuredLevel?: string): Logger {
-  const level = normalizeLogLevel(configuredLevel ?? process.env.LOG_LEVEL);
+  const level = normalizeLogLevel(configuredLevel ?? getLogLevelFromEnv());
   const scopedLogger = getRootLogger(level).child({ scope });
 
   return {

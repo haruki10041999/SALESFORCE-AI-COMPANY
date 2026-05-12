@@ -5,6 +5,7 @@
  */
 
 import { createLogger } from "../logging/logger.js";
+import { getEventHistoryMax } from "../config/runtime-config.js";
 import type { EventBus } from "./event-bus.js";
 
 const logger = createLogger("EventDispatcher");
@@ -16,7 +17,8 @@ export type SystemEventType =
   | "resource_deleted"
   | "error_aggregate_detected"
   | "governance_threshold_exceeded"
-  | "quality_check_failed";
+  | "quality_check_failed"
+  | "cascade_impact_detected";
 
 export interface SystemEvent {
   type: SystemEventType;
@@ -63,7 +65,7 @@ export class EventDispatcher {
   private readonly instanceId: string;
 
   constructor(config?: EventDispatcherConfig) {
-    const envMax = Number.parseInt(process.env.EVENT_HISTORY_MAX ?? "1000", 10);
+    const envMax = getEventHistoryMax();
     this.maxHistorySize = Number.isFinite(envMax) && envMax > 0 ? envMax : 1000;
     this.instanceId = config?.instanceId ?? `dispatcher-${Math.random().toString(36).slice(2, 10)}`;
 

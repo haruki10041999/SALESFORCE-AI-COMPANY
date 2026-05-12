@@ -2,10 +2,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
-import { PostgresAnalyticsStore } from "../mcp/core/persistence/postgres-analytics-store.js";
 import { createLogger } from "../mcp/core/logging/logger.js";
 import { atomicWriteFileSync } from "../mcp/core/io/atomic-write.js";
 import { isEnvFlagEnabled } from "../mcp/core/config/env-flags.js";
+import {
+  getAnalyticsStore,
+  hasAnalyticsDatabaseConfig
+} from "../mcp/core/persistence/analytics-store-provider.js";
 import {
   createAtRestCryptoFromEnv,
   parseEncryptedEnvelope,
@@ -21,12 +24,9 @@ let storageFilePath = process.env.SF_AI_MEMORY_FILE ?? DEFAULT_MEMORY_FILE;
 let maxRecords = Number.parseInt(process.env.SF_AI_MEMORY_MAX_RECORDS ?? "2000", 10);
 let maxBytes = Number.parseInt(process.env.SF_AI_MEMORY_MAX_BYTES ?? `${1024 * 1024}`, 10);
 const outputsStateFallbackEnabled = isEnvFlagEnabled("SF_AI_ALLOW_OUTPUTS_STATE_FALLBACK");
-const analyticsStorePromise = process.env.DATABASE_URL
-  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
-  : Promise.resolve(null);
 
 function shouldUseDatabase(): boolean {
-  return Boolean(process.env.DATABASE_URL) && resolve(storageFilePath) === resolve(DEFAULT_MEMORY_FILE);
+  return hasAnalyticsDatabaseConfig() && resolve(storageFilePath) === resolve(DEFAULT_MEMORY_FILE);
 }
 
 function shouldUseFilePersistence(): boolean {
@@ -166,7 +166,7 @@ function saveToDisk(): void {
 }
 
 async function loadFromDatabase(): Promise<void> {
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (!analyticsStore || !shouldUseDatabase()) {
     return;
   }
@@ -181,7 +181,7 @@ async function loadFromDatabase(): Promise<void> {
 }
 
 async function persistToDatabase(): Promise<void> {
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (!analyticsStore || !shouldUseDatabase()) {
     return;
   }

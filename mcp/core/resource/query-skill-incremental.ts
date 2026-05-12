@@ -1,11 +1,7 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname } from "node:path";
-import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
+import { getAnalyticsStore } from "../persistence/analytics-store-provider.js";
 import { appendTextFileAtomic, writeTextFileAtomic } from "../persistence/unit-of-work.js";
-
-const analyticsStorePromise = process.env.DATABASE_URL
-  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
-  : Promise.resolve(null);
 
 export const QUERY_SKILL_MODEL_VERSION = "query-skill-v1";
 
@@ -58,7 +54,7 @@ export async function appendQuerySkillFeedback(
 ): Promise<void> {
   if (entries.length === 0) return;
 
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore) {
     await analyticsStore.appendQuerySkillFeedbackEntries(entries);
     return;
@@ -70,7 +66,7 @@ export async function appendQuerySkillFeedback(
 }
 
 export async function loadQuerySkillFeedbackLog(logFilePath: string): Promise<QuerySkillFeedbackEntry[]> {
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore) {
     return analyticsStore.listQuerySkillFeedbackEntries();
   }
@@ -179,7 +175,7 @@ export async function saveQuerySkillIncrementalModel(
   modelFilePath: string,
   model: QuerySkillIncrementalModel
 ): Promise<void> {
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore) {
     await analyticsStore.saveNamedModel("query-skill-model", model as unknown as Record<string, unknown>);
     return;
@@ -192,7 +188,7 @@ export async function saveQuerySkillIncrementalModel(
 export async function loadQuerySkillIncrementalModel(
   modelFilePath: string
 ): Promise<QuerySkillIncrementalModel | null> {
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore) {
     return analyticsStore.loadQuerySkillIncrementalModel();
   }

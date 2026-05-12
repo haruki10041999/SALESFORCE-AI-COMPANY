@@ -87,7 +87,7 @@ export function autoInitializeHandlers(
   const thresholdConfig = buildThresholdConfig();
 
   logger.info(
-    `autoApply=${handlerConfig.autoApply} (SF_AI_AUTO_APPLY=${process.env.SF_AI_AUTO_APPLY ?? "未設定"})`
+    `autoApply=${handlerConfig.autoApply}`
   );
 
   // ============================================================

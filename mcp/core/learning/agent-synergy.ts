@@ -11,7 +11,7 @@
 
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
+import { getAnalyticsStore } from "../persistence/analytics-store-provider.js";
 import { ensureParentDirectorySync } from "../io/atomic-write.js";
 
 // ---------------------------------------------------------------------------
@@ -54,9 +54,6 @@ export type AgentPersonaWeeklySeries = {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_PATH = "outputs/learning/agent-synergy.jsonl";
-const analyticsStorePromise = process.env.DATABASE_URL
-  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
-  : Promise.resolve(null);
 
 function resolvePath(filePath?: string): string {
   return resolve(filePath ?? DEFAULT_PATH);
@@ -68,7 +65,7 @@ export function recordAgentSynergySession(
   filePath?: string
 ): void {
   const fp = resolvePath(filePath);
-  void analyticsStorePromise.then(async (analyticsStore) => {
+  void getAnalyticsStore().then(async (analyticsStore) => {
     if (analyticsStore && (!filePath || fp === resolvePath(DEFAULT_PATH))) {
       await analyticsStore.insertAgentSynergyRecord(record);
       return;
@@ -100,7 +97,7 @@ export function loadAgentSynergyRecords(filePath?: string): AgentSynergyRecord[]
 
 export async function loadAgentSynergyRecordsAsync(filePath?: string): Promise<AgentSynergyRecord[]> {
   const fp = resolvePath(filePath);
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore && (!filePath || fp === resolvePath(DEFAULT_PATH))) {
     return analyticsStore.listAgentSynergyRecords();
   }

@@ -6,6 +6,7 @@ import { circuitBreakerRegistry } from "../../mcp/core/reliability/circuit-break
 import { bulkheadRegistry, DEFAULT_PGVECTOR_CONCURRENCY } from "../../mcp/core/reliability/bulkhead.js";
 import { currentTenantId } from "../../mcp/core/identity/tenant-context.js";
 import { ensureTenantRlsPolicy, resetTenantSetting, setTenantSetting } from "../../mcp/core/persistence/postgres-tenant-context.js";
+import { getOrCreatePgPool, releasePgPoolKey } from "../../mcp/core/persistence/pg-pool-registry.js";
 import type { EmbeddingProvider, MemoryRecord, VectorSearchOptions, VectorStoreAdapter } from "../vector-store-adapter.js";
 
 function toIsoNow(): string {
@@ -28,6 +29,7 @@ function normalizeVectorDimension(vector: number[], dimension = 768): number[] {
 
 export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
   private readonly pool: Pool;
+  private readonly poolKey: string;
   private embeddingProvider: VectorEmbeddingProvider;
   private readonly pendingWrites = new Set<Promise<void>>();
   private readonly circuitBreaker = circuitBreakerRegistry.get("pgvector", {
@@ -49,7 +51,9 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
       throw new Error("DATABASE_URL is required when SF_AI_VECTOR_BACKEND=pgvector");
     }
 
-    this.pool = new Pool({ connectionString: databaseUrl });
+    const normalizedUrl = databaseUrl.trim();
+    this.poolKey = `pgvector-vector-store:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    this.pool = getOrCreatePgPool(this.poolKey, normalizedUrl);
     const embeddingClient = (process.env.SF_AI_LLM_CLIENT ?? "native").toLowerCase();
     this.embeddingProvider = embeddingClient === "langchain"
       ? getDefaultLangChainEmbeddingProvider()
@@ -191,7 +195,12 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
   }
 
   public resetBackendForTest(): void {
-    const closePromise = this.pool.end().then(() => undefined).catch(() => undefined);
+    const closePromise = releasePgPoolKey(this.poolKey)
+      .then(() => {
+        this.schemaReady = false;
+        this.schemaPromise = null;
+      })
+      .catch(() => undefined);
     this.trackWrite(closePromise);
   }
 

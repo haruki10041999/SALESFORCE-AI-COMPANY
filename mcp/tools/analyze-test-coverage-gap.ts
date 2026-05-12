@@ -10,6 +10,7 @@ import {
   type BranchExceptionScaffold
 } from "./test-scaffold-extractor.js";
 import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
+import { getOutputsDir, getPrimaryDatabaseUrl } from "../core/config/runtime-config.js";
 
 export type AnalyzeTestCoverageGapInput = CoverageEstimateInput & {
   reportOutputDir?: string;
@@ -109,12 +110,10 @@ function renderMarkdown(result: AnalyzeTestCoverageGapResult): string {
 export async function analyzeTestCoverageGap(input: AnalyzeTestCoverageGapInput): Promise<AnalyzeTestCoverageGapResult> {
   // Debug: keep minimal runtime context without touching outputs paths.
   const cwd = process.cwd();
-  const runtimeOutputsDir = process.env.SF_AI_OUTPUTS_DIR
-    ? resolve(process.env.SF_AI_OUTPUTS_DIR)
-    : resolve("outputs");
+  const runtimeOutputsDir = resolve(getOutputsDir());
   const artifactWriter = new OutputsArtifactWriter({
     outputsDir: runtimeOutputsDir,
-    databaseUrl: process.env.DATABASE_URL
+    databaseUrl: getPrimaryDatabaseUrl()
   });
   
   const estimate = estimateChangedCoverage(input);

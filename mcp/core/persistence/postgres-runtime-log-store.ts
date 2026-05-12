@@ -1,6 +1,7 @@
 import { Pool, type PoolClient } from "pg";
 import { currentTenantId } from "../identity/tenant-context.js";
 import { ensureTenantRlsPolicy, withTenantScopedClient } from "./postgres-tenant-context.js";
+import { getOrCreatePgPool, releasePgPoolKey } from "./pg-pool-registry.js";
 
 export interface PostgresRuntimeLogStoreOptions {
   databaseUrl: string;
@@ -64,10 +65,12 @@ export interface RuntimeToolExecutionRecord {
 
 export class PostgresRuntimeLogStore {
   private readonly pool: Pool;
+  private readonly poolKey: string;
   private schemaReady = false;
 
-  private constructor(pool: Pool) {
+  private constructor(pool: Pool, poolKey: string) {
     this.pool = pool;
+    this.poolKey = poolKey;
   }
 
   public static async open(options: PostgresRuntimeLogStoreOptions): Promise<PostgresRuntimeLogStore> {
@@ -75,10 +78,16 @@ export class PostgresRuntimeLogStore {
       throw new Error("DATABASE_URL is required for PostgresRuntimeLogStore");
     }
 
-    const pool = new Pool({ connectionString: options.databaseUrl });
-    const store = new PostgresRuntimeLogStore(pool);
+    const normalizedUrl = options.databaseUrl.trim();
+    const poolKey = `runtime-log-store.postgres:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const pool = getOrCreatePgPool(poolKey, normalizedUrl);
+    const store = new PostgresRuntimeLogStore(pool, poolKey);
     await store.ensureSchema();
     return store;
+  }
+
+  public async close(): Promise<void> {
+    await releasePgPoolKey(this.poolKey);
   }
 
   public async appendAuditLog(eventType: string, resourceType: string | null, details: Record<string, unknown>, timestamp: string): Promise<void> {

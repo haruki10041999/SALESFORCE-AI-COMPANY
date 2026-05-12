@@ -1,8 +1,11 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PostgresAnalyticsStore } from "../mcp/core/persistence/postgres-analytics-store.js";
 import { atomicWriteFileSync } from "../mcp/core/io/atomic-write.js";
+import {
+  getAnalyticsStore,
+  hasAnalyticsDatabaseConfig
+} from "../mcp/core/persistence/analytics-store-provider.js";
 import {
   createAtRestCryptoFromEnv,
   parseEncryptedEnvelope,
@@ -22,12 +25,9 @@ const DEFAULT_FAILURE_MEMORY_FILE = join(ROOT, "outputs", "failure-memory.jsonl"
 
 let storageFilePath = process.env.SF_AI_FAILURE_MEMORY_FILE ?? DEFAULT_FAILURE_MEMORY_FILE;
 const entries: FailureMemoryEntry[] = [];
-const analyticsStorePromise = process.env.DATABASE_URL
-  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
-  : Promise.resolve(null);
 
 function shouldUseDatabase(): boolean {
-  return Boolean(process.env.DATABASE_URL) && resolve(storageFilePath) === resolve(DEFAULT_FAILURE_MEMORY_FILE);
+  return hasAnalyticsDatabaseConfig() && resolve(storageFilePath) === resolve(DEFAULT_FAILURE_MEMORY_FILE);
 }
 
 function isEncryptedEnvelope(value: unknown): value is EncryptedEnvelope {
@@ -117,7 +117,7 @@ function saveAll(): void {
 }
 
 async function loadFromDatabase(): Promise<void> {
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (!analyticsStore || !shouldUseDatabase()) {
     return;
   }
@@ -132,7 +132,7 @@ async function loadFromDatabase(): Promise<void> {
 }
 
 async function persistToDatabase(): Promise<void> {
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (!analyticsStore || !shouldUseDatabase()) {
     return;
   }

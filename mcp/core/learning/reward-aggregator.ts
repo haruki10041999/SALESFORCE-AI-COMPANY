@@ -9,13 +9,10 @@ import { resolve, dirname } from "path";
 import { randomUUID } from "crypto";
 import type { RewardRecord, RewardAggregatorConfig, UserFeedback } from "../types/feedback.js";
 import { recordUserFeedback, loadAllFeedback } from "./feedback-manager.js";
-import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
+import { getAnalyticsStore } from "../persistence/analytics-store-provider.js";
 import { appendTextFileAtomic } from "../persistence/unit-of-work.js";
 
 const REWARD_JSONL_PATH = resolve("outputs", "learning", "rewards.jsonl");
-const analyticsStorePromise = process.env.DATABASE_URL
-  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
-  : Promise.resolve(null);
 
 /**
  * Default reward aggregator configuration
@@ -53,7 +50,7 @@ export async function recordReward(
     confidence: reward.confidence ?? 1.0
   };
 
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore) {
     await analyticsStore.insertReward(record);
     return record;
@@ -74,7 +71,7 @@ export async function recordReward(
  * Load all reward records from outputs/learning/rewards.jsonl
  */
 export async function loadAllRewards(): Promise<RewardRecord[]> {
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore) {
     return analyticsStore.listRewards();
   }

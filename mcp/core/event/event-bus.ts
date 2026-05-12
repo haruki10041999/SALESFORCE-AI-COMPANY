@@ -1,4 +1,5 @@
 import { createPostgresNotifyEventBus } from "./backends/postgres-notify.js";
+import { getPrimaryDatabaseUrl } from "../config/runtime-config.js";
 
 export type EventBusBackend = "in-memory" | "postgres-notify";
 
@@ -107,7 +108,7 @@ export async function createEventBus(options: CreateEventBusOptions = {}): Promi
 export async function getGlobalEventBus(): Promise<EventBus> {
   if (!globalEventBus) {
     globalEventBus = await createEventBus({
-      databaseUrl: process.env.DATABASE_URL
+      databaseUrl: getPrimaryDatabaseUrl()
     });
   }
   return globalEventBus;

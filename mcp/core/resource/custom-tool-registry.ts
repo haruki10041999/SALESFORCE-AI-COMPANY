@@ -8,7 +8,7 @@ export interface CustomToolDefinition {
   name: string;
   description: string;
   agents: string[];
-  skills: string[];
+  skills?: string[];
   tags?: string[];
   persona?: string;
   createdAt: string;

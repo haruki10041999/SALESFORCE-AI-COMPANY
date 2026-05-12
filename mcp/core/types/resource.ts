@@ -15,7 +15,7 @@ export interface CustomToolDefinition {
  * Resource operation log entry
  */
 export interface ResourceOperation {
-  type: "create" | "delete";
+  type: "create" | "delete" | "disable" | "enable";
   resourceType: "skills" | "tools" | "presets";
   name: string;
   timestamp: string;

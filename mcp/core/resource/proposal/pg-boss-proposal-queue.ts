@@ -1,6 +1,7 @@
 import { PgBoss } from "pg-boss";
 import { Pool, type PoolClient } from "pg";
 import { isEnvFlagEnabled } from "../../config/env-flags.js";
+import { getOrCreatePgPool, releasePgPoolKey } from "../../persistence/pg-pool-registry.js";
 import {
   buildProposal,
   computeProposalPriority,
@@ -92,6 +93,7 @@ function mapRow(row: ProposalRow): ProposalRecord {
 
 export class PgBossProposalQueueStore implements ProposalQueueStore {
   private pool: Pool;
+  private poolKey: string;
   private boss: PgBoss;
   private readonly databaseUrl: string;
   private readonly queueName: string;
@@ -99,8 +101,9 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
   private closed = false;
   private reconnectPromise: Promise<void> | null = null;
 
-  private constructor(pool: Pool, boss: PgBoss, databaseUrl: string, queueName: string) {
+  private constructor(pool: Pool, poolKey: string, boss: PgBoss, databaseUrl: string, queueName: string) {
     this.pool = pool;
+    this.poolKey = poolKey;
     this.boss = boss;
     this.databaseUrl = databaseUrl;
     this.queueName = queueName;
@@ -111,13 +114,16 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
       throw new Error("DATABASE_URL is required for PgBossProposalQueueStore");
     }
 
-    const pool = new Pool({ connectionString: options.databaseUrl });
-    const boss = new PgBoss(options.databaseUrl);
+    const normalizedUrl = options.databaseUrl.trim();
+    const poolKey = `proposal-queue:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const pool = getOrCreatePgPool(poolKey, normalizedUrl);
+    const boss = new PgBoss(normalizedUrl);
     await boss.start();
     const store = new PgBossProposalQueueStore(
       pool,
+      poolKey,
       boss,
-      options.databaseUrl,
+      normalizedUrl,
       options.queueName ?? "resource-proposals"
     );
     await store.ensureSchema();
@@ -139,11 +145,7 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
     } catch {
       // ignore stop errors
     }
-    try {
-      await this.pool.end();
-    } catch {
-      // ignore end errors (already ended)
-    }
+    await releasePgPoolKey(this.poolKey);
   }
 
   /**
@@ -159,10 +161,11 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
     }
     this.reconnectPromise = (async () => {
       try {
-        try { await this.pool.end(); } catch { /* ignore */ }
+        try { await releasePgPoolKey(this.poolKey); } catch { /* ignore */ }
         try { await this.boss.stop(); } catch { /* ignore */ }
       } finally {
-        this.pool = new Pool({ connectionString: this.databaseUrl });
+        this.poolKey = `proposal-queue:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+        this.pool = getOrCreatePgPool(this.poolKey, this.databaseUrl);
         this.boss = new PgBoss(this.databaseUrl);
         await this.boss.start();
         this.schemaReady = false;

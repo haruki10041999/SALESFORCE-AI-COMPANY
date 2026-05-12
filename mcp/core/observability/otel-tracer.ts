@@ -18,6 +18,7 @@
 
 import { createLogger } from "../logging/logger.js";
 import { isEnvFlagEnabled } from "../config/env-flags.js";
+import { getOtelServiceName } from "../config/runtime-config.js";
 
 const logger = createLogger("OtelTracer");
 
@@ -53,7 +54,7 @@ async function getTracer(): Promise<OtelTracer | null> {
   initAttempted = true;
   try {
     api = (await import("@opentelemetry/api")) as unknown as OtelApi;
-    tracer = api.trace.getTracer(process.env.OTEL_SERVICE_NAME ?? "salesforce-ai-company");
+    tracer = api.trace.getTracer(getOtelServiceName());
     return tracer;
   } catch (err) {
     logger.debug("opentelemetry not available, otel tracing disabled", err);

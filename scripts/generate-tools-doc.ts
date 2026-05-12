@@ -1,116 +1,42 @@
-#!/usr/bin/env -S node --import tsx
-/**
- * TASK-F10: generate `docs/generated/features/tools-reference.md` from
- * `mcp/handlers/register-*.ts` declarations.
- *
- * For every `govTool("name", { title, description, inputSchema }, ...)` block
- * the script captures the literal name plus optional title and description
- * strings. Input schema shape extraction is intentionally skipped (zod schemas
- * are not statically traversable without a runtime build); the existing
- * runtime tool list (`tool-catalog.json`) already serves machine-readable
- * needs.
- *
- * Usage: `npm run docs:tools` -> writes `docs/generated/features/tools-reference.md`.
- */
-import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
-import { dirname, resolve, sep, relative } from "node:path";
+// Tools reference generator from runtime descriptors.
+import { writeFile, mkdir } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import type { ToolDescriptor } from "../mcp/core/registry/tool-descriptor.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..");
-const handlersRoot = resolve(repoRoot, "mcp/handlers");
 const outputPath = resolve(repoRoot, "docs/generated/features/tools-reference.md");
 
 interface ToolEntry {
   name: string;
   title?: string;
   description?: string;
-  source: string;
-}
-
-async function listRegisterFiles(): Promise<string[]> {
-  const entries = await readdir(handlersRoot, { withFileTypes: true });
-  return entries
-    .filter((e) => e.isFile() && e.name.startsWith("register-") && e.name.endsWith(".ts"))
-    .map((e) => resolve(handlersRoot, e.name));
-}
-
-// Match the head of a `govTool("name", { ... }` invocation and capture the
-// braces-balanced config object that follows. Iterates manually to handle
-// nested braces inside the inputSchema definition.
-function extractToolConfigs(source: string): Array<{ name: string; config: string }> {
-  const results: Array<{ name: string; config: string }> = [];
-  const headRegex = /\bgovTool\s*\(\s*["']([a-zA-Z0-9_]+)["']\s*,\s*\{/g;
-  let match: RegExpExecArray | null;
-  while ((match = headRegex.exec(source)) !== null) {
-    const name = match[1];
-    const start = headRegex.lastIndex - 1; // position of the opening `{`
-    let depth = 0;
-    let i = start;
-    while (i < source.length) {
-      const ch = source[i];
-      if (ch === "{") depth += 1;
-      else if (ch === "}") {
-        depth -= 1;
-        if (depth === 0) {
-          const config = source.slice(start, i + 1);
-          results.push({ name, config });
-          break;
-        }
-      } else if (ch === "\"" || ch === "'" || ch === "`") {
-        // skip string literal
-        const quote = ch;
-        i += 1;
-        while (i < source.length && source[i] !== quote) {
-          if (source[i] === "\\") i += 1;
-          i += 1;
-        }
-      }
-      i += 1;
-    }
-  }
-  return results;
-}
-
-const titleRegex = /title\s*:\s*"((?:[^"\\]|\\.)*)"/;
-const descRegex = /description\s*:\s*"((?:[^"\\]|\\.)*)"/;
-
-function unescapeString(s: string): string {
-  return s.replace(/\\"/g, "\"").replace(/\\n/g, " ").replace(/\\\\/g, "\\");
+  capabilities?: string[];
+  tags?: string[];
 }
 
 async function collectTools(): Promise<ToolEntry[]> {
-  const files = await listRegisterFiles();
-  const all: ToolEntry[] = [];
-  for (const file of files) {
-    const source = await readFile(file, "utf8");
-    const sourceRel = relative(repoRoot, file).split(sep).join("/");
-    for (const { name, config } of extractToolConfigs(source)) {
-      const titleMatch = titleRegex.exec(config);
-      const descMatch = descRegex.exec(config);
-      all.push({
-        name,
-        title: titleMatch ? unescapeString(titleMatch[1]) : undefined,
-        description: descMatch ? unescapeString(descMatch[1]) : undefined,
-        source: sourceRel
-      });
-    }
-  }
-  // Deduplicate by name (last registration wins) and sort.
-  const map = new Map<string, ToolEntry>();
-  for (const entry of all) map.set(entry.name, entry);
-  return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-}
+  // Dynamic import to load registry from compiled mcp/server
+  const registryModuleUrl = pathToFileURL(
+    resolve(repoRoot, "dist", "mcp", "core", "registry", "tool-registry.js")
+  ).href;
+  const { createBuiltinToolRegistry } = await import(
+    registryModuleUrl
+  );
 
-function groupBySource(tools: ToolEntry[]): Map<string, ToolEntry[]> {
-  const grouped = new Map<string, ToolEntry[]>();
-  for (const tool of tools) {
-    const list = grouped.get(tool.source) ?? [];
-    list.push(tool);
-    grouped.set(tool.source, list);
-  }
-  for (const list of grouped.values()) list.sort((a, b) => a.name.localeCompare(b.name));
-  return new Map([...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)));
+  const registry = createBuiltinToolRegistry();
+  const descriptors = registry.listDescriptors();
+
+  return descriptors
+    .map((desc: ToolDescriptor): ToolEntry => ({
+      name: desc.name,
+      title: desc.title,
+      description: desc.description,
+      capabilities: desc.capabilities,
+      tags: desc.tags
+    }))
+    .sort((a: ToolEntry, b: ToolEntry) => a.name.localeCompare(b.name));
 }
 
 function renderMarkdown(tools: ToolEntry[]): string {
@@ -120,7 +46,7 @@ function renderMarkdown(tools: ToolEntry[]): string {
   lines.push("");
   lines.push("# Tools Reference");
   lines.push("");
-  lines.push(`> Auto-generated by \`scripts/generate-tools-doc.ts\` (TASK-F10).`);
+  lines.push(`> Auto-generated by \`scripts/generate-tools-doc.ts\` from runtime descriptors.`);
   lines.push(`> Last update: ${generatedAt}`);
   lines.push(`> Total tools: ${tools.length}`);
   lines.push("");
@@ -130,37 +56,45 @@ function renderMarkdown(tools: ToolEntry[]): string {
   // Index table
   lines.push("## Index");
   lines.push("");
-  lines.push("| Name | Title |");
-  lines.push("| ---- | ----- |");
+  lines.push("| Name | Title | Capabilities |");
+  lines.push("| ---- | ----- | ------------ |");
   for (const tool of tools) {
     const title = tool.title ?? "";
-    lines.push(`| \`${tool.name}\` | ${title} |`);
+    const caps = tool.capabilities ? tool.capabilities.join(", ") : "";
+    lines.push(`| \`${tool.name}\` | ${title} | ${caps} |`);
   }
   lines.push("");
 
-  // Per-source sections
-  const grouped = groupBySource(tools);
-  for (const [source, list] of grouped) {
-    lines.push(`## ${source}`);
-    lines.push("");
-    for (const tool of list) {
-      lines.push(`### \`${tool.name}\``);
-      if (tool.title) lines.push(`- **Title**: ${tool.title}`);
-      if (tool.description) lines.push(`- **Description**: ${tool.description}`);
-      lines.push(`- **Source**: \`${tool.source}\``);
-      lines.push("");
+  // Detailed tool entries
+  lines.push("## Tool Details");
+  lines.push("");
+  for (const tool of tools) {
+    lines.push(`### \`${tool.name}\``);
+    if (tool.title) lines.push(`- **Title**: ${tool.title}`);
+    if (tool.description) lines.push(`- **Description**: ${tool.description}`);
+    if (tool.capabilities && tool.capabilities.length > 0) {
+      lines.push(`- **Capabilities**: ${tool.capabilities.join(", ")}`);
     }
+    if (tool.tags && tool.tags.length > 0) {
+      lines.push(`- **Tags**: ${tool.tags.join(", ")}`);
+    }
+    lines.push("");
   }
 
   return lines.join("\n");
 }
 
 async function main(): Promise<void> {
-  const tools = await collectTools();
-  const md = renderMarkdown(tools);
-  await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, md, "utf8");
-  console.log(`wrote ${tools.length} tool entries to ${relative(repoRoot, outputPath)}`);
+  try {
+    const tools = await collectTools();
+    const md = renderMarkdown(tools);
+    await mkdir(dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, md, "utf8");
+    console.log(`✓ wrote ${tools.length} tool entries to ${outputPath.replace(repoRoot + "/", "")}`);
+  } catch (error) {
+    console.error("generate-tools-doc failed:", error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
 }
 
 const invokedDirectly = import.meta.url === pathToFileURL(process.argv[1] ?? "").href;

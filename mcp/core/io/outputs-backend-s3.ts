@@ -1,12 +1,18 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import {
+  getOutputsBackendName,
+  getOutputsDir,
+  getOutputsS3AuthHeader,
+  getOutputsS3BaseUrl
+} from "../config/runtime-config.js";
 
 export type OutputsBackend = "fs" | "s3";
 
 const DEFAULT_OUTPUTS_DIR = resolve(process.cwd(), "outputs");
 
 function resolveOutputsRootDir(): string {
-  const raw = process.env.SF_AI_OUTPUTS_DIR?.trim();
+  const raw = getOutputsDir();
   if (!raw) {
     return DEFAULT_OUTPUTS_DIR;
   }
@@ -14,7 +20,7 @@ function resolveOutputsRootDir(): string {
 }
 
 export function resolveOutputsBackend(): OutputsBackend {
-  const backend = (process.env.OUTPUTS_BACKEND ?? process.env.SF_AI_OUTPUTS_BACKEND ?? "fs").trim().toLowerCase();
+  const backend = getOutputsBackendName("fs");
   return backend === "s3" ? "s3" : "fs";
 }
 
@@ -43,7 +49,7 @@ export async function writeOutputsArtifact(
     return { backend, location: fullPath };
   }
 
-  const baseUrl = process.env.SF_AI_OUTPUTS_S3_BASE_URL?.trim();
+  const baseUrl = getOutputsS3BaseUrl();
   if (!baseUrl) {
     throw new Error("SF_AI_OUTPUTS_S3_BASE_URL is required when OUTPUTS_BACKEND=s3");
   }
@@ -53,7 +59,7 @@ export async function writeOutputsArtifact(
     "content-type": options.contentType ?? "application/json"
   };
 
-  const authHeader = process.env.SF_AI_OUTPUTS_S3_AUTH_HEADER?.trim();
+  const authHeader = getOutputsS3AuthHeader();
   if (authHeader) {
     headers.Authorization = authHeader;
   }

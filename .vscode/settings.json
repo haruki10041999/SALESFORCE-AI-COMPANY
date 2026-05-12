@@ -192,6 +192,78 @@
         "/^node --import tsx --test tests/memory/chunker\\.test\\.ts tests/memory/hierarchical-retrieval\\.integration\\.test\\.ts tests/learning/replay-ab\\.integration\\.test\\.ts tests/security/secrets-rotation\\.test\\.ts$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^\\$files = @\\(\n    \"mcp/handlers/register-analytics-tools\\.ts\",\n    \"mcp/handlers/register-core-analysis-tools\\.ts\",\n    \"mcp/handlers/register-resource-governance-tools\\.ts\",\n    \"mcp/handlers/register-chat-orchestration-tools\\.ts\",\n    \"mcp/handlers/register-resource-action-tools\\.ts\",\n    \"mcp/handlers/register-resource-search-tools\\.ts\"\n\\)\n\n\\$results = foreach \\(\\$file in \\$files\\) \\{\n    if \\(Test-Path \\$file\\) \\{\n        \\$content = Get-Content \\$file\n        \\$lineCount = \\$content\\.Count\n        # Ensure we treat as string even if single line\n        \\$rawText = \\$content -join \"`n\"\n        \\$govToolCount = \\(\\[regex\\]::Matches\\(\\$rawText, \"govTool\"\\)\\)\\.Count\n        \\[PSCustomObject\\]@\\{\n            File = \\$file\n            Lines = \\$lineCount\n            GovToolCalls = \\$govToolCount\n        \\}\n    \\} else \\{\n        \\[PSCustomObject\\]@\\{\n            File = \\$file\n            Lines = \"NOT FOUND\"\n            GovToolCalls = 0\n        \\}\n    \\}\n\\}\n\n\\$results \\| Out-String$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-Content \"mcp/handlers/register-analytics-tools\\.ts\" \\| Select-String -Pattern \"export function registerAnalyticsTools\" -Context 0, 500 \\| Out-File -FilePath snippet\\.txt\nGet-Content snippet\\.txt -TotalCount 50$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$content = Get-Content mcp/handlers/register-core-analysis-tools\\.ts -Raw;\n\\$tools = \\[regex\\]::Matches\\(\\$content, 'govTool\\\\\\(\\\\s\\*\"\\(\\[\\^\"\\]\\+\\)\"'\\) \\| ForEach-Object \\{ \n    \\$name = \\$_\\.Groups\\[1\\]\\.Value;\n    \\$startIdx = \\$_\\.Index;\n    @\\{ Name = \\$name; Index = \\$startIdx \\}\n\\};\nfor \\(\\$i = 0; \\$i -lt \\$tools\\.Count; \\$i\\+\\+\\) \\{\n    \\$current = \\$tools\\[\\$i\\];\n    \\$nextIndex = if \\(\\$i -lt \\$tools\\.Count - 1\\) \\{ \\$tools\\[\\$i\\+1\\]\\.Index \\} else \\{ \\$content\\.Length \\};\n    \\$snippet = \\$content\\.Substring\\(\\$current\\.Index, \\$nextIndex - \\$current\\.Index\\);\n    \\$lineCount = \\(\\$snippet -split \"\\\\r\\?\\\\n\"\\)\\.Length;\n    \\$current\\.Lines = \\$lineCount;\n\\}\n\\$tools \\| Sort-Object Lines -Descending \\| Select-Object Name, Lines -First 10 \\| Format-Table -AutoSize$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-Content mcp/handlers/register-core-analysis-tools\\.ts \\| ForEach-Object \\{ if \\(\\$_ -match 'govTool\\\\\\(\\\\s\\*\"\\(\\[\\^\"\\]\\+\\)\"'\\) \\{ \\$matches\\[1\\] \\} \\}$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-Content mcp/handlers/register-chat-orchestration-tools\\.ts \\| Select-String -Pattern \"govTool\\\\\\(\" -Context 0,200 \\| Out-File -FilePath tool_analysis\\.txt$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-Content mcp/handlers/register-chat-orchestration-tools\\.ts \\| ForEach-Object \\{ \\$i\\+\\+; if \\(\\$_ -match \"govTool\\\\\\(\"\\) \\{ \"Line \\$i`: \\$_\" \\} \\}$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-Content mcp/handlers/register-chat-orchestration-tools\\.ts \\| Select-Object -Index \\(133\\.\\.143\\)$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$files = @\\(\n    \"mcp/handlers/register-analytics-tools\\.ts\",\n    \"mcp/handlers/register-core-analysis-tools\\.ts\",\n    \"mcp/handlers/register-resource-governance-tools\\.ts\",\n    \"mcp/handlers/register-chat-orchestration-tools\\.ts\",\n    \"mcp/handlers/register-resource-action-tools\\.ts\",\n    \"mcp/handlers/register-resource-search-tools\\.ts\"\n\\)\n\nforeach \\(\\$file in \\$files\\) \\{\n    if \\(Test-Path \\$file\\) \\{\n        \\$content = Get-Content \\$file\n        \\$loc = \\$content\\.Count\n        \\$govTools = \\(Select-String -InputObject \\$content -Pattern \"govTool\" -AllMatches\\)\\.Matches\\.Count\n        Write-Output \"\\$file \\| \\$loc \\| \\$govTools\"\n    \\} else \\{\n        Write-Output \"\\$file \\| Not Found \\| Not Found\"\n    \\}\n\\}$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$files = @\\(\n    \"mcp/handlers/register-analytics-tools\\.ts\",\n    \"mcp/handlers/register-core-analysis-tools\\.ts\",\n    \"mcp/handlers/register-resource-governance-tools\\.ts\",\n    \"mcp/handlers/register-chat-orchestration-tools\\.ts\",\n    \"mcp/handlers/register-resource-action-tools\\.ts\",\n    \"mcp/handlers/register-resource-search-tools\\.ts\"\n\\)\n\n\\$results = foreach \\(\\$file in \\$files\\) \\{\n    if \\(Test-Path \\$file\\) \\{\n        \\$content = Get-Content \\$file\n        \\$loc = \\(Get-Content \\$file \\| Measure-Object -Line\\)\\.Lines\n        \\$govTools = \\(Select-String -Path \\$file -Pattern \"govTool\" -AllMatches\\)\\.Matches\\.Count\n        \\[PSCustomObject\\]@\\{\n            File = \\$file\n            LOC = \\$loc\n            GovToolCount = \\$govTools\n        \\}\n    \\} else \\{\n        \\[PSCustomObject\\]@\\{\n            File = \\$file\n            LOC = \"N/A\"\n            GovToolCount = \"N/A\"\n        \\}\n    \\}\n\\}\n\\$results \\| Format-Table -AutoSize$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$env:DATABASE_URL='postgresql://postgres:postgres@localhost:5432/sf_ai_test'; Write-Output \"DATABASE_URL=\\$env:DATABASE_URL\"; node -e \"console\\.log\\('NODE_DATABASE_URL=' \\+ \\(process\\.env\\.DATABASE_URL \\|\\| ''\\)\\)\"; node --test --import tsx tests/handlers/handlers-integration\\.test\\.ts tests/server-tools\\.integration\\.test\\.ts$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --test --import tsx tests/handlers/handlers-integration\\.test\\.ts tests/server-tools\\.integration\\.test\\.ts$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$content = Get-Content mcp/handlers/register-core-analysis-tools\\.ts; \\$content = \\$content -replace 'export function registerCoreAnalysisTools\\\\\\(deps: CoreAnalysisToolDeps = \\{\\}\\\\\\): void \\{', 'export function registerCoreAnalysisTools\\(deps: CoreAnalysisToolDeps\\): void \\{'; \\$content \\| Set-Content mcp/handlers/register-core-analysis-tools\\.ts$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$content = Get-Content mcp/core/registration/domain-analysis\\.ts; \\$newContent = foreach \\(\\$line in \\$content\\) \\{ if \\(\\$line -match 'registerCoreAnalysisTools\\\\\\(govTool, \\\\\\{'\\) \\{ '  registerCoreAnalysisTools\\(\\{ govTool,' \\} elseif \\(\\$line -match 'listSkillsWithSummary: \\\\\\(\\\\\\) => listMdFiles\\\\\\(\"skills\"\\\\\\)'\\) \\{ '    listSkillsWithSummary: \\(\\) => listMdFiles\\(\"skills\"\\)' \\} else \\{ \\$line \\} \\}; \\$newContent \\| Set-Content mcp/core/registration/domain-analysis\\.ts$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-ChildItem -Path \"\\*\\*/register-\\*tools\\.ts\" -Recurse \\| ForEach-Object \\{ \\[PSCustomObject\\]@\\{Path = \\$_\\.FullName\\.Replace\\('D:\\\\Projects\\\\mult-agent-ai\\\\salesforce-ai-company\\\\', ''\\); LineCount = \\(Get-Content \\$_\\.FullName\\)\\.Count\\} \\} \\| Sort-Object LineCount -Descending \\| Format-Table -AutoSize$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-ChildItem -Path mcp/handlers/register-logging-tools\\.ts, mcp/handlers/register-branch-review-tools\\.ts, mcp/handlers/register-proposal-queue-tools\\.ts, mcp/handlers/register-vector-prompt-tools\\.ts \\| ForEach-Object \\{ \\$content = Get-Content \\$_\\.FullName; \\[PSCustomObject\\]@\\{ File=\\$_\\.Name; Lines=\\$content\\.Count; govTool=\\(\\$content \\| Select-String -Pattern \"govTool\" -AllMatches\\)\\.Matches\\.Count; async=\\(\\$content \\| Select-String -Pattern \"\\\\basync\\\\b\" -AllMatches\\)\\.Matches\\.Count \\} \\} \\| Format-Table -AutoSize$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-Content package\\.json \\| ConvertFrom-Json \\| Select-Object -ExpandProperty scripts$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-ChildItem -Path \"mcp/handlers\" -Filter \"\\*\\.ts\" -Recurse \\| ForEach-Object \\{ \\$lines = \\(Get-Content \\$_\\.FullName \\| Measure-Object -Line\\)\\.Lines; \\[PSCustomObject\\]@\\{ Path = \\(Resolve-Path \\$_\\.FullName -Relative\\); LineCount = \\$lines \\} \\} \\| Sort-Object LineCount -Descending \\| Select-Object -First 20 \\| Format-Table -AutoSize$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^tsc --noEmit; if \\(\\$\\?\\) \\{ \"Pass\" \\} else \\{ \"Fail\" \\}$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     },
     "sqltools.connections": [

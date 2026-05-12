@@ -1,11 +1,7 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname } from "node:path";
-import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
+import { getAnalyticsStore } from "../persistence/analytics-store-provider.js";
 import { appendTextFileAtomic } from "../persistence/unit-of-work.js";
-
-const analyticsStorePromise = process.env.DATABASE_URL
-  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
-  : Promise.resolve(null);
 
 export interface AgentGraphRecord {
   recordedAt: string;
@@ -40,7 +36,7 @@ export async function recordAgentSequence(
     success: input.success !== false
   };
 
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore && filePath.endsWith("agent-graph.jsonl")) {
     await analyticsStore.insertAgentGraphRecord(record);
     return record;
@@ -52,7 +48,7 @@ export async function recordAgentSequence(
 }
 
 export async function loadAgentGraphRecords(filePath: string): Promise<AgentGraphRecord[]> {
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore && filePath.endsWith("agent-graph.jsonl")) {
     return analyticsStore.listAgentGraphRecords();
   }

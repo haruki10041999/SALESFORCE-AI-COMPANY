@@ -9,7 +9,7 @@ import type { registerAllTools } from "./register-all-tools.js";
 
 type Deps = Parameters<typeof registerAllTools>[0];
 
-/** Analysis / Repository / Org / Proposal / Catalog ドメインを登録する。 */
+/** Analysis / Repository / Org / Proposal / Catalog ドメインを登録する、E*/
 export function registerAnalysisDomain(deps: Deps): void {
   const {
     govTool,
@@ -22,7 +22,7 @@ export function registerAnalysisDomain(deps: Deps): void {
     proposalQueue
   } = deps;
 
-  registerCoreAnalysisTools(govTool, {
+  registerCoreAnalysisTools({ govTool,
     listSkillsWithSummary: () => listMdFiles("skills")
   });
   registerBranchReviewTools(govTool);
@@ -34,8 +34,8 @@ export function registerAnalysisDomain(deps: Deps): void {
     proposalQueue
   });
 
-  // Declarative tools (outputs/custom-tools/*.json) を新スキーマで動的登録。
-  // 同期 API を維持するため fire-and-forget。loader は例外を内包する。
+  // Declarative tools (outputs/custom-tools/*.json) を新スキーマで動的登録、E
+  // 同期 API を維持するためEfire-and-forget。loader は例外を冁E��する、E
   void loadDeclarativeToolsFromDir(
     join(root, "outputs", "custom-tools"),
     { govTool, buildChatPrompt, filterDisabledSkills }

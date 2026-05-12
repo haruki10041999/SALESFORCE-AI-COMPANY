@@ -7,6 +7,8 @@
  * - COLD: 7 years (S3 Glacier, archival only)
  */
 
+import { getAuditColdStorageEnabled, getAuditColdStorageTarget } from "../config/runtime-config.js";
+
 export interface AuditRetentionTier {
   name: "hot" | "warm" | "cold";
   maxAgeDays: number;
@@ -45,7 +47,7 @@ export function getTierForAge(ageMs: number): AuditRetentionTier {
 }
 
 export function recommendedColdStorageTarget(): string {
-  return process.env.SF_AI_AUDIT_COLD_STORAGE ?? "s3://audit-cold-storage/";
+  return getAuditColdStorageTarget();
 }
 
 export function auditPartitionNameForDate(date: Date): string {
@@ -55,6 +57,5 @@ export function auditPartitionNameForDate(date: Date): string {
 }
 
 export function isColdStorageEnabled(): boolean {
-  const enabled = process.env.SF_AI_AUDIT_COLD_STORAGE_ENABLED ?? "false";
-  return enabled.toLowerCase() === "true";
+  return getAuditColdStorageEnabled();
 }

@@ -2,6 +2,7 @@ import { OllamaEmbeddings } from "@langchain/ollama";
 import type { VectorEmbeddingProvider } from "./embedding-provider.js";
 import { circuitBreakerRegistry } from "../reliability/circuit-breaker.js";
 import { bulkheadRegistry, DEFAULT_OLLAMA_CONCURRENCY } from "../reliability/bulkhead.js";
+import { getLangChainEmbeddingModel, getOllamaBaseUrl } from "../config/runtime-config.js";
 
 export interface LangChainEmbeddingProviderOptions {
   model?: string;
@@ -27,8 +28,8 @@ export class LangChainEmbeddingProvider implements VectorEmbeddingProvider {
 
   constructor(options: LangChainEmbeddingProviderOptions = {}) {
     this.embeddings = new OllamaEmbeddings({
-      model: options.model ?? process.env.SF_AI_LANGCHAIN_EMBEDDING_MODEL ?? "nomic-embed-text",
-      baseUrl: options.baseUrl ?? process.env.OLLAMA_BASE_URL
+      model: options.model ?? getLangChainEmbeddingModel("nomic-embed-text"),
+      baseUrl: options.baseUrl ?? getOllamaBaseUrl()
     });
   }
 

@@ -3,6 +3,7 @@ import type { OrchestrationSession } from "../types/index.js";
 import type { SessionStatus, SessionStore, SessionSummary, UpsertResult } from "./session-store.js";
 import { currentTenantId } from "../identity/tenant-context.js";
 import { ensureTenantRlsPolicy, withTenantScopedClient } from "./postgres-tenant-context.js";
+import { getOrCreatePgPool, releasePgPoolKey } from "./pg-pool-registry.js";
 
 export interface PostgresSessionStoreOptions {
   databaseUrl: string;
@@ -17,11 +18,13 @@ export interface PostgresSessionStoreOptions {
  */
 export class PostgresSessionStore implements SessionStore {
   private readonly pool: Pool;
+  private readonly poolKey: string;
   private readonly retentionDays: number;
   private schemaReady = false;
 
-  private constructor(pool: Pool, retentionDays: number) {
+  private constructor(pool: Pool, poolKey: string, retentionDays: number) {
     this.pool = pool;
+    this.poolKey = poolKey;
     this.retentionDays = retentionDays;
   }
 
@@ -29,8 +32,10 @@ export class PostgresSessionStore implements SessionStore {
     if (!options.databaseUrl?.trim()) {
       throw new Error("DATABASE_URL is required for PostgresSessionStore");
     }
-    const pool = new Pool({ connectionString: options.databaseUrl });
-    const store = new PostgresSessionStore(pool, options.retentionDays ?? 30);
+    const normalizedUrl = options.databaseUrl.trim();
+    const poolKey = `session-store.postgres:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const pool = getOrCreatePgPool(poolKey, normalizedUrl);
+    const store = new PostgresSessionStore(pool, poolKey, options.retentionDays ?? 30);
     await store.ensureSchema();
     return store;
   }
@@ -259,7 +264,7 @@ export class PostgresSessionStore implements SessionStore {
   }
 
   public async close(): Promise<void> {
-    await this.pool.end();
+    await releasePgPoolKey(this.poolKey);
   }
 
   // ---------------------------------------------------------------------------

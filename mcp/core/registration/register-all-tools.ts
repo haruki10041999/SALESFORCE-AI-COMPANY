@@ -5,6 +5,7 @@ import { registerHistoryContextDomain } from "./domain-history-context.js";
 import { registerResourceDomain } from "./domain-resource.js";
 import type { GovTool } from "@mcp/tool-types.js";
 import type { GovernanceState } from "../governance/governance-state.js";
+import type { SystemEventType } from "../event/event-dispatcher.js";
 import type { SystemEventName, SystemEventRecord } from "../event/system-event-manager.js";
 import type { ProposalQueueStore } from "../resource/proposal/proposal-queue-store.js";
 import type { SessionStore } from "../persistence/session-store.js";
@@ -188,7 +189,7 @@ interface RegisterAllToolsDeps {
   unregisterCustomTool: (name: string) => void;
   refreshDisabledToolsCache: () => Promise<void>;
   appendOperationLog: (operation: ResourceOperation) => Promise<void>;
-  emitEvent: (event: { type: string; timestamp: string; payload: Record<string, unknown> }) => Promise<void>;
+  emitEvent: (event: { type: SystemEventType; timestamp: string; payload: Record<string, unknown> }) => Promise<void>;
   resourceScore: (usage: number, bugSignals: number) => number;
   proposalQueue: ProposalQueueStore;
 }

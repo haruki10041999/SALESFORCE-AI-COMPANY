@@ -12,7 +12,8 @@ const repoRoot = resolve(here, "..");
 const setupFile = pathToFileURL(resolve(repoRoot, "tests/_setup.ts")).href;
 
 const userArgs = process.argv.slice(2);
-const targets = userArgs.length > 0 ? userArgs : ["tests/**/*.test.ts"];
+const hasExplicitTarget = userArgs.some((arg) => !arg.startsWith("-"));
+const targets = hasExplicitTarget ? userArgs : [...userArgs, "tests/**/*.test.ts"];
 
 const args = [
   "--test",

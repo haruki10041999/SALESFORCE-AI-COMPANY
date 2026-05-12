@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Pool } from "pg";
 import { currentTenantId } from "../identity/tenant-context.js";
+import { getOrCreatePgPool, releasePgPoolKey } from "../persistence/pg-pool-registry.js";
 
 export type OrchestrationStepStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 
@@ -155,10 +156,13 @@ class InMemoryOrchestrationJobRunner implements OrchestrationJobRunner {
 class PostgresOrchestrationJobRunner implements OrchestrationJobRunner {
   public readonly backend = "postgres" as const;
   private readonly pool: Pool;
+  private readonly poolKey: string;
   private schemaReady = false;
 
   public constructor(databaseUrl: string) {
-    this.pool = new Pool({ connectionString: databaseUrl });
+    const normalizedUrl = databaseUrl.trim();
+    this.poolKey = `orchestration-job-runner:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    this.pool = getOrCreatePgPool(this.poolKey, normalizedUrl);
   }
 
   public async enqueueStep(input: {
@@ -274,7 +278,7 @@ class PostgresOrchestrationJobRunner implements OrchestrationJobRunner {
   }
 
   public async close(): Promise<void> {
-    await this.pool.end();
+    await releasePgPoolKey(this.poolKey);
   }
 
   private async ensureSchema(): Promise<void> {

@@ -8,16 +8,15 @@ import { join, resolve } from "path";
 import { randomUUID } from "crypto";
 import { loadAllRewards } from "./reward-aggregator.js";
 import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
+import { getOutputsDir, getPrimaryDatabaseUrl } from "../config/runtime-config.js";
 
 export type AdoptionStage = "shadow" | "canary" | "stable" | "rolling-back" | "rolled-back";
 
-const OUTPUTS_DIR = process.env.SF_AI_OUTPUTS_DIR
-  ? resolve(process.env.SF_AI_OUTPUTS_DIR)
-  : resolve("outputs");
+const OUTPUTS_DIR = resolve(getOutputsDir());
 
 const artifactWriter = new OutputsArtifactWriter({
   outputsDir: OUTPUTS_DIR,
-  databaseUrl: process.env.DATABASE_URL
+  databaseUrl: getPrimaryDatabaseUrl()
 });
 
 export interface StagedToolProposal {

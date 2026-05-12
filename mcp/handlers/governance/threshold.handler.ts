@@ -9,6 +9,7 @@ import {
   type ResourceScore
 } from "../../core/governance/governance-manager.js";
 import { isEnvFlagEnabled } from "../../core/config/env-flags.js";
+import { getAutoApplyMaxDeletions } from "../../core/config/runtime-config.js";
 
 /**
  * ハンドラー実行結果
@@ -59,7 +60,7 @@ export const DEFAULT_THRESHOLD_CONFIG: ThresholdHandlerConfig = {
  */
 export function buildThresholdConfig(overrides: Partial<ThresholdHandlerConfig> = {}): ThresholdHandlerConfig {
   const autoApply = isEnvFlagEnabled("SF_AI_AUTO_APPLY");
-  const maxDel = Number.parseInt(process.env.SF_AI_AUTO_APPLY_MAX_DELETIONS ?? "3", 10);
+  const maxDel = getAutoApplyMaxDeletions(3);
   return {
     ...DEFAULT_THRESHOLD_CONFIG,
     autoApply,

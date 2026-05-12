@@ -22,6 +22,7 @@ import { Pool } from "pg";
 import { computePayloadHash, verifyChain, type BrokenLink } from "./hash-chain.js";
 import { currentTenantId } from "../identity/tenant-context.js";
 import { ensureTenantRlsPolicy, resetTenantSetting, setTenantSetting, withTenantScopedClient } from "../persistence/postgres-tenant-context.js";
+import { getOrCreatePgPool, releasePgPoolKey } from "../persistence/pg-pool-registry.js";
 
 export interface AuditWriterOptions {
   databaseUrl: string;
@@ -55,20 +56,28 @@ export interface AuditRow {
 
 export class AuditWriter {
   private readonly pool: Pool;
+  private readonly poolKey: string;
   private schemaReady = false;
 
-  private constructor(pool: Pool) {
+  private constructor(pool: Pool, poolKey: string) {
     this.pool = pool;
+    this.poolKey = poolKey;
   }
 
   public static async open(options: AuditWriterOptions): Promise<AuditWriter> {
     if (!options.databaseUrl?.trim()) {
       throw new Error("DATABASE_URL is required for AuditWriter");
     }
-    const pool = new Pool({ connectionString: options.databaseUrl });
-    const writer = new AuditWriter(pool);
+    const normalizedUrl = options.databaseUrl.trim();
+    const poolKey = `audit-writer:${normalizedUrl}`;
+    const pool = getOrCreatePgPool(poolKey, normalizedUrl);
+    const writer = new AuditWriter(pool, poolKey);
     await writer.ensureSchema();
     return writer;
+  }
+
+  public async close(): Promise<void> {
+    await releasePgPoolKey(this.poolKey);
   }
 
   /**
@@ -252,10 +261,6 @@ export class AuditWriter {
       prevHash: r.prev_hash
     }));
     return verifyChain(links);
-  }
-
-  public async close(): Promise<void> {
-    await this.pool.end();
   }
 
   // ---------------------------------------------------------------------------

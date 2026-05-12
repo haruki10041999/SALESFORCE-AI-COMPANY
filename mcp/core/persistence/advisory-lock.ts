@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { getOrCreatePgPool, releasePgPoolKey } from "./pg-pool-registry.js";
 
 export interface AdvisoryLockOptions {
   databaseUrl?: string;
@@ -18,19 +19,30 @@ export interface WithLockOptions {
  */
 export class AdvisoryLockManager {
   private readonly pool: Pool | null;
+  private readonly poolKey: string | null;
   private readonly lockNamespace: string;
 
-  private constructor(pool: Pool | null, lockNamespace: string) {
+  private constructor(pool: Pool | null, poolKey: string | null, lockNamespace: string) {
     this.pool = pool;
+    this.poolKey = poolKey;
     this.lockNamespace = lockNamespace;
   }
 
   public static open(options: AdvisoryLockOptions): AdvisoryLockManager {
     const namespace = options.lockNamespace?.trim() || "sfai";
     if (!options.databaseUrl || options.databaseUrl.trim().length === 0) {
-      return new AdvisoryLockManager(null, namespace);
+      return new AdvisoryLockManager(null, null, namespace);
     }
-    return new AdvisoryLockManager(new Pool({ connectionString: options.databaseUrl }), namespace);
+    const normalizedUrl = options.databaseUrl.trim();
+    const poolKey = `advisory-lock:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    return new AdvisoryLockManager(getOrCreatePgPool(poolKey, normalizedUrl), poolKey, namespace);
+  }
+
+  public async close(): Promise<void> {
+    if (!this.poolKey) {
+      return;
+    }
+    await releasePgPoolKey(this.poolKey);
   }
 
   public async withLock<T>(

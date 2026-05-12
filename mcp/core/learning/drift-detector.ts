@@ -10,15 +10,12 @@ import type { RewardRecord } from "../types/feedback.js";
 import type { AgentReputationRecord } from "./agent-reputation.js";
 import { loadAllRewards } from "./reward-aggregator.js";
 import { loadAgentReputationRecords } from "./agent-reputation.js";
-import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
+import { getAnalyticsStore, hasAnalyticsDatabaseConfig } from "../persistence/analytics-store-provider.js";
 import { appendTextFileAtomic } from "../persistence/unit-of-work.js";
 
 const DEFAULT_REWARD_PATH = resolve("outputs", "learning", "rewards.jsonl");
 const DEFAULT_REPUTATION_PATH = resolve("outputs", "agent-reputation.jsonl");
 const DEFAULT_REPORT_PATH = resolve("outputs", "reports", "drift-regression.jsonl");
-const analyticsStorePromise = process.env.DATABASE_URL
-  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
-  : Promise.resolve(null);
 
 export interface RewardDriftResult {
   baselineHours: number;
@@ -110,7 +107,7 @@ function stdDev(values: number[]): number {
 }
 
 async function loadRewardRecords(filePath = DEFAULT_REWARD_PATH): Promise<RewardRecord[]> {
-  if (filePath === DEFAULT_REWARD_PATH && process.env.DATABASE_URL) {
+  if (filePath === DEFAULT_REWARD_PATH && hasAnalyticsDatabaseConfig()) {
     return loadAllRewards();
   }
   try {
@@ -134,7 +131,7 @@ async function loadRewardRecords(filePath = DEFAULT_REWARD_PATH): Promise<Reward
 }
 
 async function loadReputationRecords(filePath = DEFAULT_REPUTATION_PATH): Promise<AgentReputationRecord[]> {
-  if (filePath === DEFAULT_REPUTATION_PATH && process.env.DATABASE_URL) {
+  if (filePath === DEFAULT_REPUTATION_PATH && hasAnalyticsDatabaseConfig()) {
     return loadAgentReputationRecords();
   }
   try {
@@ -365,7 +362,7 @@ export async function saveDriftReport(
   report: DriftReport,
   reportPath: string = DEFAULT_REPORT_PATH
 ): Promise<void> {
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore && reportPath === DEFAULT_REPORT_PATH) {
     await analyticsStore.insertDriftReport(report);
     return;
@@ -379,7 +376,7 @@ export async function loadDriftReports(
   reportPath: string = DEFAULT_REPORT_PATH,
   limit = 50
 ): Promise<DriftReport[]> {
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore && reportPath === DEFAULT_REPORT_PATH) {
     return analyticsStore.listDriftReports(limit);
   }

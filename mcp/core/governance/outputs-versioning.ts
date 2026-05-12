@@ -1,6 +1,7 @@
 import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ensureDirectorySync } from "../io/atomic-write.js";
+import { getOutputsBackupKeep } from "../config/runtime-config.js";
 
 export type OutputsVersioningCommand = "backup" | "list" | "restore" | "prune" | "wipe";
 
@@ -70,7 +71,7 @@ export function parseOutputsVersioningArgs(argv: string[]): OutputsVersioningOpt
 
   const result: OutputsVersioningOptions = {
     command,
-    keep: Number.parseInt(process.env.SF_AI_OUTPUTS_BACKUP_KEEP ?? "5", 10),
+    keep: getOutputsBackupKeep(),
     dryRun: false,
     skipPreBackup: false,
     keepBackups: false

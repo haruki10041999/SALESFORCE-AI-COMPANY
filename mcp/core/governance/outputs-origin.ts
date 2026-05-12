@@ -2,6 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
+import { getOutputsDir, getPrimaryDatabaseUrl } from "../config/runtime-config.js";
 
 export interface ExecutionOriginRecord {
   timestamp: string;
@@ -14,16 +15,14 @@ export interface ExecutionOriginRecord {
 }
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const DEFAULT_OUTPUTS_DIR = process.env.SF_AI_OUTPUTS_DIR
-  ? resolve(process.env.SF_AI_OUTPUTS_DIR)
-  : resolve(ROOT, "outputs");
+const DEFAULT_OUTPUTS_DIR = resolve(getOutputsDir(resolve(ROOT, "outputs")));
 const artifactWriter = new OutputsArtifactWriter({
   outputsDir: DEFAULT_OUTPUTS_DIR,
-  databaseUrl: process.env.DATABASE_URL
+  databaseUrl: getPrimaryDatabaseUrl()
 });
 
 function shouldUseDatabaseExecutionOrigins(outputsDir: string): boolean {
-  return Boolean(process.env.DATABASE_URL) && resolve(outputsDir) === DEFAULT_OUTPUTS_DIR;
+  return Boolean(getPrimaryDatabaseUrl()) && resolve(outputsDir) === DEFAULT_OUTPUTS_DIR;
 }
 
 function isRecordLike(value: unknown): value is Record<string, unknown> {

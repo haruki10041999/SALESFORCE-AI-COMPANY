@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool, type PoolClient } from "pg";
 import * as schema from "./schema/index.js";
+import { getOrCreatePgPool } from "../mcp/core/persistence/pg-pool-registry.js";
 
 export interface DbClient {
   pool: Pool;
@@ -46,8 +47,10 @@ export function createDbClient(databaseUrl = process.env.DATABASE_URL): DbClient
     throw new Error("DATABASE_URL is required to create a DB client");
   }
 
-  const pool = new Pool({ connectionString: primary });
-  const readPool = replica === primary ? pool : new Pool({ connectionString: replica });
+  const pool = getOrCreatePgPool("db-client:primary", primary);
+  const readPool = replica === primary
+    ? pool
+    : getOrCreatePgPool("db-client:replica", replica);
 
   const db = drizzle(pool, { schema });
   const readDb = drizzle(readPool, { schema });

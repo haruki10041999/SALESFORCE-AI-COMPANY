@@ -17,6 +17,7 @@
 
 import { getDefaultOllamaClient, type OllamaChatRequest, type OllamaChatResponse } from "./ollama-client.js";
 import { getDefaultLangChainLlmClient } from "./langchain-llm.js";
+import { getLlmClientMode } from "../config/runtime-config.js";
 
 export type RubricJudgeProvider = "ollama" | "heuristic";
 
@@ -45,7 +46,7 @@ function getRubricJudgeClient(options: EvaluateRubricOptions): RubricJudgeChatCl
     return options.client;
   }
 
-  const llmClient = (options.envSource?.SF_AI_LLM_CLIENT ?? process.env.SF_AI_LLM_CLIENT ?? "native")
+  const llmClient = (options.envSource?.SF_AI_LLM_CLIENT ?? getLlmClientMode("native"))
     .trim()
     .toLowerCase();
   if (llmClient === "langchain") {

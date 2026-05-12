@@ -7,7 +7,7 @@ interface CatalogHelpersDeps {
   toPosixPath: (p: string) => string;
   relative: (from: string, to: string) => string;
   listPresetsData: () => Promise<ChatPreset[]>;
-  builtinToolCatalog: string[];
+  listBuiltinToolCatalog: () => string[];
   loadedCustomToolNames: { has: (k: string) => boolean; [Symbol.iterator]: () => IterableIterator<string> };
 }
 
@@ -18,7 +18,7 @@ export function createCatalogHelpers(deps: CatalogHelpersDeps) {
     toPosixPath,
     relative: relFn,
     listPresetsData,
-    builtinToolCatalog,
+    listBuiltinToolCatalog,
     loadedCustomToolNames
   } = deps;
 
@@ -36,7 +36,7 @@ export function createCatalogHelpers(deps: CatalogHelpersDeps) {
 
   function listToolsCatalog(state: GovernanceState): string[] {
     return [...new Set([
-      ...builtinToolCatalog,
+      ...listBuiltinToolCatalog(),
       ...loadedCustomToolNames,
       ...Object.keys(state.usage.tools)
     ])].sort();

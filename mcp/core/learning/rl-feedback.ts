@@ -1,17 +1,16 @@
 import { promises as fsPromises } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
-import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
+import {
+  getAnalyticsStore,
+  hasAnalyticsDatabaseConfig
+} from "../persistence/analytics-store-provider.js";
 import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
+import { getOutputsDir, getPrimaryDatabaseUrl } from "../config/runtime-config.js";
 
-const analyticsStorePromise = process.env.DATABASE_URL
-  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
-  : Promise.resolve(null);
-const runtimeOutputsDir = process.env.SF_AI_OUTPUTS_DIR
-  ? resolve(process.env.SF_AI_OUTPUTS_DIR)
-  : resolve("outputs");
+const runtimeOutputsDir = resolve(getOutputsDir());
 const artifactWriter = new OutputsArtifactWriter({
   outputsDir: runtimeOutputsDir,
-  databaseUrl: process.env.DATABASE_URL
+  databaseUrl: getPrimaryDatabaseUrl()
 });
 
 /**
@@ -298,8 +297,8 @@ export async function saveBanditState(state: BanditState, filePath: string): Pro
       beta: arm.beta
     }));
 
-  const analyticsStore = await analyticsStorePromise;
-  if (analyticsStore) {
+  const analyticsStore = await getAnalyticsStore();
+  if (analyticsStore && hasAnalyticsDatabaseConfig()) {
     await analyticsStore.saveNamedModel("bandit-state", { arms } as Record<string, unknown>);
     return;
   }
@@ -322,8 +321,8 @@ export async function saveBanditState(state: BanditState, filePath: string): Pro
  * JSONL 形式の bandit state を復元する。存在しない場合は空 state を返す。
  */
 export async function loadBanditState(filePath: string): Promise<BanditState> {
-  const analyticsStore = await analyticsStorePromise;
-  if (analyticsStore) {
+  const analyticsStore = await getAnalyticsStore();
+  if (analyticsStore && hasAnalyticsDatabaseConfig()) {
     const payload = await analyticsStore.loadNamedModelPublic("bandit-state");
     const state = createBanditState();
     if (payload && Array.isArray(payload.arms)) {

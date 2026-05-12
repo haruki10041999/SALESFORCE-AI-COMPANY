@@ -4,6 +4,8 @@
  * 未設定または不明な値の場合は `ja` をデフォルトとする。
  */
 
+import { getLocaleFromEnv } from "../config/runtime-config.js";
+
 export type Locale = "ja" | "en";
 
 const SUPPORTED: readonly Locale[] = ["ja", "en"];
@@ -18,7 +20,7 @@ let overrideLocale: Locale | undefined;
  */
 export function getLocale(): Locale {
   if (overrideLocale) return overrideLocale;
-  const raw = process.env.SF_AI_LOCALE?.toLowerCase().trim();
+  const raw = getLocaleFromEnv();
   if (raw && (SUPPORTED as readonly string[]).includes(raw)) {
     return raw as Locale;
   }

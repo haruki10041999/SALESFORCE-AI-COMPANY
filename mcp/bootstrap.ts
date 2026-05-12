@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { parseBooleanEnv } from "./core/config/env-flags.js";
+import { getCompositionContainer } from "./composition-root.js";
 import type { Logger } from "./core/logging/logger.js";
 import type { HandlersState } from "./handlers/auto-init.js";
 import { evaluateOllamaStartup } from "./core/llm/ollama-health.js";
@@ -21,6 +22,11 @@ interface ConnectableServer {
   connect: (transport: StdioServerTransport) => Promise<void>;
 }
 
+/**
+ * Initialize MCP server runtime.
+ * Called after registerServerTools() initializes composition root.
+ * Container is available via getCompositionContainer() for port access.
+ */
 export async function initializeServerRuntime(deps: RuntimeInitDeps): Promise<void> {
   deps.logger.info("Runtime initialization started");
 

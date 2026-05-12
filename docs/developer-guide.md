@@ -49,6 +49,51 @@ SF_AI_VECTOR_BACKEND=pgvector
 DATABASE_URL=postgres://sfai:sfai@localhost:5432/sfai
 ```
 
+補足（DB URL 優先順位）:
+
+- analytics / memory / learning 系は `SF_AI_DB_URL_PRIMARY` を優先し、未設定時に `DATABASE_URL` へフォールバック
+- 新規実装では、接続先解決ロジックをモジュール内で重複実装せず、既存 provider (`analytics-store-provider` など) を利用する
+
+### PgPoolRegistry 運用ルール
+
+Postgres 接続は `mcp/core/persistence/pg-pool-registry.ts` を単一窓口として扱う。
+
+実装ルール:
+
+- `new Pool(...)` は registry 以外で使用しない
+- `open()` 時: `getOrCreatePgPool(key, connectionString)` を呼ぶ
+- `close()` 時: `releasePgPoolKey(key)` を呼ぶ（`pool.end()` 直呼び出し禁止）
+
+キー設計ルール:
+
+- 共有キー（長寿命）: `component:${normalizedConnectionString}`
+- インスタンスキー（close 対応）: `component:${Date.now()}:${Math.random().toString(36).slice(2)}`
+
+実装前チェック:
+
+- `rg "new Pool\(" mcp memory db` で直生成が増えていないこと
+- `rg "public async close\(" <target-file>` で既存 `close()` 重複がないこと
+
+### RuntimeConfig 運用ルール
+
+環境変数の参照は `mcp/core/config/runtime-config.ts`（および config 配下の helper）を経由し、
+モジュール側で `process.env.*` を直接読む箇所を増やさない。
+
+実装ルール:
+
+- outputs ディレクトリ解決は `getOutputsDir()` を使用する
+- DB URL 解決は `getPrimaryDatabaseUrl()` を使用する
+- metrics/drift の設定読込は `getMetricsAutoUpdateEnvConfig()` を使用する
+- 新しい環境変数を導入する場合は、まず config helper を追加してから利用側を変更する
+
+完了判定チェックリスト（P0-3 クローズ基準）:
+
+- `mcp/core/learning/**` で `process.env` 直読が 0 件
+- `new Pool(...)` が `mcp/core/persistence/pg-pool-registry.ts` 以外に存在しない
+- `close()` 実装が `releasePgPoolKey()` ベースで統一されている
+- `npm run typecheck` が成功
+- Docker 利用可能環境で Postgres/pgvector 系テストが成功（CI または手元）
+
 ## 品質チェック
 
 ```bash

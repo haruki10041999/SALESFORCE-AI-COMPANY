@@ -8,6 +8,7 @@ import { recordMetric } from "../../tools/metrics.js";
 import { addMemory } from "../../../memory/project-memory.js";
 import { addRecord as addVectorRecord } from "../../../memory/vector-store.js";
 import { buildProgressBanner } from "../progress/progress-formatter.js";
+import { defineTool, type ToolDefinition } from "../registry/define-tool.js";
 import { PostgresRuntimeLogStore } from "../persistence/postgres-runtime-log-store.js";
 import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
 import { appendExecutionOrigin, buildExecutionOriginRecord } from "./outputs-origin.js";
@@ -16,6 +17,7 @@ import { evaluateExecutionPolicy, loadExecutionPolicy } from "./execution-policy
 import { createPolicyGate, buildBlockedResponse } from "./policy-gate.js";
 import { CostBudgetManager, buildCostUsageFromInputOutput } from "./cost-budget.js";
 import { isEnvFlagEnabled } from "../config/env-flags.js";
+import { getPrimaryModel, getReplayMode } from "../config/runtime-config.js";
 import { getGlobalToolRateLimiter, type ToolRateLimiter } from "../reliability/rate-limiter.js";
 import {
   extractActorFromToolInput,
@@ -115,6 +117,7 @@ interface CreateGovernedToolRegistrarDeps {
   getBanditState: () => BanditState;
   banditStateFile: string;
   rateLimiter?: ToolRateLimiter;
+  onToolDefined?: (definition: ToolDefinition) => void;
 }
 
 export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDeps) {
@@ -131,7 +134,8 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
     getRetryConfig,
     getBanditState,
     banditStateFile,
-    rateLimiter: injectedRateLimiter
+    rateLimiter: injectedRateLimiter,
+    onToolDefined
   } = deps;
   const rateLimiter = injectedRateLimiter ?? getGlobalToolRateLimiter();
   const runtimeStorePromise = databaseUrl
@@ -161,7 +165,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
         }
       }
     }
-    return process.env.SF_AI_PRIMARY_MODEL ?? "mistral";
+    return getPrimaryModel();
   }
 
   function recordExecutionOrigin(toolName: string, input: unknown, status: "success" | "error"): void {
@@ -210,7 +214,26 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  function isZodSchema(value: unknown): value is { safeParse: (input: unknown) => unknown; _def: unknown } {
+    return typeof value === "object"
+      && value !== null
+      && typeof (value as { safeParse?: unknown }).safeParse === "function"
+      && "_def" in value;
+  }
+
   function govTool<TInput = unknown>(name: string, config: GovToolConfig, handler: GovToolHandler<TInput>): void {
+    const rawSchema = config.inputSchema;
+    const toolDefinition = defineTool({
+      name,
+      title: config.title,
+      description: config.description,
+      tags: config.tags,
+      ...(isZodSchema(rawSchema)
+        ? { inputSchemaZod: rawSchema as unknown as import("zod").ZodTypeAny }
+        : (typeof rawSchema === "object" && rawSchema !== null ? { inputSchema: rawSchema as Record<string, unknown> } : {}))
+    });
+    onToolDefined?.(toolDefinition);
+
     registerTool(name, config, async (input: unknown) => {
       const baseActor = resolveDefaultActorFromEnv();
       const actorFromInput = extractActorFromToolInput(input);
@@ -665,7 +688,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
               toolName: name,
               traceId,
               success: false,
-              replayMode: process.env.SF_AI_REPLAY_MODE ?? "passthrough",
+              replayMode: getReplayMode(),
               error: errorSummary,
               attempts: attempt + 1,
               retried: attempt > 0
@@ -694,7 +717,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
               toolName: name,
               traceId,
               status: "error",
-              replayMode: process.env.SF_AI_REPLAY_MODE ?? "passthrough",
+              replayMode: getReplayMode(),
               attempts: attempt + 1,
               input: inputSummary,
               error: errorSummary

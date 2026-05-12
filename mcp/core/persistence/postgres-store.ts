@@ -1,5 +1,6 @@
 import { Pool, type PoolClient } from "pg";
 import type { GovernanceStateRowRecord, StateStore } from "./state-store.js";
+import { getOrCreatePgPool, releasePgPoolKey } from "./pg-pool-registry.js";
 
 export interface PostgresStateStoreOptions {
   databaseUrl: string;
@@ -7,10 +8,12 @@ export interface PostgresStateStoreOptions {
 
 export class PostgresStateStore implements StateStore {
   private readonly pool: Pool;
+  private readonly poolKey: string;
   private schemaReady = false;
 
-  private constructor(pool: Pool) {
+  private constructor(pool: Pool, poolKey: string) {
     this.pool = pool;
+    this.poolKey = poolKey;
   }
 
   public static async open(options: PostgresStateStoreOptions): Promise<PostgresStateStore> {
@@ -18,14 +21,16 @@ export class PostgresStateStore implements StateStore {
       throw new Error("DATABASE_URL is required for PostgresStateStore");
     }
 
-    const pool = new Pool({ connectionString: options.databaseUrl });
-    const store = new PostgresStateStore(pool);
+    const normalizedUrl = options.databaseUrl.trim();
+    const poolKey = `state-store.postgres:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const pool = getOrCreatePgPool(poolKey, normalizedUrl);
+    const store = new PostgresStateStore(pool, poolKey);
     await store.ensureSchema();
     return store;
   }
 
   public async close(): Promise<void> {
-    await this.pool.end();
+    await releasePgPoolKey(this.poolKey);
   }
 
   public async getGovernanceStateRow(): Promise<GovernanceStateRowRecord | null> {

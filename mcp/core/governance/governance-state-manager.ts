@@ -3,6 +3,8 @@ import { Pool } from "pg";
 import { SQLiteStateStore } from "../persistence/sqlite-store.js";
 import { PostgresStateStore } from "../persistence/postgres-store.js";
 import { AdvisoryLockManager } from "../persistence/advisory-lock.js";
+import { getOrCreatePgPool } from "../persistence/pg-pool-registry.js";
+import { getStateBackendEnv } from "../config/runtime-config.js";
 import { resolveStateBackend, type StateBackend, type StateStore } from "../persistence/state-store.js";
 import {
   normalizeDisabledEntries as _normalizeDisabledEntries,
@@ -42,13 +44,13 @@ export function createGovernanceStateManager(deps: GovernanceStateManagerDeps): 
     stateBackend,
     databaseUrl
   } = deps;
-  const backend = stateBackend ?? resolveStateBackend(process.env.SF_AI_STATE_BACKEND);
+  const backend = stateBackend ?? resolveStateBackend(getStateBackendEnv());
   const lockManager = AdvisoryLockManager.open({
     databaseUrl,
     lockNamespace: "governance"
   });
   const notifyPool = backend === "postgres" && databaseUrl
-    ? new Pool({ connectionString: databaseUrl })
+    ? getOrCreatePgPool(`governance-state-notify:${databaseUrl.trim()}`, databaseUrl)
     : null;
 
   let storePromise: Promise<StateStore | null> | null = null;

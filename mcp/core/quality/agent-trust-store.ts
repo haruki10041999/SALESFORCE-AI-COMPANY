@@ -1,12 +1,8 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname } from "node:path";
 import type { AgentTrustHistory } from "./agent-trust-score.js";
-import { PostgresAnalyticsStore } from "../persistence/postgres-analytics-store.js";
+import { getAnalyticsStore } from "../persistence/analytics-store-provider.js";
 import { writeTextFileAtomic } from "../persistence/unit-of-work.js";
-
-const analyticsStorePromise = process.env.DATABASE_URL
-  ? PostgresAnalyticsStore.open({ databaseUrl: process.env.DATABASE_URL }).catch(() => null)
-  : Promise.resolve(null);
 
 export type AgentTrustOutcome = "accepted" | "rejected";
 
@@ -21,7 +17,7 @@ const EMPTY_FILE: AgentTrustHistoriesFile = {
 };
 
 export async function loadAgentTrustHistories(filePath: string): Promise<AgentTrustHistoriesFile> {
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore) {
     const payload = await analyticsStore.loadNamedModelPublic("agent-trust-histories");
     if (!payload || typeof payload.histories !== "object" || payload.histories === null) {
@@ -72,7 +68,7 @@ export async function saveAgentTrustHistories(
     updatedAt: new Date().toISOString(),
     histories: data.histories
   };
-  const analyticsStore = await analyticsStorePromise;
+  const analyticsStore = await getAnalyticsStore();
   if (analyticsStore) {
     await analyticsStore.saveNamedModel("agent-trust-histories", payload as unknown as Record<string, unknown>);
     return;

@@ -6,6 +6,7 @@
  */
 
 import type { MemoryChunker, ChunkedDocument } from "./chunker.js";
+import { createEmbeddingProvider, type VectorEmbeddingProvider } from "../mcp/core/llm/embedding-provider.js";
 
 export interface HierarchicalSearchResult {
   type: "chunk" | "section" | "document";
@@ -36,8 +37,16 @@ export interface HierarchicalSearchOptions {
 export class HierarchicalMemoryStore {
   private documents: Map<string, ChunkedDocument & { id: string; timestamp: number }> = new Map();
   private vectors: Map<string, number[]> = new Map(); // chunk/section vectors
+  private readonly embeddingProvider: VectorEmbeddingProvider;
 
-  constructor(private chunker: MemoryChunker) {}
+  constructor(private chunker: MemoryChunker, embeddingProvider?: VectorEmbeddingProvider) {
+    this.embeddingProvider = embeddingProvider ?? createEmbeddingProvider({
+      env: {
+        ...process.env,
+        EMBEDDING_PROVIDER: process.env.EMBEDDING_PROVIDER ?? "ngram"
+      }
+    });
+  }
 
   /**
    * Ingest a document (chunk + embed sections)
@@ -62,7 +71,7 @@ export class HierarchicalMemoryStore {
 
     // Register vectors (placeholder for actual embedding)
     let totalChunks = 0;
-    doc.sections.forEach((section, sIdx) => {
+    for (const [sIdx, section] of doc.sections.entries()) {
       // Generate summary if not present
       if (!section.summary && section.content) {
         section.summary = this.generateSectionSummary(section.content);
@@ -71,15 +80,15 @@ export class HierarchicalMemoryStore {
       // Vector for section summary
       const sectionKey = `section:${id}:${sIdx}`;
       const summary = section.summary || section.content.substring(0, 100);
-      this.vectors.set(sectionKey, this.dummyVector(summary));
+      this.vectors.set(sectionKey, await this.embedText(summary));
 
       // Vectors for chunks
-      section.chunks.forEach((chunk, cIdx) => {
+      for (const [cIdx, chunk] of section.chunks.entries()) {
         const chunkKey = `chunk:${id}:${sIdx}:${cIdx}`;
-        this.vectors.set(chunkKey, this.dummyVector(chunk.text));
+        this.vectors.set(chunkKey, await this.embedText(chunk.text));
         totalChunks++;
-      });
-    });
+      }
+    }
 
     return {
       documentId: id,
@@ -98,7 +107,7 @@ export class HierarchicalMemoryStore {
     const { limit = 5, expandTo = "chunk", minScore = 0.5, withContext = false } = options;
 
     const results: HierarchicalSearchResult[] = [];
-    const queryVector = this.dummyVector(query);
+    const queryVector = await this.embedText(query);
 
     // Search all chunks
     for (const [key, vector] of this.vectors) {
@@ -250,12 +259,16 @@ export class HierarchicalMemoryStore {
     return words.join(" ") + (words.length < 50 ? "" : "...");
   }
 
-  private dummyVector(text: string): number[] {
-    // Placeholder: in production, use actual embedding API
-    const seed = text.split("").reduce((h, c) => h + c.charCodeAt(0), 0);
-    return Array(768)
-      .fill(0)
-      .map((_, i) => Math.sin((i + seed) * 0.1));
+  private async embedText(text: string): Promise<number[]> {
+    const targetDim = this.embeddingProvider.dimension ?? 768;
+    const embedded = await this.embeddingProvider.embed(text);
+    if (embedded.length === targetDim) {
+      return embedded;
+    }
+    if (embedded.length > targetDim) {
+      return embedded.slice(0, targetDim);
+    }
+    return [...embedded, ...Array(targetDim - embedded.length).fill(0)];
   }
 
   private cosineSimilarity(a: number[], b: number[]): number {

@@ -5,6 +5,7 @@
 
 import { fileURLToPath } from "url";
 import { parseBooleanLike } from "../config/env-flags.js";
+import { getMetricsAutoUpdateEnvConfig } from "../config/runtime-config.js";
 import { updateLearningProgressDashboard } from "./learning-dashboard-generator.js";
 import { runDriftDetectionAndPersist, type DriftReport } from "./drift-detector.js";
 import { activateDriftFreeze } from "./drift-freeze.js";
@@ -96,33 +97,32 @@ function parseOptionalNumber(value: string | undefined): number | undefined {
 }
 
 async function main(): Promise<void> {
-  const reportingHours = parseOptionalNumber(process.env.SF_AI_METRICS_REPORTING_HOURS) ?? 24;
+  const envConfig = getMetricsAutoUpdateEnvConfig();
+  const reportingHours = parseOptionalNumber(envConfig.reportingHours) ?? 24;
   const includeDriftDetection =
-    parseBooleanLike(process.env.SF_AI_METRICS_WITH_DRIFT, false) ||
+    parseBooleanLike(envConfig.includeDriftDetection, false) ||
     process.argv.includes("--with-drift") ||
     process.argv.includes("--drift");
-  const freezeOnDriftAlert = parseBooleanLike(process.env.SF_AI_DRIFT_FREEZE_ENABLED, true);
+  const freezeOnDriftAlert = parseBooleanLike(envConfig.driftFreezeEnabled, true);
 
   const result = await runMetricsAutoUpdate({
     reportingHours,
     includeDriftDetection,
-    driftBaselineHours: parseOptionalNumber(process.env.SF_AI_DRIFT_BASELINE_HOURS),
-    driftRecentHours: parseOptionalNumber(process.env.SF_AI_DRIFT_RECENT_HOURS),
-    minRecentRewardSamples: parseOptionalNumber(process.env.SF_AI_DRIFT_MIN_REWARD_SAMPLES),
-    rewardDriftThreshold: parseOptionalNumber(process.env.SF_AI_DRIFT_THRESHOLD),
-    adaptiveRewardDriftThreshold: process.env.SF_AI_DRIFT_ADAPTIVE_THRESHOLD
-      ? parseBooleanLike(process.env.SF_AI_DRIFT_ADAPTIVE_THRESHOLD, false)
+    driftBaselineHours: parseOptionalNumber(envConfig.driftBaselineHours),
+    driftRecentHours: parseOptionalNumber(envConfig.driftRecentHours),
+    minRecentRewardSamples: parseOptionalNumber(envConfig.driftMinRewardSamples),
+    rewardDriftThreshold: parseOptionalNumber(envConfig.driftThreshold),
+    adaptiveRewardDriftThreshold: envConfig.driftAdaptiveThreshold
+      ? parseBooleanLike(envConfig.driftAdaptiveThreshold, false)
       : undefined,
-    minAdaptiveRewardDriftThreshold: parseOptionalNumber(process.env.SF_AI_DRIFT_ADAPTIVE_MIN_THRESHOLD),
-    maxAdaptiveRewardDriftThreshold: parseOptionalNumber(process.env.SF_AI_DRIFT_ADAPTIVE_MAX_THRESHOLD),
-    minReputationSamplesPerWindow: parseOptionalNumber(
-      process.env.SF_AI_DRIFT_MIN_REPUTATION_SAMPLES
-    ),
-    regressionThreshold: parseOptionalNumber(process.env.SF_AI_REGRESSION_THRESHOLD),
-    driftReportPath: process.env.SF_AI_DRIFT_REPORT_PATH,
+    minAdaptiveRewardDriftThreshold: parseOptionalNumber(envConfig.driftAdaptiveMinThreshold),
+    maxAdaptiveRewardDriftThreshold: parseOptionalNumber(envConfig.driftAdaptiveMaxThreshold),
+    minReputationSamplesPerWindow: parseOptionalNumber(envConfig.driftMinReputationSamples),
+    regressionThreshold: parseOptionalNumber(envConfig.regressionThreshold),
+    driftReportPath: envConfig.driftReportPath,
     freezeOnDriftAlert,
-    freezeDurationHours: parseOptionalNumber(process.env.SF_AI_DRIFT_FREEZE_HOURS),
-    freezeStatePath: process.env.SF_AI_DRIFT_FREEZE_STATE_PATH
+    freezeDurationHours: parseOptionalNumber(envConfig.driftFreezeHours),
+    freezeStatePath: envConfig.driftFreezeStatePath
   });
 
   if (result.driftReport?.shouldAlert) {

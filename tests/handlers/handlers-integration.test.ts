@@ -6,6 +6,9 @@ import { join } from "node:path";
 
 const handlersTestOutputsDir = mkdtempSync(join(tmpdir(), "sf-ai-handlers-outputs-"));
 process.env.SF_AI_OUTPUTS_DIR = handlersTestOutputsDir;
+process.env.SF_AI_PROFILE = "custom";
+process.env.SF_AI_RUNTIME_PROFILE = "custom";
+process.env.SF_AI_PROFILE_STRICT = "false";
 process.env.SF_AI_STATE_BACKEND = "sqlite";
 process.env.SF_AI_PROPOSAL_QUEUE_BACKEND = "file";
 process.env.DATABASE_URL = "";

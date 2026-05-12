@@ -44,7 +44,7 @@ interface CreateSystemEventManagerDeps {
   retentionDays?: number;
   ensureDir: (dir: string) => Promise<void>;
   applyEventAutomation: (event: SystemEventName, payload: Record<string, unknown>) => Promise<void>;
-  bridgeCoreEvent: (event: SystemEventName, timestamp: string, payload: Record<string, unknown>) => Promise<void>;
+  forwardCoreEvent: (event: SystemEventName, timestamp: string, payload: Record<string, unknown>) => Promise<void>;
 }
 
 export function summarizeValue(value: unknown, maxChars = 400): string {
@@ -213,9 +213,9 @@ export function createSystemEventManager(deps: CreateSystemEventManagerDeps) {
 
     if (event === "error_aggregate_detected" || event === "governance_threshold_exceeded") {
       try {
-        await deps.bridgeCoreEvent(event, record.timestamp, resolvedPayload);
+        await deps.forwardCoreEvent(event, record.timestamp, resolvedPayload);
       } catch {
-        // ignore bridge failure
+        // ignore forwarding failure
       }
     }
   }
