@@ -40,8 +40,9 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-sfai}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sfai}
       POSTGRES_DB: ${POSTGRES_DB:-sfai}
+      # local compose 用: パスワード変数を compose に直書きせずに起動するため trust を使用
+      POSTGRES_HOST_AUTH_METHOD: trust
     ports:
       - "5432:5432"
     healthcheck:
