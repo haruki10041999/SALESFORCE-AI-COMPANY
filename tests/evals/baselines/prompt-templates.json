@@ -1,0 +1,89 @@
+{
+  "suiteName": "prompt-templates",
+  "runAt": "2026-05-13T08:47:27.203Z",
+  "totalCases": 3,
+  "passedCases": 3,
+  "failedCases": 0,
+  "skippedCases": 0,
+  "averageScore": 1,
+  "results": [
+    {
+      "name": "prompt-has-context-section",
+      "group": "prompt-templates",
+      "score": 1,
+      "passed": true,
+      "durationMs": 287,
+      "output": {
+        "prompt": "# Role\nYou are acting as: apex-developer.\n\n# Task\nTopic: Apex コードのレビュー\n",
+        "metrics": {
+          "lengthChars": 71,
+          "lineCount": 6,
+          "estimatedTokens": 26,
+          "tokenMethod": "tiktoken",
+          "containsProjectContext": false,
+          "containsAgentsSection": false,
+          "containsSkillsSection": false,
+          "containsTaskSection": true,
+          "matchedSkillCount": 0,
+          "totalSkillCount": 0,
+          "matchedTriggerCount": 0,
+          "totalTriggerCount": 0,
+          "skillCoverageRate": 1,
+          "triggerMatchRate": 1
+        }
+      }
+    },
+    {
+      "name": "prompt-with-skills",
+      "group": "prompt-templates",
+      "score": 1,
+      "passed": true,
+      "durationMs": 1,
+      "output": {
+        "prompt": "# Role\nYou are acting as: lwc-developer.\n\n# Task\nTopic: LWC コンポーネントの設計\n",
+        "metrics": {
+          "lengthChars": 71,
+          "lineCount": 6,
+          "estimatedTokens": 31,
+          "tokenMethod": "tiktoken",
+          "containsProjectContext": false,
+          "containsAgentsSection": false,
+          "containsSkillsSection": false,
+          "containsTaskSection": true,
+          "matchedSkillCount": 0,
+          "totalSkillCount": 0,
+          "matchedTriggerCount": 0,
+          "totalTriggerCount": 0,
+          "skillCoverageRate": 1,
+          "triggerMatchRate": 1
+        }
+      }
+    },
+    {
+      "name": "prompt-token-budget",
+      "group": "prompt-templates",
+      "score": 1,
+      "passed": true,
+      "durationMs": 0,
+      "output": {
+        "prompt": "# Role\nYou are acting as: architect.\n\n# Task\nTopic: システム設計レビュー\n",
+        "metrics": {
+          "lengthChars": 63,
+          "lineCount": 6,
+          "estimatedTokens": 28,
+          "tokenMethod": "tiktoken",
+          "containsProjectContext": false,
+          "containsAgentsSection": false,
+          "containsSkillsSection": false,
+          "containsTaskSection": true,
+          "matchedSkillCount": 0,
+          "totalSkillCount": 0,
+          "matchedTriggerCount": 0,
+          "totalTriggerCount": 0,
+          "skillCoverageRate": 1,
+          "triggerMatchRate": 1
+        }
+      }
+    }
+  ]
+}

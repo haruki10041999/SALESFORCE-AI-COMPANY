@@ -8,7 +8,7 @@ import {
   clearRecords,
   configureVectorStoreForTest,
   searchByKeyword
-} from "../memory/vector-store.js";
+} from "../mcp/core/memory/index.js";
 
 test("vector-store large load applies streaming retention cap after 10k+ records", () => {
   const tempRoot = mkdtempSync(join(tmpdir(), "sf-ai-vector-large-load-test-"));

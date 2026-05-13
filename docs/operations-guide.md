@@ -2,6 +2,27 @@
 
 このガイドは、開発知識がなくても日常運用できるように作っています。
 
+## 統一 CLI (TASK-09)
+
+運用コマンドは統一 CLI に集約されています。
+
+- 推奨: `npm run ai -- <command>`
+- 代替: `npx sf-ai <command>`
+
+例:
+
+```bash
+npm run ai -- doctor
+npm run ai -- dev
+npm run ai -- evals:run -- --ci
+npx sf-ai observability:dashboard -- --trace-limit 200 --event-limit 1000
+```
+
+補足:
+
+- `scripts/*.ts` の直接実行は将来的に非推奨です
+- 既存 runbook では当面 `npm run ai -- ...` と互換運用できます
+
 tenant_id 導入後の既存データ移行が必要な場合は、専用手順の [tenant-migration-runbook.md](./tenant-migration-runbook.md) を参照してください。
 
 ## このガイドでできること

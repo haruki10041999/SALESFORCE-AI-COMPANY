@@ -11,16 +11,14 @@ import {
   configureMemoryLimitsForTest,
   configureMemoryStorageForTest,
   listMemory,
-  searchMemory
-} from "../memory/project-memory.js";
-import {
+  searchMemory,
   addRecord,
   clearRecords,
   configureEmbeddingProviderForTest,
   configureVectorStoreLimitsForTest,
   configureVectorStoreForTest,
   searchByKeyword
-} from "../memory/vector-store.js";
+} from "../mcp/core/memory/index.js";
 import { buildPrompt } from "../mcp/core/prompt/prompt-builder.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -338,8 +336,8 @@ test("vector-store updates existing record recency on duplicate id", () => {
 });
 
 test("prompt-builder includes base, agent, task, and reasoning framework", () => {
-  const base = readFileSync(join(ROOT, "prompt-engine", "base-prompt.md"), "utf-8");
-  const reasoning = readFileSync(join(ROOT, "prompt-engine", "reasoning-framework.md"), "utf-8");
+  const base = readFileSync(join(ROOT, "mcp", "core", "prompt", "base-prompt.md"), "utf-8");
+  const reasoning = readFileSync(join(ROOT, "mcp", "core", "prompt", "reasoning-framework.md"), "utf-8");
 
   const prompt = buildPrompt(
     {

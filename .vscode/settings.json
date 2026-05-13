@@ -264,6 +264,18 @@
         "/^tsc --noEmit; if \\(\\$\\?\\) \\{ \"Pass\" \\} else \\{ \"Fail\" \\}$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^\\$path = \"mcp/core/config/runtime-config\\.ts\"; \\$content = Get-Content \\$path; \\$newContent = \\$content\\[0\\.\\.170\\] \\+ \\$content\\[172\\.\\.\\(\\$content\\.Length-1\\)\\]; \\$newContent \\| Set-Content \\$path$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\(Get-Content -Path \"mcp/core/config/runtime-config\\.ts\"\\) \\| ForEach-Object \\{ if \\(\\$_ -match \"\\^\\\\s\\*out\\\\\\[agentName\\\\\\] = perCriterion;\"\\) \\{ \\$_ \\+ \"`n      \\}\" \\} else \\{ \\$_ \\} \\} \\| Set-Content -Path \"mcp/core/config/runtime-config\\.ts\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\(Get-Content tests/otel-sampling-pii\\.test\\.ts\\)\\.Replace\\('import \\{ maskPii \\}', 'import \\{ maskLogMessage as maskPii \\}'\\) \\| Set-Content tests/otel-sampling-pii\\.test\\.ts$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     },
     "sqltools.connections": [

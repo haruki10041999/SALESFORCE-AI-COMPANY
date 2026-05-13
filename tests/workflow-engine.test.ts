@@ -116,3 +116,31 @@ test("in-process workflow engine exposes step lifecycle operations", async () =>
     await orchestrationJobRunner.close();
   }
 });
+
+test("in-process workflow engine supports start/query/replay compatibility methods", async () => {
+  const orchestrationQueueStore = await createOrchestrationQueueStore({ stateBackend: "memory" });
+  const orchestrationJobRunner = createOrchestrationJobRunner({ stateBackend: "memory" });
+  const workflowEngine = createInProcessWorkflowEngine({
+    orchestrationQueueStore,
+    orchestrationJobRunner
+  });
+
+  try {
+    const handle = await workflowEngine.start({
+      sessionId: "session-4",
+      topic: "compat",
+      agents: ["architect", "qa-engineer"]
+    });
+    assert.equal(handle.mode, "in-process");
+
+    const query = await workflowEngine.query("session-4");
+    assert.equal(query.mode, "in-process");
+    assert.equal(query.steps.length, 2);
+
+    const replayed = await workflowEngine.replay("session-4");
+    assert.equal(replayed.length, 2);
+  } finally {
+    await orchestrationQueueStore.close();
+    await orchestrationJobRunner.close();
+  }
+});

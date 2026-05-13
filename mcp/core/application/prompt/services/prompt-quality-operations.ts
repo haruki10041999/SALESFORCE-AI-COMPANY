@@ -5,7 +5,7 @@ import {
   evaluateHeuristicRubric,
   DEFAULT_RUBRIC_CRITERIA
 } from "../../../llm/quality-rubric.js";
-import { runSelfRefineLoop } from "../../../learning/self-refine-loop.js";
+import { executeCritiqueLifecycle } from "../../../learning/critic-loop.js";
 
 export async function executeEvaluateQualityRubric(args: {
   response: string;
@@ -50,7 +50,8 @@ export async function executeSelfRefineResponse(args: {
       )
     : DEFAULT_RUBRIC_CRITERIA;
 
-  return runSelfRefineLoop(args.response, {
+  return executeCritiqueLifecycle({
+    response: args.response,
     topic: args.topic,
     maxIterations: args.maxIterations,
     targetScore: args.targetScore,
@@ -58,6 +59,7 @@ export async function executeSelfRefineResponse(args: {
     judge: args.judge,
     model: args.model,
     refineModel: args.refineModel,
+    agentName: args.agentName,
     criteria
   });
 }

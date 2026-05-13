@@ -1,4 +1,5 @@
 export type WorkflowStepStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+export type WorkflowRuntimeMode = "in-process" | "temporal";
 
 export interface WorkflowStepRecord {
   sessionId: string;
@@ -14,7 +15,28 @@ export interface WorkflowStepRecord {
   checkpointJson?: Record<string, unknown> | null;
 }
 
+export interface WorkflowRunHandle {
+  workflowId: string;
+  runId?: string;
+  sessionId: string;
+  mode: WorkflowRuntimeMode;
+}
+
+export interface WorkflowQueryResult {
+  sessionId: string;
+  mode: WorkflowRuntimeMode;
+  steps: WorkflowStepRecord[];
+}
+
 export interface WorkflowEngine {
+  start(input: {
+    sessionId: string;
+    topic: string;
+    agents: string[];
+    turns?: number;
+  }): Promise<WorkflowRunHandle>;
+  query(sessionId: string): Promise<WorkflowQueryResult>;
+  replay(sessionId: string): Promise<WorkflowStepRecord[]>;
   enqueue(input: {
     sessionId: string;
     topic: string;

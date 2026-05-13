@@ -173,7 +173,14 @@ npm run ai -- learning:replay -- --limit 20
 npm run ai -- scaffold -- agent my-agent
 npm run ai -- scaffold -- skill apex/my-skill
 npm run ai -- scaffold -- preset release-readiness-check --agents release-manager,qa-engineer
+
+# bin 経由 (TASK-09)
+npx sf-ai dev
+npx sf-ai doctor
 ```
+
+- 直接 `node scripts/*.ts` を叩く運用は段階的に非推奨です
+- `npm run ai -- ...` または `sf-ai ...` を利用してください
 
 ### outputs 運用の要点
 

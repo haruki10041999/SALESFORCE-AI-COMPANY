@@ -147,3 +147,36 @@ groups:
         annotations:
           summary: "Cost per chat exceeds threshold"
           description: "Cost ${{ $value | humanize }}/chat (threshold $0.75)"
+
+  - name: temporal_alert_rules
+    interval: 30s
+    rules:
+      - alert: TemporalWorkflowFallbackSpike
+        expr: rate(sfai_temporal_workflow_fallback_total[5m]) > 0.02
+        for: 10m
+        labels:
+          severity: "warning"
+          slo_severity: "workflow_fallback_spike"
+        annotations:
+          summary: "Temporal workflow fallback rate is elevated"
+          description: "Fallback activations are happening at {{ $value | humanize }} per second over 5m"
+
+      - alert: TemporalWorkflowSignalFailures
+        expr: rate(sfai_temporal_workflow_operations_total{outcome="failed"}[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: "critical"
+          slo_severity: "workflow_signal_failure"
+        annotations:
+          summary: "Temporal workflow signal failures detected"
+          description: "Temporal workflow operations are failing at {{ $value | humanize }} per second over 5m"
+
+      - alert: TemporalWorkflowUnavailable
+        expr: rate(sfai_temporal_workflow_operations_total{outcome="unavailable"}[5m]) > 0.01
+        for: 10m
+        labels:
+          severity: "warning"
+          slo_severity: "workflow_unavailable"
+        annotations:
+          summary: "Temporal workflow service is unavailable"
+          description: "Workflow requests are falling back because Temporal is unavailable"

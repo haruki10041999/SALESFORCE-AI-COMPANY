@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { readFileSync } from "node:fs";
 import { renderCommandsTable, suggestClosestValue, formatError, formatWarn } from "./support/cli-output.js";
 import { t } from "./support/i18n.js";
+import { CLI_EXAMPLES, COMMANDS } from "./cli/index.js";
 
 // package.json からバージョン情報を取得
 let packageVersion = "1.0.0";
@@ -12,106 +13,6 @@ try {
 } catch {
   // デフォルトを使用
 }
-
-type CliCommand = {
-  script: string;
-  description: string;
-  passThroughArgs?: boolean;
-};
-
-const COMMANDS: Record<string, CliCommand> = {
-  dev: {
-    script: "mcp:dev",
-    description: "MCP サーバーを開発モードで起動"
-  },
-  start: {
-    script: "mcp:start",
-    description: "ビルド済み MCP サーバーを起動"
-  },
-  build: {
-    script: "build",
-    description: "TypeScript をビルド"
-  },
-  doctor: {
-    script: "doctor",
-    description: "設定・outputs・権限の診断"
-  },
-  init: {
-    script: "init",
-    description: "初期設定ファイルを生成"
-  },
-  "metrics:report": {
-    script: "metrics:report",
-    description: "メトリクス集計レポートを出力"
-  },
-  "metrics:snapshot": {
-    script: "metrics:snapshot",
-    description: "メトリクス公開用スナップショットを生成"
-  },
-  "metrics:dashboard": {
-    script: "metrics:dashboard",
-    description: "メトリクス可視化 HTML を生成"
-  },
-  "observability:dashboard": {
-    script: "observability:dashboard",
-    description: "trace/event/governance 統合ダッシュボードを生成",
-    passThroughArgs: true
-  },
-  "history:archive": {
-    script: "history:archive",
-    description: "日別チャット履歴をアーカイブし要約を生成",
-    passThroughArgs: true
-  },
-  "test:matrix": {
-    script: "test:matrix",
-    description: "ツールとテストの対応表を出力",
-    passThroughArgs: true
-  },
-  "logs:remask": {
-    script: "logs:remask",
-    description: "既存ログのPIIを再マスク",
-    passThroughArgs: true
-  },
-  "metrics:seed": {
-    script: "metrics:seed",
-    description: "サンプルメトリクスを投入"
-  },
-  "outputs:cleanup": {
-    script: "outputs:cleanup",
-    description: "outputs をクリーンアップ",
-    passThroughArgs: true
-  },
-  "outputs:version": {
-    script: "outputs:version",
-    description: "outputs の世代バックアップ/復元",
-    passThroughArgs: true
-  },
-  "learning:replay": {
-    script: "learning:replay",
-    description: "過去チャット履歴を再評価してレポート化",
-    passThroughArgs: true
-  },
-  replay: {
-    script: "replay:session",
-    description: "記録済みツール実行を session 単位で再生/一覧表示",
-    passThroughArgs: true
-  },
-  "evals:run": {
-    script: "evals:run",
-    description: "Eval Harness でオフラインベンチマークを実行 (--suite, --baseline, --ci)",
-    passThroughArgs: true
-  },
-  "migrate:tenant-scope": {
-    script: "migrate:tenant-scope",
-    description: "既存データの tenant_id を一括付与 (--tenant, --dry-run)",
-    passThroughArgs: true
-  },
-  scaffold: {
-    script: "scaffold",
-    description: "agent/skill/preset/tool の雛形を生成",
-    passThroughArgs: true
-  }
-};
 
 function resolveNpmCommand(): string {
   return process.platform === "win32" ? "npm" : "npm";
@@ -126,15 +27,10 @@ function buildHelpText(): string {
     `${t("ai.help.commandsTitle")}:`,
     table,
     "",
+    "Legacy note: scripts/* の直接実行は将来的に非推奨です。統一 CLI (`npm run ai -- ...` / `sf-ai ...`) を利用してください。",
+    "",
     `${t("ai.help.examplesTitle")}:`,
-    "  npm run ai -- dev",
-    "  npm run ai -- outputs:cleanup -- --dry-run",
-    "  npm run ai -- observability:dashboard -- --trace-limit 100",
-    "  npm run ai -- learning:replay -- --limit 20",
-    "  npm run ai -- replay -- --session sess-42",
-    "  npm run ai -- evals:run -- --suite agent-selection --ci",
-    "  npm run ai -- evals:run -- --save-baseline",
-    "  npm run ai -- migrate:tenant-scope -- --tenant tenant-a --dry-run"
+    ...CLI_EXAMPLES
   ].join("\n");
 }
 

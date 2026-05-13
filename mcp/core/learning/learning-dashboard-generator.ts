@@ -19,8 +19,10 @@ import { loadAgentReputationRecords } from "./agent-reputation.js";
 import { getRewardHealth } from "./feedback-manager.js";
 import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
 import { getOutputsDir } from "../config/runtime-config.js";
+import { listProposals, summarizeProposalQueue } from "../resource/proposal/queue.js";
 
 const DASHBOARD_PATH = resolve("outputs", "dashboards", "learning-progress.json");
+const SELF_REFINE_RUNS_PATH = resolve("outputs", "learning", "critic-runs.jsonl");
 const outputsPort = new LocalOutputsAdapter({ outputsDir: resolve(getOutputsDir()) });
 
 /**
@@ -107,45 +109,113 @@ async function computeReputationMetrics(): Promise<ReputationDistributionMetrics
 }
 
 /**
- * Compute proposal metrics (stub for demonstration)
+ * Compute proposal metrics from the persisted proposal queue.
  */
 async function computeProposalMetrics(): Promise<ProposalMetrics | undefined> {
-  // Would read from outputs/tool-proposals/ and outputs/presets/ etc.
-  return {
-    totalProposals: 0,
-    approvedCount: 0,
-    rejectedCount: 0,
-    pendingCount: 0,
-    adoptionRate: 0,
-    avgTimeToApproval: 0,
-    byType: {
-      skill: { total: 0, approved: 0 },
-      tool: { total: 0, approved: 0 },
-      preset: { total: 0, approved: 0 }
-    },
-    recentTrend: {
-      proposalsCreatedPastWeek: 0,
-      proposalsApprovedPastWeek: 0
-    },
-    snapshotTime: new Date().toISOString()
-  };
+  try {
+    const outputsDir = resolve(getOutputsDir());
+    const summary = summarizeProposalQueue(outputsDir);
+    const proposals = listProposals(outputsDir, { limit: 5000 });
+
+    const now = Date.now();
+    const pastWeekMs = 7 * 24 * 60 * 60 * 1000;
+
+    const approvedDurationsMs = proposals
+      .filter((proposal) => proposal.status === "approved" && proposal.resolvedAt)
+      .map((proposal) => {
+        const createdAtMs = Date.parse(proposal.createdAt);
+        const resolvedAtMs = Date.parse(proposal.resolvedAt ?? "");
+        return Number.isFinite(createdAtMs) && Number.isFinite(resolvedAtMs)
+          ? Math.max(0, resolvedAtMs - createdAtMs)
+          : 0;
+      })
+      .filter((value) => value > 0);
+
+    const createdPastWeek = proposals.filter((proposal) => now - Date.parse(proposal.createdAt) <= pastWeekMs).length;
+    const approvedPastWeek = proposals.filter((proposal) => {
+      const resolvedAtMs = Date.parse(proposal.resolvedAt ?? "");
+      return proposal.status === "approved" && Number.isFinite(resolvedAtMs) && now - resolvedAtMs <= pastWeekMs;
+    }).length;
+
+    const totalProposals = summary.pending + summary.approved + summary.rejected;
+    if (totalProposals === 0) {
+      return undefined;
+    }
+
+    return {
+      totalProposals,
+      approvedCount: summary.approved,
+      rejectedCount: summary.rejected,
+      pendingCount: summary.pending,
+      adoptionRate: totalProposals > 0 ? summary.approved / totalProposals : 0,
+      avgTimeToApproval:
+        approvedDurationsMs.length > 0
+          ? approvedDurationsMs.reduce((sum, value) => sum + value, 0) / approvedDurationsMs.length / 3_600_000
+          : 0,
+      byType: {
+        skill: {
+          total: summary.byResourceType.skills.pending + summary.byResourceType.skills.approved + summary.byResourceType.skills.rejected,
+          approved: summary.byResourceType.skills.approved
+        },
+        tool: {
+          total: summary.byResourceType.tools.pending + summary.byResourceType.tools.approved + summary.byResourceType.tools.rejected,
+          approved: summary.byResourceType.tools.approved
+        },
+        preset: {
+          total: summary.byResourceType.presets.pending + summary.byResourceType.presets.approved + summary.byResourceType.presets.rejected,
+          approved: summary.byResourceType.presets.approved
+        }
+      },
+      recentTrend: {
+        proposalsCreatedPastWeek: createdPastWeek,
+        proposalsApprovedPastWeek: approvedPastWeek
+      },
+      snapshotTime: new Date().toISOString()
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 /**
  * Compute self-refine metrics (stub)
  */
 async function computeSelfRefineMetrics(): Promise<SelfRefineMetrics | undefined> {
-  // Would read from outputs/learning/feedback.jsonl filtering for self-refine sessions
-  return {
-    avgIterations: 0,
-    maxIterations: 0,
-    minIterations: 0,
-    convergenceRate: 0,
-    avgQualityImprovement: 0,
-    totalSessions: 0,
-    windowHours: 24,
-    snapshotTime: new Date().toISOString()
-  };
+  try {
+    const content = await fsPromises.readFile(SELF_REFINE_RUNS_PATH, "utf-8");
+    const records = content
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as {
+        iterations?: number;
+        finalScore?: number;
+        initialScore?: number;
+        nextAction?: string;
+        recordedAt?: string;
+      });
+
+    if (records.length === 0) {
+      return undefined;
+    }
+
+    const iterations = records.map((record) => Math.max(0, Math.floor(record.iterations ?? 0)));
+    const improvements = records.map((record) => Math.max(0, (record.finalScore ?? 0) - (record.initialScore ?? 0)));
+    const convergedCount = records.filter((record) => (record.finalScore ?? 0) >= 8.5).length;
+
+    return {
+      avgIterations: iterations.reduce((sum, value) => sum + value, 0) / iterations.length,
+      maxIterations: Math.max(...iterations),
+      minIterations: Math.min(...iterations),
+      convergenceRate: convergedCount / records.length,
+      avgQualityImprovement: improvements.reduce((sum, value) => sum + value, 0) / improvements.length,
+      totalSessions: records.length,
+      windowHours: 24,
+      snapshotTime: new Date().toISOString()
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 /**

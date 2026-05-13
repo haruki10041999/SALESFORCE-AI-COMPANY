@@ -20,7 +20,7 @@ import {
 
 export interface VectorEmbeddingProvider {
   /** プロバイダ識別子 */
-  readonly name: "ngram" | "ollama";
+  readonly name: string;
   /** 永続化や移行判定に使う安定した profile ID */
   readonly profileId?: string;
   /** 出力ベクトル次元 (動的なら -1) */

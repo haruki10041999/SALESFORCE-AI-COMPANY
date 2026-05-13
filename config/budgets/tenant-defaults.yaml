@@ -1,0 +1,12 @@
+{
+  "version": "1.0",
+  "windowMs": 60000,
+  "tenantToolQuota": {
+    "default": 600,
+    "tiers": {
+      "starter": 300,
+      "pro": 1200,
+      "enterprise": 3000
+    }
+  }
+}

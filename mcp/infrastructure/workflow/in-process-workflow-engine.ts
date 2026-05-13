@@ -13,6 +13,28 @@ export function createInProcessWorkflowEngine(
   const { orchestrationQueueStore, orchestrationJobRunner } = options;
 
   return {
+    async start(input) {
+      await this.enqueue(input);
+      return {
+        workflowId: input.sessionId,
+        sessionId: input.sessionId,
+        mode: "in-process"
+      };
+    },
+
+    async query(sessionId) {
+      const steps = await orchestrationJobRunner.listSteps(sessionId);
+      return {
+        sessionId,
+        mode: "in-process",
+        steps
+      };
+    },
+
+    async replay(sessionId) {
+      return orchestrationJobRunner.listSteps(sessionId);
+    },
+
     async enqueue(input): Promise<void> {
       if (!Array.isArray(input.agents) || input.agents.length === 0) {
         return;

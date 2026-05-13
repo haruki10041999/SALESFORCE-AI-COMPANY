@@ -1,10 +1,15 @@
 import { isEnvFlagEnabled } from "../config/env-flags.js";
 import { parsePositiveIntOrFallback } from "../config/numeric-parsing.js";
+import { createDbClient } from "../../../db/client.js";
+import { PostgresQuotaStore } from "./postgres-quota-store.js";
 
 type RateLimitScope = "actor" | "tenant" | "tool";
+type RateLimitBackend = "in-memory" | "postgres";
+type MaybePromise<T> = T | Promise<T>;
 
 export interface RateLimitConfig {
   enabled: boolean;
+  backend: RateLimitBackend;
   windowMs: number;
   actorLimit: number;
   tenantLimit: number;
@@ -29,7 +34,7 @@ export interface ToolRateLimitResult {
 }
 
 export interface ToolRateLimiter {
-  check(input: ToolRateLimitContext): ToolRateLimitResult;
+  check(input: ToolRateLimitContext): MaybePromise<ToolRateLimitResult>;
 }
 
 interface CounterWindow {
@@ -50,6 +55,7 @@ const DEFAULT_ACTOR_LIMIT = 120;
 const DEFAULT_TENANT_LIMIT = 600;
 const DEFAULT_TOOL_LIMIT = 300;
 const DEFAULT_MAX_KEYS = 10_000;
+const DEFAULT_BACKEND: RateLimitBackend = "in-memory";
 
 class FixedWindowCounter {
   private readonly windows = new Map<string, CounterWindow>();
@@ -176,9 +182,83 @@ export class InMemoryToolRateLimiter implements ToolRateLimiter {
   }
 }
 
+export class PostgresToolRateLimiter implements ToolRateLimiter {
+  private readonly actorCounter: FixedWindowCounter;
+  private readonly toolCounter: FixedWindowCounter;
+
+  public constructor(
+    private readonly config: RateLimitConfig,
+    private readonly quotaStore: PostgresQuotaStore
+  ) {
+    this.actorCounter = new FixedWindowCounter(config.actorLimit, config.windowMs, config.maxKeys);
+    this.toolCounter = new FixedWindowCounter(config.toolLimit, config.windowMs, config.maxKeys);
+  }
+
+  public async check(input: ToolRateLimitContext): Promise<ToolRateLimitResult> {
+    if (!this.config.enabled) {
+      return { allowed: true };
+    }
+    const nowMs = input.nowMs ?? Date.now();
+
+    const actorDecision = this.actorCounter.hit(input.actorId, nowMs);
+    if (!actorDecision.allowed) {
+      return {
+        allowed: false,
+        scope: "actor",
+        key: actorDecision.key,
+        limit: actorDecision.limit,
+        remaining: actorDecision.remaining,
+        retryAfterMs: actorDecision.retryAfterMs
+      };
+    }
+
+    const toolDecision = this.toolCounter.hit(input.toolName, nowMs);
+    if (!toolDecision.allowed) {
+      return {
+        allowed: false,
+        scope: "tool",
+        key: toolDecision.key,
+        limit: toolDecision.limit,
+        remaining: toolDecision.remaining,
+        retryAfterMs: toolDecision.retryAfterMs
+      };
+    }
+
+    const tenantDecision = await this.quotaStore.allow({
+      tenantId: input.tenantId,
+      toolName: input.toolName,
+      limit: this.config.tenantLimit,
+      nowMs,
+      windowMs: this.config.windowMs
+    });
+
+    if (!tenantDecision.allowed) {
+      return {
+        allowed: false,
+        scope: "tenant",
+        key: `${input.tenantId}:${input.toolName}`,
+        limit: this.config.tenantLimit,
+        remaining: tenantDecision.remaining,
+        retryAfterMs: tenantDecision.retryAfterMs
+      };
+    }
+
+    return {
+      allowed: true,
+      remaining: Math.min(actorDecision.remaining, toolDecision.remaining, tenantDecision.remaining)
+    };
+  }
+}
+
+function parseRateLimitBackend(value: string | undefined): RateLimitBackend {
+  const normalized = (value ?? "").trim().toLowerCase();
+  return normalized === "postgres" ? "postgres" : DEFAULT_BACKEND;
+}
+
 export function buildRateLimitConfigFromEnv(env: NodeJS.ProcessEnv = process.env): RateLimitConfig {
   return {
     enabled: isEnvFlagEnabled("SF_AI_RATE_LIMIT_ENABLED", env, true),
+    backend: parseRateLimitBackend(env.SF_AI_RATE_LIMIT_BACKEND),
     windowMs: parsePositiveIntOrFallback(env.SF_AI_RATE_LIMIT_WINDOW_MS, DEFAULT_WINDOW_MS),
     actorLimit: parsePositiveIntOrFallback(env.SF_AI_RATE_LIMIT_ACTOR_MAX, DEFAULT_ACTOR_LIMIT),
     tenantLimit: parsePositiveIntOrFallback(env.SF_AI_RATE_LIMIT_TENANT_MAX, DEFAULT_TENANT_LIMIT),
@@ -192,9 +272,20 @@ let globalToolRateLimiter: ToolRateLimiter | null = null;
 export function getGlobalToolRateLimiter(): ToolRateLimiter {
   if (!globalToolRateLimiter) {
     const config = buildRateLimitConfigFromEnv();
-    globalToolRateLimiter = config.enabled
-      ? new InMemoryToolRateLimiter(config)
-      : new NoopToolRateLimiter();
+    if (!config.enabled) {
+      globalToolRateLimiter = new NoopToolRateLimiter();
+      return globalToolRateLimiter;
+    }
+    if (config.backend === "postgres") {
+      try {
+        const dbClient = createDbClient();
+        globalToolRateLimiter = new PostgresToolRateLimiter(config, new PostgresQuotaStore({ dbClient }));
+      } catch {
+        globalToolRateLimiter = new InMemoryToolRateLimiter(config);
+      }
+      return globalToolRateLimiter;
+    }
+    globalToolRateLimiter = new InMemoryToolRateLimiter(config);
   }
   return globalToolRateLimiter;
 }

@@ -5,6 +5,7 @@ import { analyzeRepo } from "../../tools/repo-analyzer.js";
 import { formatErrorMessage } from "../../core/errors/tool-error.js";
 import { createLogger } from "../../core/logging/logger.js";
 import { scoreByQuery } from "../../core/resource/topic-skill-ranking.js";
+import { inferToolCategoryFromTopic, recommendAgentsForToolCategory } from "../../core/resource/tool-categorizer.js";
 import { cosineSimilarity } from "../../core/llm/embedding-provider.js";
 import { getDefaultLangChainEmbeddingProvider } from "../../core/llm/langchain-embedding.js";
 import {
@@ -96,15 +97,19 @@ export function defineSmartChatTool(deps: RegisterSmartChatToolsDeps): void {
       const { enabled: enabledSkills } = await filterDisabledSkills(skills ?? []);
       const trustScoringEnabled = enableTrustScoring ?? getAgentTrustScoringEnabled();
       const selectedAgents = agents ?? ["product-manager", "architect", "qa-engineer"];
-      const prioritizedAgents = trustScoringEnabled
-        ? [...selectedAgents]
-          .map((agentName) => ({
+      const inferredCategory = inferToolCategoryFromTopic(topic);
+      const categoryHints = recommendAgentsForToolCategory(inferredCategory);
+      const prioritizedAgents = [...selectedAgents]
+        .map((agentName) => {
+          const queryScore = scoreByQuery(topic, agentName);
+          const categoryBoost = categoryHints.indexOf(agentName) >= 0 ? categoryHints.length - categoryHints.indexOf(agentName) : 0;
+          return {
             name: agentName,
-            score: scoreByQuery(topic, agentName)
-          }))
-          .sort((a, b) => b.score - a.score)
-          .map((row) => row.name)
-        : selectedAgents;
+            score: trustScoringEnabled ? queryScore + categoryBoost * 10 : categoryBoost
+          };
+        })
+        .sort((a, b) => b.score - a.score)
+        .map((row) => row.name);
 
       const topicFilePaths = extractExistingFilePathsFromTopic(topic);
       if (topicFilePaths.length > 0) {
@@ -170,6 +175,9 @@ export function defineSmartChatTool(deps: RegisterSmartChatToolsDeps): void {
               (trustScoringEnabled
                 ? `有効 (threshold=${(trustThreshold ?? getAgentTrustThreshold()).toFixed(2)})`
                 : "無効") +
+              (inferredCategory
+                ? `\n推定カテゴリ: ${inferredCategory}`
+                : "") +
               (trustScoringEnabled
                 ? "\n優先エージェント順:\n" + prioritizedAgents.join("\n")
                 : "") +

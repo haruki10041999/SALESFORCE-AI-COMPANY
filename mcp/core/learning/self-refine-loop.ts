@@ -75,7 +75,10 @@ function buildRefineInstruction(input: {
   lines.push("## Rubric Scores");
   for (const c of criteria) {
     const score = input.evaluation.criteria.find((x) => x.id === c.id);
-    lines.push(`- ${c.id}: ${score?.score ?? "n/a"} (${score?.rationale ?? ""})`);
+    lines.push(`- ${c.id} (${c.label}): ${score?.score ?? "n/a"} (${score?.rationale ?? ""})`);
+    if (c.description) {
+      lines.push(`  - ${c.description}`);
+    }
   }
   lines.push("");
   lines.push("改善方針:");

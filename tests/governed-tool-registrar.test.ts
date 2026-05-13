@@ -251,6 +251,64 @@ test("governed tool registrar blocks execution when rate limit is exceeded", asy
   paths.cleanup();
 });
 
+test("governed tool registrar records cost ledger entries on success", async () => {
+  const handlers = new Map<string, ToolHandler>();
+  const recorded: Array<Record<string, unknown>> = [];
+  const paths = makeTempPaths();
+  const banditState = createBanditState();
+  const banditStateFile = join(paths.outputsDir, "bandit-state.jsonl");
+  const previousEnforcerFlag = process.env.SF_AI_COST_BUDGET_ENFORCER_ENABLED;
+  process.env.SF_AI_COST_BUDGET_ENFORCER_ENABLED = "true";
+
+  const { govTool } = createGovernedToolRegistrar({
+    registerTool: (name, _config, handler) => {
+      handlers.set(name, handler as ToolHandler);
+    },
+    isToolDisabled: () => false,
+    normalizeResourceName: (name) => name,
+    outputsDir: paths.outputsDir,
+    serverRoot: paths.serverRoot,
+    emitSystemEvent: async () => {},
+    summarizeValue: (value) => (value instanceof Error ? value.message : String(value)),
+    registerToolFailure: async () => {},
+    costLedger: {
+      async record(input) {
+        recorded.push(input as Record<string, unknown>);
+      }
+    },
+    getBanditState: () => banditState,
+    banditStateFile,
+    getRetryConfig: async () => ({
+      retryEnabled: false,
+      maxRetries: 0,
+      baseDelayMs: 0,
+      maxDelayMs: 0,
+      retryablePatterns: [],
+      retryableCodes: []
+    })
+  });
+
+  govTool("sample", {}, async () => ({
+    content: [{ type: "text", text: "ok" }]
+  }));
+
+  const handler = handlers.get("sample");
+  assert.ok(handler);
+
+  const result = await handler!({});
+  assert.equal(result.content[0].text, "ok");
+  assert.equal(recorded.length, 1);
+  assert.equal(recorded[0]?.toolName, "sample");
+  assert.equal(recorded[0]?.status, "success");
+
+  if (previousEnforcerFlag === undefined) {
+    delete process.env.SF_AI_COST_BUDGET_ENFORCER_ENABLED;
+  } else {
+    process.env.SF_AI_COST_BUDGET_ENFORCER_ENABLED = previousEnforcerFlag;
+  }
+  paths.cleanup();
+});
+
 test("P0-4: govTool wraps dict-of-Zod inputSchema into inputSchemaZod for descriptor generation", async () => {
   const capturedDefinitions: ToolDefinition[] = [];
   const paths = makeTempPaths();

@@ -5,6 +5,113 @@
 
 ## [Unreleased]
 
+### Changed (2026-05-13 Phase 1 — TASK-01: Cost Ledger Implementation)
+
+**Token Cost Tracking & Budget Enforcement** — Per-model pricing + daily/monthly budget + SLA burn accounting
+- ✅ `mcp/core/governance/cost-ledger-manager.ts` を新規作成
+  - Per-model cost rates (OpenAI, Cohere, Mistral 他)
+  - トークンコスト計算: `calculateCostUsd(model, inputTokens, outputTokens)`
+  - Cost記録: `recordCost()` → PostgreSQL cost_ledger テーブル
+  - Global budget status: `getGlobalBudgetStatus()` (日次/月次)
+  - Tenant quotas: `getTenantQuotaStatus()` (テナント別制限)
+  - SLA burn rate: `calculateSlaBurnRate()` (1ヶ月予算の消費速度)
+  - Cost trends: `getCostTrendLast7Days()` (直近7日分析)
+  - Model/Actor 別分析: `getCostByModel()`, `getCostByActor()`
+  - 14個モデルの標準価格表内蔵
+    - OpenAI: GPT-4, GPT-4-Turbo, text-embedding-3-small/large, ada-002
+    - Cohere: command-r-plus, embed-english-v3.0/light
+    - Mistral: mistral (local), mistral-small/medium/large
+  - カスタム価格レート対応 (constructor 引数)
+- 📋 `tests/cost-ledger-manager.test.ts` 作成 (18テスト全てパス)
+  - Cost calculation 検証 (各モデル別)
+  - 0-token と大規模token 対応検証
+  - Database persistence 検証
+  - Pricing rate 検証
+  - Micro-unit conversion 検証
+
+### Changed (2026-05-13 Phase 1 — TASK-03: Embedding Provider Multiplexer)
+
+**Embedding Provider Abstraction & Multi-Vendor Support** — Ollama から OpenAI/Cohere への切り替え対応
+- ✅ `mcp/core/llm/openai-embeddings-adapter.ts` を新規作成
+  - OpenAI Embeddings API adapter (3 モデル対応: text-embedding-3-small/large, ada-002)
+  - Batch API 対応 (最大 8191 テキスト/リクエスト)
+  - Exponential backoff リトライ (429/500-599 エラー)
+  - タイムアウト制御 + フォールバック機構
+- ✅ `mcp/core/llm/cohere-embeddings-adapter.ts` を新規作成
+  - Cohere Embeddings API adapter (2 モデル対応: embed-english-v3.0/light)
+  - Input type 制御 (search_document / search_query / classification / clustering)
+  - Batch API 対応 (最大 96 テキスト/リクエスト)
+  - リトライ機構 + フォールバック対応
+- ✅ `mcp/core/llm/embedding-provider-multiplexer.ts` を新規作成
+  - `createEmbeddingProviderMultiplexer()`: 環境変数から自動選択
+  - `resolveEmbeddingProviderType()`: SF_AI_EMBEDDING_PROVIDER から provider 型を判定
+  - グローバルプロバイダーキャッシュ: `getGlobalEmbeddingProvider()`
+  - 優先度: SF_AI_EMBEDDING_PROVIDER > EMBEDDING_PROVIDER > ngram
+- ✅ `env-schema.ts` に embedding provider スキーマ追加
+  - `SF_AI_EMBEDDING_PROVIDER`: ollama | openai | cohere | ngram
+  - `OPENAI_API_KEY`, `OPENAI_EMBEDDING_MODEL`
+  - `COHERE_API_KEY`, `COHERE_EMBEDDING_MODEL`
+- ✅ `runtime-config.ts` に config accessor 追加
+  - `getEmbeddingProviderType(defaultProvider = "ngram")`
+  - `getOpenAiApiKey()`, `getOpenAiEmbeddingModel()`
+  - `getCohereApiKey()`, `getCohereEmbeddingModel()`
+- 📋 `tests/embedding-provider-multiplexer.test.ts` 作成 (22テスト全てパス)
+  - Provider selection 検証
+  - Fallback mechanism 検証
+  - API key validation 検証
+  - Global provider caching 検証
+
+### Changed (2026-05-13 Phase 1 — TASK-05: OpenTelemetry Sampling + PII Redaction)
+
+**Observability Hardening** — OTel span attribute sanitization + sampling metrics
+- ✅ `mcp/core/observability/pii-redactor.ts` を新規作成
+  - `redactOtelSpanAttributes()`: email/phone/token/AWS-ID/SSN/credit-card/SSH-key redaction
+  - Strategies: `mask` ([REDACTED]), `hash` (deterministic SHA-1), `drop` (remove key)
+  - Pattern coverage: email, phone, Bearer tokens, sk-* / sf-* secrets, AKIA keys, SSN, bank account
+- ✅ `mcp/core/logging/pii-masker.ts` を拡張
+  - Added AWS Access Key ID (AKIA*) pattern
+  - Added SSH public key (ssh-rsa, ssh-ed25519) pattern
+  - Added SSN (XXX-XX-XXXX) pattern
+  - Added bank account (10-12 digit sequences) pattern
+- ✅ `env-schema.ts` に OTel PII 設定スキーマ追加
+  - `OTEL_PII_REDACTION_ENABLED` (boolean, default: true)
+  - `OTEL_PII_HASH_SEED` (optional string, for deterministic hash)
+- ✅ `runtime-config.ts` に config accessor 追加
+  - `getOtelPiiRedactionEnabled(defaultEnabled = true): boolean`
+  - `getOtelPiiHashSeed(): string | undefined`
+- ✅ `mcp/core/observability/otel-tracer.ts` 統合
+  - `notifyOtelTraceStart()` で `recordTraceSamplingForPrometheus()` 呼び出し
+  - `shouldSampleOtelTrace()` の判定結果を sampled/dropped counter に記録
+  - Span attribute redaction: redactSpanAttributes() を span 属性設定前に適用
+- ✅ `mcp/core/observability/prometheus-metrics.ts` にメトリクス追加
+  - `sfai_otel_traces_sampled_total` counter (tool label)
+  - `sfai_otel_traces_dropped_total` counter
+  - `recordTraceSamplingForPrometheus(toolName, sampled)` export function
+- 📋 `tests/otel-sampling-pii.test.ts` 作成 (22テスト)
+  - PII pattern test: email/phone/token/AWS-ID/SSN/credit-card/bank-account/SSH-key
+  - Redaction strategy test: mask/hash/drop
+  - Hash consistency + variance test
+  - Sampling metrics recording test
+
+### Changed (2026-05-13 Phase 1 — TASK-04: Dead Code Removal)
+
+**Memory Layer Consolidation** — `memory/` と `mcp/core/memory/` の統合
+- ✅ `mcp/core/memory/index.ts` を新規作成し、全 memory module を unified export
+- ✅ `../memory/*` の import 全てを `../mcp/core/memory/index.js` に統一
+- ✅ `mcp/server.ts`, `tests/*.ts`, `scripts/*.ts` の import paths を更新
+- 🗑️ **BREAKING**: `prompt-engine/` ディレクトリは deprecated、削除予定
+  - `prompt-engine/*.ts` は全て `mcp/core/prompt/*` への re-export のみ
+  - 実装は既に `mcp/core/prompt/` に完全移行済み
+  - `mcp/core/context/chat-prompt-builder.ts` は `mcp/core/prompt` を主要パス、fallback として `prompt-engine` を保持 (後方互換)
+  - 推奨: `git rm -r prompt-engine/` で削除
+
+### Removed
+
+- `prompt-engine/` re-export ファイル (prompt-builder.ts, prompt-evaluator.ts)
+  - 実装は `mcp/core/prompt/*` に完全統合
+
+## [Unreleased]
+
 ### Added (2026-05-07 Phase 7-9 — Postgres/pg-boss/PGVector/LangSmith/OTel)
 
 **Persistence Backend Switchers** — Development から Production へのスケール対応

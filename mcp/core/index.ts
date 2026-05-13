@@ -86,11 +86,16 @@ export {
 
 // Reliability
 export {
+  PostgresQuotaStore
+} from "./reliability/postgres-quota-store.js";
+
+export {
   type RateLimitConfig,
   type ToolRateLimitContext,
   type ToolRateLimitResult,
   type ToolRateLimiter,
   InMemoryToolRateLimiter,
+  PostgresToolRateLimiter,
   NoopToolRateLimiter,
   buildRateLimitConfigFromEnv,
   getGlobalToolRateLimiter,

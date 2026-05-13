@@ -16,12 +16,12 @@ import {
   getRAGInjectionStats,
   type ErrorSignature
 } from "../mcp/core/learning/failure-memory-rag.js";
-import type { FailureMemoryEntry } from "../memory/failure-memory.js";
+import type { FailureMemoryEntry } from "../mcp/core/memory/index.js";
 import {
   configureFailureMemoryStorageForTest,
   listFailureMemory,
   recordFailureMemory
-} from "../memory/failure-memory.js";
+} from "../mcp/core/memory/index.js";
 
 const FAILURE_MEMORY_PATH = resolve("outputs", "learning", "failure-memory-rag-test.jsonl");
 const RAG_CACHE_PATH = resolve("outputs", "learning", "rag-injection-cache.jsonl");

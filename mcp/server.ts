@@ -43,16 +43,21 @@ import {
 } from "./handlers/auto-init.js";
 
 // ============================================================
-// Memory / Prompt-Engine / Statistics
+// Memory / Observability / Statistics
 // ============================================================
-import { addMemory, searchMemory, listMemory, clearMemory } from "../memory/project-memory.js";
 import {
+  addMemory,
+  searchMemory,
+  listMemory,
+  clearMemory,
   recordFailureMemory,
   searchFailureMemory,
-  listFailureMemory
-} from "../memory/failure-memory.js";
-import { ingestKnowledgeSummary } from "../memory/knowledge-graph.js";
-import { addRecord, searchByKeyword, searchByKeywordAsync } from "../memory/vector-store.js";
+  listFailureMemory,
+  ingestKnowledgeSummary,
+  addRecord,
+  searchByKeyword,
+  searchByKeywordAsync
+} from "./core/memory/index.js";
 import { buildPrompt } from "./core/prompt/prompt-builder.js";
 import { evaluatePromptMetrics } from "./core/prompt/prompt-evaluator.js";
 import {
@@ -68,6 +73,7 @@ import { createGovernedToolRegistrar } from "./core/governance/governed-tool-reg
 import { createGovernanceEventAutomationManager } from "./core/governance/governance-event-automation.js";
 import { createDisabledResourceFilter } from "./core/governance/disabled-resource-filter.js";
 import { createDisabledToolsCacheManager } from "./core/governance/disabled-tools-cache.js";
+import { CostLedgerManager } from "./core/governance/cost-ledger-manager.js";
 import { createGovernanceStateManager } from "./core/governance/governance-state-manager.js";
 import { resolveStateBackend } from "./core/persistence/state-store.js";
 import {
@@ -80,7 +86,12 @@ import { SqliteSessionStore } from "./core/persistence/session-store.sqlite.js";
 import type { SessionStore } from "./core/persistence/session-store.js";
 import { createOrchestrationQueueStore } from "./infrastructure/workflow/orchestration-queue-store.js";
 import { createOrchestrationJobRunner } from "./infrastructure/workflow/orchestration-job-runner.js";
-import { createInProcessWorkflowEngine } from "./infrastructure/workflow/in-process-workflow-engine.js";
+import { createWorkflowEngine } from "./infrastructure/workflow/workflow-engine-factory.js";
+import {
+  createTemporalWorkflowWorker,
+  type TemporalWorkflowWorkerHandle
+} from "./infrastructure/workflow/temporal-workflow-worker.js";
+import { createTemporalWorkflowActivities } from "./infrastructure/workflow/temporal-workflow-activities.js";
 import { createPolicySnapshotManager } from "./core/learning/policy-snapshot.js";
 import { createPromptRenderer } from "./core/context/prompt-rendering.js";
 import { isEnvFlagEnabled } from "./core/config/env-flags.js";
@@ -91,7 +102,14 @@ import { chatInputSchema, triggerRuleSchema } from "./core/orchestration/schemas
 import { getDefaultSchedulesFilePath, loadCleanupSchedules } from "./core/resource/cleanup-scheduler.js";
 import type { SystemEventType } from "./core/event/event-dispatcher.js";
 import { createLogger } from "./core/logging/logger.js";
-import { getLowRelevanceScoreThreshold } from "./core/config/runtime-config.js";
+import {
+  getLowRelevanceScoreThreshold,
+  getTemporalAddress,
+  getTemporalNamespace,
+  getTemporalRunWorkerEnabled,
+  getTemporalTaskQueue,
+  getWorkflowEngineMode
+} from "./core/config/runtime-config.js";
 import { startObservabilityRuntime } from "./core/observability/runtime.js";
 import {
   createBanditState,
@@ -106,6 +124,7 @@ import {
   resolveProposalQueueBackend,
   type ProposalQueueStore
 } from "./core/resource/proposal/proposal-queue-store.js";
+import { createDbClient } from "../db/client.js";
 
 const {
   root: ROOT,
@@ -196,6 +215,7 @@ const GOVERNANCE_FILE = join(OUTPUTS_DIR, "resource-governance.json");
 const GOVERNANCE_STORAGE_PATH = STATE_DB_PATH;
 const STATE_BACKEND = resolveStateBackend(process.env.SF_AI_STATE_BACKEND);
 const DATABASE_URL = process.env.DATABASE_URL;
+const costLedgerManager = DATABASE_URL ? new CostLedgerManager(createDbClient(DATABASE_URL)) : null;
 const PROPOSAL_QUEUE_BACKEND = resolveProposalQueueBackend(process.env.SF_AI_PROPOSAL_QUEUE_BACKEND, STATE_BACKEND);
 const TOOL_PROPOSALS_DIR = join(OUTPUTS_DIR, "tool-proposals");
 const CUSTOM_TOOLS_DIR = join(OUTPUTS_DIR, "custom-tools");
@@ -290,6 +310,40 @@ const disabledToolsCache = createDisabledToolsCacheManager({
   databaseUrl: DATABASE_URL
 });
 
+const costLedger = costLedgerManager
+  ? {
+      async record(input: {
+        toolName: string;
+        costUsd: number;
+        inputTokens?: number;
+        outputTokens?: number;
+        actorId?: string;
+        tenantId?: string;
+        sessionId?: string;
+        traceId?: string;
+        model?: string;
+        status?: "success" | "error" | "blocked";
+        metadata?: Record<string, unknown>;
+      }): Promise<void> {
+        await costLedgerManager.recordCost({
+          toolName: input.toolName,
+          actorId: input.actorId ?? "system",
+          model: input.model ?? "mistral",
+          inputTokens: input.inputTokens ?? 0,
+          outputTokens: input.outputTokens ?? 0,
+          tenantId: input.tenantId,
+          sessionId: input.sessionId,
+          traceId: input.traceId,
+          status: input.status ?? "success"
+        });
+      }
+    }
+  : {
+      async record(): Promise<void> {
+        return;
+      }
+    };
+
 const { govTool } = createGovernedToolRegistrar({
   registerTool: (name, config, handler) => {
     server.registerTool(
@@ -304,6 +358,7 @@ const { govTool } = createGovernedToolRegistrar({
   normalizeResourceName,
   outputsDir: OUTPUTS_DIR,
   databaseUrl: DATABASE_URL,
+  costLedger,
   serverRoot: ROOT,
   emitSystemEvent: emitSystemEventFromTools,
   summarizeValue,
@@ -397,7 +452,7 @@ const orchestrationJobRunner = createOrchestrationJobRunner({
   stateBackend: STATE_BACKEND,
   databaseUrl: DATABASE_URL
 });
-const workflowEngine = createInProcessWorkflowEngine({
+const workflowEngine = createWorkflowEngine({
   orchestrationQueueStore,
   orchestrationJobRunner
 });
@@ -720,6 +775,26 @@ async function main(): Promise<void> {
     resetDisabledToolsCache: () => disabledToolsCache.resetCache(),
     autoInitializeHandlers
   });
+
+  let temporalWorker: TemporalWorkflowWorkerHandle | null = null;
+  const workflowMode = getWorkflowEngineMode("in-process", process.env);
+  if (workflowMode === "temporal" && getTemporalRunWorkerEnabled(false, process.env)) {
+    try {
+      temporalWorker = await createTemporalWorkflowWorker({
+        temporalAddress: getTemporalAddress("localhost:7233", process.env),
+        temporalNamespace: getTemporalNamespace("default", process.env),
+        taskQueue: getTemporalTaskQueue("sfai-orchestration", process.env),
+        activities: createTemporalWorkflowActivities({
+          orchestrationQueueStore,
+          orchestrationJobRunner
+        })
+      });
+      logger.info("Temporal workflow worker started");
+    } catch (error) {
+      logger.warn(`Temporal workflow worker startup failed: ${summarizeValue(error, 300)}`);
+    }
+  }
+
   observabilityRuntime.setStartupComplete(true);
   observabilityRuntime.setReady(true);
 
@@ -734,6 +809,9 @@ async function main(): Promise<void> {
     await orchestrationJobRunner.close();
     await orchestrationQueueStore.close();
     await sessionStore.close();
+    if (temporalWorker) {
+      await temporalWorker.close();
+    }
     await observabilityRuntime.stop();
   }
 }

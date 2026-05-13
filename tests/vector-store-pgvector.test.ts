@@ -6,7 +6,7 @@ import {
   clearRecords,
   resetVectorBackendForTest,
   searchByKeywordAsync
-} from "../memory/vector-store.js";
+} from "../mcp/core/memory/index.js";
 
 test("vector-store pgvector backend works with SF_AI_VECTOR_BACKEND=pgvector", async (t) => {
   let container: Awaited<ReturnType<PostgreSqlContainer["start"]>> | undefined;

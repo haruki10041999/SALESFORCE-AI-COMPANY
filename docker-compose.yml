@@ -17,6 +17,8 @@
 #
 # エンドポイント:
 #   - PostgreSQL:    localhost:5432
+#   - Temporal gRPC: localhost:7233  (profile: workflow)
+#   - Temporal UI:   http://localhost:8088  (profile: workflow)
 #   - Jaeger UI:     http://localhost:16686
 #   - Prometheus UI: http://localhost:9090
 #   - Grafana UI:    http://localhost:3000  (admin/admin)
@@ -28,6 +30,10 @@
 #   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 #   PROMETHEUS_METRICS_PORT=9464
 #   OLLAMA_BASE_URL=http://localhost:11434
+#   SF_AI_WORKFLOW_ENGINE=in-process
+#   SF_AI_TEMPORAL_ADDRESS=localhost:7233
+#   SF_AI_TEMPORAL_NAMESPACE=default
+#   SF_AI_TEMPORAL_TASK_QUEUE=sfai-orchestration
 #
 # 任意: 初回導入モデルを変更する場合
 #   OLLAMA_INIT_MODELS="qwen2.5:3b nomic-embed-text:latest"
@@ -40,9 +46,8 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-sfai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sfai}
       POSTGRES_DB: ${POSTGRES_DB:-sfai}
-      # local compose 用: パスワード変数を compose に直書きせずに起動するため trust を使用
-      POSTGRES_HOST_AUTH_METHOD: trust
     ports:
       - "5432:5432"
     healthcheck:
@@ -113,6 +118,7 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
     volumes:
       - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/observability/slo-rules.yaml:/etc/prometheus/slo-rules.yaml:ro
     ports:
       - "9090:9090"
     extra_hosts:
@@ -133,6 +139,59 @@ services:
       - prometheus
     volumes:
       - grafana-data:/var/lib/grafana
+
+  # ---- Durable Workflow (Temporal POC) -------------------------------------
+  temporal-postgres:
+    image: postgres:16
+    container_name: sfai-temporal-postgres
+    profiles: ["workflow"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${TEMPORAL_POSTGRES_USER:-temporal}
+      POSTGRES_PASSWORD: ${TEMPORAL_POSTGRES_PASSWORD:-temporal}
+      POSTGRES_DB: ${TEMPORAL_POSTGRES_DB:-temporal}
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    volumes:
+      - temporal-postgres-data:/var/lib/postgresql/data
+
+  temporal:
+    image: temporalio/auto-setup:1.27.2
+    container_name: sfai-temporal
+    profiles: ["workflow"]
+    restart: unless-stopped
+    depends_on:
+      temporal-postgres:
+        condition: service_healthy
+    environment:
+      DB: postgresql
+      DB_PORT: 5432
+      POSTGRES_SEEDS: temporal-postgres
+      POSTGRES_USER: ${TEMPORAL_POSTGRES_USER:-temporal}
+      POSTGRES_PWD: ${TEMPORAL_POSTGRES_PASSWORD:-temporal}
+      POSTGRES_DB: ${TEMPORAL_POSTGRES_DB:-temporal}
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development.yaml
+    ports:
+      - "7233:7233"
+
+  temporal-ui:
+    image: temporalio/ui:2.39.0
+    container_name: sfai-temporal-ui
+    profiles: ["workflow"]
+    restart: unless-stopped
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:8088
+    ports:
+      - "8088:8080"
 
   mcp-http:
     image: node:22-bookworm
@@ -159,3 +218,4 @@ volumes:
   grafana-data:
   ollama-data:
   postgres-data:
+  temporal-postgres-data:

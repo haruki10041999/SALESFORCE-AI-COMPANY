@@ -23,4 +23,19 @@ test("precommit guard detects raw email in config-like files", () => {
   assert.equal(findings.some((item: SensitiveDataFinding) => item.label === "email address"), true);
 });
 
+test("precommit guard ignores compose-style template secret values", () => {
+  const findings = scanTextForSensitiveData("POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-sfai}", "docker-compose.yml");
+  assert.equal(findings.length, 0);
+});
+
+test("precommit guard ignores test-key placeholders", () => {
+  const findings = scanTextForSensitiveData("apiKey: test-key", "tests/sample.test.ts");
+  assert.equal(findings.length, 0);
+});
+
+test("precommit guard ignores placeholder bearer token examples", () => {
+  const findings = scanTextForSensitiveData("authorization=Bearer eyJhbGciOiJIUzI1NiJ9...", "tests/sample.test.ts");
+  assert.equal(findings.length, 0);
+});
+
 

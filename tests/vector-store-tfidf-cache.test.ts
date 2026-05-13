@@ -4,14 +4,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { JsonlVectorStoreAdapter } from "../memory/adapters/jsonl-vector-store.js";
+import { JsonlVectorStoreAdapter } from "../mcp/core/memory/index.js";
 
 // Reach into the private cache for behavioral verification only.
 type AdapterInternals = {
-  records: import("../memory/vector-store-adapter.js").MemoryRecord[];
+  records: import("../mcp/core/memory/index.js").MemoryRecord[];
   embeddingProvider: {
     _peekCacheFingerprint?: (
-      records: import("../memory/vector-store-adapter.js").MemoryRecord[]
+      records: import("../mcp/core/memory/index.js").MemoryRecord[]
     ) => string | undefined;
   };
 };

@@ -18,7 +18,7 @@ const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9\-._~+/]{20,}=*\b/gi;
 const SECRET_TOKEN_PATTERN = /\b(?:sk_live|sk_test|sfdx_test|sfdx_prod)[_\-][A-Za-z0-9\-._]{16,}\b/g;
 const SALESFORCE_ID_PATTERN = /\b(?=[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?\b)(?=[A-Za-z0-9]*[A-Za-z])(?=[A-Za-z0-9]*\d)[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?\b/g;
 const KEY_VALUE_PATTERN = /(?:^|[\s{,])["']?([A-Z][A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD)|apiKey|api_key|accessToken|refreshToken|clientSecret|authorization|password|secret|token)["']?\s*[:=]\s*["']?([^"'\s,#\r\n]{8,})/gim;
-const PLACEHOLDER_PATTERN = /^(?:example|sample|dummy|changeme|replace[-_]?me(?:[-_].*)?|your[-_a-z]*|test|placeholder|local|localhost|none|null|false|sample-[a-z]+)$/i;
+const PLACEHOLDER_PATTERN = /^(?:example|sample|dummy|changeme|replace[-_]?me(?:[-_].*)?|your[-_a-z]*|test(?:[-_][a-z0-9._-]+)?|placeholder|local|localhost|none|null|false|sample-[a-z]+)$/i;
 
 function runCommand(command, args, cwd = repoRoot) {
   const result = spawnSync(command, args, { cwd, encoding: "utf-8", shell: true });
@@ -55,6 +55,16 @@ function isPlaceholderValue(value) {
   return PLACEHOLDER_PATTERN.test(value.trim());
 }
 
+function isTemplateExpression(value) {
+  const trimmed = value.trim();
+  return /^\$\{[A-Z][A-Z0-9_]*(?::-?[^}]+)?\}$/.test(trimmed);
+}
+
+function isPlaceholderBearerToken(value) {
+  const trimmed = value.trim();
+  return trimmed.includes("...");
+}
+
 // 代入の右辺がコード片（識別子参照・添字・関数呼び出しなど）に見える場合は秘匿情報ではないと判断
 function looksLikeCodeExpression(value) {
   const trimmed = value.trim().replace(/;$/, "");
@@ -69,15 +79,24 @@ export function scanTextForSensitiveData(content, filePath = "") {
   const findings = [];
 
   for (const match of content.matchAll(KEY_VALUE_PATTERN)) {
+    if ((match.index ?? 0) > 0 && content[(match.index ?? 0) - 1] === "$") {
+      continue;
+    }
     const keyName = match[1] ?? "credential";
     const value = match[2] ?? "";
     if (!value || isPlaceholderValue(value)) continue;
+    if (isTemplateExpression(value)) continue;
     if (looksLikeCodeExpression(value)) continue;
     findings.push({ type: "secret", label: `${keyName} assignment`, value });
   }
 
   for (const match of content.matchAll(BEARER_PATTERN)) {
-    findings.push({ type: "secret", label: "Bearer token", value: match[0] ?? "" });
+    const value = match[0] ?? "";
+    const start = match.index ?? 0;
+    const end = start + value.length;
+    const trailing = content.slice(end, end + 3);
+    if (isPlaceholderBearerToken(value) || trailing === "...") continue;
+    findings.push({ type: "secret", label: "Bearer token", value });
   }
 
   for (const match of content.matchAll(SECRET_TOKEN_PATTERN)) {

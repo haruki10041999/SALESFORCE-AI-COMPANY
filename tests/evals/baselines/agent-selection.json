@@ -1,0 +1,239 @@
+{
+  "suiteName": "agent-selection",
+  "runAt": "2026-05-13T08:47:27.206Z",
+  "totalCases": 4,
+  "passedCases": 4,
+  "failedCases": 0,
+  "skippedCases": 0,
+  "averageScore": 0.875,
+  "results": [
+    {
+      "name": "apex-developer-topic-match",
+      "group": "agent-selection",
+      "score": 0.5,
+      "passed": true,
+      "durationMs": 0,
+      "output": {
+        "topic": "Apex クラスのリファクタリング",
+        "ranked": [
+          {
+            "agent": "apex-developer",
+            "score": 12
+          },
+          {
+            "agent": "lwc-developer",
+            "score": 0
+          },
+          {
+            "agent": "flow-specialist",
+            "score": 0
+          },
+          {
+            "agent": "data-modeler",
+            "score": 0
+          },
+          {
+            "agent": "security-engineer",
+            "score": 0
+          },
+          {
+            "agent": "performance-engineer",
+            "score": 0
+          },
+          {
+            "agent": "refactor-specialist",
+            "score": 0
+          },
+          {
+            "agent": "architect",
+            "score": 0
+          },
+          {
+            "agent": "devops-engineer",
+            "score": 0
+          },
+          {
+            "agent": "qa-engineer",
+            "score": 0
+          },
+          {
+            "agent": "integration-developer",
+            "score": 0
+          }
+        ],
+        "topAgent": "apex-developer"
+      }
+    },
+    {
+      "name": "lwc-developer-topic-match",
+      "group": "agent-selection",
+      "score": 1,
+      "passed": true,
+      "durationMs": 1,
+      "output": {
+        "topic": "lwc developer performance optimization",
+        "ranked": [
+          {
+            "agent": "lwc-developer",
+            "score": 24
+          },
+          {
+            "agent": "apex-developer",
+            "score": 12
+          },
+          {
+            "agent": "performance-engineer",
+            "score": 12
+          },
+          {
+            "agent": "integration-developer",
+            "score": 12
+          },
+          {
+            "agent": "flow-specialist",
+            "score": 0
+          },
+          {
+            "agent": "data-modeler",
+            "score": 0
+          },
+          {
+            "agent": "security-engineer",
+            "score": 0
+          },
+          {
+            "agent": "refactor-specialist",
+            "score": 0
+          },
+          {
+            "agent": "architect",
+            "score": 0
+          },
+          {
+            "agent": "devops-engineer",
+            "score": 0
+          },
+          {
+            "agent": "qa-engineer",
+            "score": 0
+          }
+        ],
+        "topAgent": "lwc-developer"
+      }
+    },
+    {
+      "name": "security-review-topic",
+      "group": "agent-selection",
+      "score": 1,
+      "passed": true,
+      "durationMs": 1,
+      "output": {
+        "topic": "security engineer owasp review",
+        "ranked": [
+          {
+            "agent": "security-engineer",
+            "score": 24
+          },
+          {
+            "agent": "performance-engineer",
+            "score": 12
+          },
+          {
+            "agent": "devops-engineer",
+            "score": 12
+          },
+          {
+            "agent": "qa-engineer",
+            "score": 12
+          },
+          {
+            "agent": "apex-developer",
+            "score": 0
+          },
+          {
+            "agent": "lwc-developer",
+            "score": 0
+          },
+          {
+            "agent": "flow-specialist",
+            "score": 0
+          },
+          {
+            "agent": "data-modeler",
+            "score": 0
+          },
+          {
+            "agent": "refactor-specialist",
+            "score": 0
+          },
+          {
+            "agent": "architect",
+            "score": 0
+          },
+          {
+            "agent": "integration-developer",
+            "score": 0
+          }
+        ],
+        "topAgent": "security-engineer"
+      }
+    },
+    {
+      "name": "generic-topic",
+      "group": "agent-selection",
+      "score": 1,
+      "passed": true,
+      "durationMs": 1,
+      "output": {
+        "topic": "一般的な質問",
+        "ranked": [
+          {
+            "agent": "apex-developer",
+            "score": 0
+          },
+          {
+            "agent": "lwc-developer",
+            "score": 0
+          },
+          {
+            "agent": "flow-specialist",
+            "score": 0
+          },
+          {
+            "agent": "data-modeler",
+            "score": 0
+          },
+          {
+            "agent": "security-engineer",
+            "score": 0
+          },
+          {
+            "agent": "performance-engineer",
+            "score": 0
+          },
+          {
+            "agent": "refactor-specialist",
+            "score": 0
+          },
+          {
+            "agent": "architect",
+            "score": 0
+          },
+          {
+            "agent": "devops-engineer",
+            "score": 0
+          },
+          {
+            "agent": "qa-engineer",
+            "score": 0
+          },
+          {
+            "agent": "integration-developer",
+            "score": 0
+          }
+        ],
+        "topAgent": "apex-developer"
+      }
+    }
+  ]
+}

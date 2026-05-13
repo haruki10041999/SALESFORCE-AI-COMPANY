@@ -25,6 +25,10 @@ interface PromCounter {
   inc(labels: Record<string, string>, value?: number): void;
 }
 
+interface PromGauge {
+  set(labels: Record<string, string>, value: number): void;
+}
+
 interface PromHistogram {
   observe(labels: Record<string, string>, value: number): void;
 }
@@ -42,6 +46,11 @@ interface PromBundle {
   toolFailures: PromCounter;
   costUsdTotal: PromCounter;
   costBudgetExceededTotal: PromCounter;
+  quotaRemainingGauge: PromGauge;
+  traceSampledTotal: PromCounter;
+  traceDroppedTotal: PromCounter;
+  temporalWorkflowOperationsTotal: PromCounter;
+  temporalWorkflowFallbackTotal: PromCounter;
 }
 
 let bundle: PromBundle | null = null;
@@ -104,6 +113,12 @@ async function initBundle(): Promise<PromBundle | null> {
           buckets: number[];
           registers: PromRegistry[];
         }) => PromHistogram;
+        Gauge: new (cfg: {
+          name: string;
+          help: string;
+          labelNames: string[];
+          registers: PromRegistry[];
+        }) => PromGauge;
         collectDefaultMetrics: (cfg: { register: PromRegistry }) => void;
       };
 
@@ -142,8 +157,50 @@ async function initBundle(): Promise<PromBundle | null> {
         labelNames: ["actor", "tenant", "tool"],
         registers: [registry]
       });
+      const quotaRemainingGauge = new mod.Gauge({
+        name: "sfai_ai_quota_remaining",
+        help: "Remaining tenant quota for the active rate-limit window.",
+        labelNames: ["tenant"],
+        registers: [registry]
+      });
+      const traceSampledTotal = new mod.Counter({
+        name: "sfai_otel_traces_sampled_total",
+        help: "Total OpenTelemetry traces sampled and exported.",
+        labelNames: ["tool"],
+        registers: [registry]
+      });
+      const traceDroppedTotal = new mod.Counter({
+        name: "sfai_otel_traces_dropped_total",
+        help: "Total OpenTelemetry traces dropped due to sampling policy.",
+        labelNames: [],
+        registers: [registry]
+      });
+      const temporalWorkflowOperationsTotal = new mod.Counter({
+        name: "sfai_temporal_workflow_operations_total",
+        help: "Temporal workflow operation attempts grouped by operation and outcome.",
+        labelNames: ["operation", "outcome"],
+        registers: [registry]
+      });
+      const temporalWorkflowFallbackTotal = new mod.Counter({
+        name: "sfai_temporal_workflow_fallback_total",
+        help: "Temporal workflow fallback activations grouped by operation and reason.",
+        labelNames: ["operation", "reason"],
+        registers: [registry]
+      });
 
-      bundle = { registry, toolExec, toolDuration, toolFailures, costUsdTotal, costBudgetExceededTotal };
+      bundle = {
+        registry,
+        toolExec,
+        toolDuration,
+        toolFailures,
+        costUsdTotal,
+        costBudgetExceededTotal,
+        quotaRemainingGauge,
+        traceSampledTotal,
+        traceDroppedTotal,
+        temporalWorkflowOperationsTotal,
+        temporalWorkflowFallbackTotal
+      };
       return bundle;
     } catch (err) {
       logger.debug("prom-client not available, prometheus export disabled", err);
@@ -207,6 +264,69 @@ export function recordCostBudgetForPrometheus(metric: CostBudgetMetric): void {
       }
     } catch (err) {
       logger.debug("prometheus cost record failure", err);
+    }
+  });
+}
+
+export function recordQuotaRemainingForPrometheus(tenantId: string, remaining: number): void {
+  void initBundle().then((b) => {
+    if (!b) return;
+    try {
+      b.quotaRemainingGauge.set(
+        { tenant: labelGuards.tenant(tenantId && tenantId.length > 0 ? tenantId : "_none") },
+        Math.max(0, Number.isFinite(remaining) ? remaining : 0)
+      );
+    } catch (err) {
+      logger.debug("prometheus quota record failure", err);
+    }
+  });
+}
+
+/**
+ * Record OpenTelemetry trace sampling decision.
+ * Called when a trace is sampled (sampled=true) or dropped (sampled=false).
+ */
+export function recordTraceSamplingForPrometheus(toolName: string, sampled: boolean): void {
+  void initBundle().then((b) => {
+    if (!b) return;
+    try {
+      if (sampled) {
+        b.traceSampledTotal.inc({ tool: labelGuards.tool(toolName) }, 1);
+      } else {
+        b.traceDroppedTotal.inc({}, 1);
+      }
+    } catch (err) {
+      logger.debug("prometheus trace sampling record failure", err);
+    }
+  });
+}
+
+export function recordTemporalWorkflowOperationForPrometheus(metric: {
+  operation: string;
+  outcome: "success" | "fallback" | "unavailable" | "failed";
+  fallbackReason?: string;
+}): void {
+  void initBundle().then((b) => {
+    if (!b) return;
+    try {
+      b.temporalWorkflowOperationsTotal.inc(
+        {
+          operation: labelGuards.tool(metric.operation),
+          outcome: metric.outcome
+        },
+        1
+      );
+      if (metric.fallbackReason) {
+        b.temporalWorkflowFallbackTotal.inc(
+          {
+            operation: labelGuards.tool(metric.operation),
+            reason: labelGuards.errorCode(metric.fallbackReason)
+          },
+          1
+        );
+      }
+    } catch (err) {
+      logger.debug("prometheus temporal workflow record failure", err);
     }
   });
 }

@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PgvectorVectorStoreAdapter } from "../memory/adapters/pgvector-vector-store.js";
-import type { MemoryRecord } from "../memory/vector-store-adapter.js";
+import { PgvectorVectorStoreAdapter } from "../mcp/core/memory/index.js";
+import type { MemoryRecord } from "../mcp/core/memory/index.js";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const vectorFile = process.env.SF_AI_VECTOR_STORE_FILE ?? join(root, "outputs", "vector-store.jsonl");

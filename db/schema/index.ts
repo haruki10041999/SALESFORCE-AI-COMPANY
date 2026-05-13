@@ -4,6 +4,7 @@ export { costLedgerTable } from "./cost-ledger.js";
 export { governanceStateTable } from "./governance.js";
 export { knowledgeEntitiesTable, knowledgeRelationsTable } from "./knowledge-graph.js";
 export { memoryRecordsTable } from "./memory.js";
+export { tenantQuotaWindowsTable } from "./quota.js";
 export { orchestrationSessionsTable, orchestrationStepsTable, sessionStatusEnum, orchestrationStepStatusEnum } from "./orchestration.js";
 export { resourceProposalsTable } from "./proposals.js";
 export { toolExecutionsTable } from "./tool-executions.js";

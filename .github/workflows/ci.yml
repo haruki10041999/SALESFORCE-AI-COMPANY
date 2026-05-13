@@ -129,3 +129,38 @@ jobs:
           SF_AI_STATE_BACKEND: postgres
           DATABASE_URL: postgres://sfai:sfai@localhost:5432/sfai
         run: npm test -- tests/postgres-state-store.test.ts
+
+  temporal-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start Temporal workflow stack
+        run: docker compose --profile workflow up -d temporal-postgres temporal temporal-ui
+
+      - name: Run Temporal integration test
+        env:
+          SF_AI_TEMPORAL_INTEGRATION: "true"
+          SF_AI_TEMPORAL_ADDRESS: localhost:7233
+          SF_AI_TEMPORAL_NAMESPACE: default
+        run: node --import tsx --test tests/temporal-workflow.integration.test.ts
+
+      - name: Dump Temporal stack logs on failure
+        if: failure()
+        run: docker compose --profile workflow logs temporal-postgres temporal temporal-ui
+
+      - name: Stop Temporal workflow stack
+        if: always()
+        run: docker compose --profile workflow down -v

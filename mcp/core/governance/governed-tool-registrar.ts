@@ -18,6 +18,7 @@ import { authorizeToolExecution } from "../identity/rbac.js";
 import { evaluateExecutionPolicy, loadExecutionPolicy } from "./execution-policy.js";
 import { createPolicyGate, buildBlockedResponse } from "./policy-gate.js";
 import { CostBudgetManager, buildCostUsageFromInputOutput } from "./cost-budget.js";
+import type { CostLedgerPort } from "../ports/cost-ledger-port.js";
 import { isEnvFlagEnabled } from "../config/env-flags.js";
 import { getPrimaryModel, getReplayMode } from "../config/runtime-config.js";
 import { getGlobalToolRateLimiter, type ToolRateLimiter } from "../reliability/rate-limiter.js";
@@ -105,6 +106,7 @@ interface CreateGovernedToolRegistrarDeps {
   normalizeResourceName: (name: string) => string;
   outputsDir: string;
   databaseUrl?: string;
+  costLedger?: CostLedgerPort;
   serverRoot: string;
   emitSystemEvent: (event: string, payload: Record<string, unknown>) => Promise<void>;
   summarizeValue: (value: unknown, maxLength?: number) => string;
@@ -130,6 +132,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
     normalizeResourceName,
     outputsDir,
     databaseUrl,
+    costLedger,
     serverRoot,
     emitSystemEvent,
     summarizeValue,
@@ -194,6 +197,37 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
       });
     } catch {
       // audit logging failures should not block tool execution
+    }
+  }
+
+  async function recordCostLedger(input: {
+    toolName: string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    usdEstimate: number;
+    status: "success" | "error" | "blocked";
+    traceId: string;
+    reason?: string;
+  }): Promise<void> {
+    if (!costLedger) {
+      return;
+    }
+    try {
+      await costLedger.record({
+        toolName: input.toolName,
+        costUsd: input.usdEstimate,
+        inputTokens: input.inputTokens,
+        outputTokens: input.outputTokens,
+        actorId: currentActor().id,
+        tenantId: currentActor().tenantId,
+        traceId: input.traceId,
+        model: input.model,
+        status: input.status,
+        metadata: input.reason ? { reason: input.reason } : undefined
+      });
+    } catch {
+      // cost ledger failures must never block tool execution
     }
   }
 
@@ -409,20 +443,26 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
         tenantId: actor.tenantId ?? "global",
         toolName: normalizeResourceName(name)
       });
-      if (!rateLimitDecision.allowed) {
+      const resolvedRateLimitDecision = await rateLimitDecision;
+      if (typeof resolvedRateLimitDecision.remaining === "number") {
+        void import("../observability/prometheus-metrics.js")
+          .then((m) => m.recordQuotaRemainingForPrometheus(actor.tenantId ?? "global", resolvedRateLimitDecision.remaining ?? 0))
+          .catch(() => {});
+      }
+      if (!resolvedRateLimitDecision.allowed) {
         await emitSystemEvent("tool_after_execute", {
           toolName: name,
           traceId,
           success: false,
           blockedByRateLimit: true,
           code: "rate_limited",
-          scope: rateLimitDecision.scope,
-          retryAfterMs: rateLimitDecision.retryAfterMs
+          scope: resolvedRateLimitDecision.scope,
+          retryAfterMs: resolvedRateLimitDecision.retryAfterMs
         });
         endTrace(traceId, {
           blockedByRateLimit: true,
-          scope: rateLimitDecision.scope,
-          retryAfterMs: rateLimitDecision.retryAfterMs
+          scope: resolvedRateLimitDecision.scope,
+          retryAfterMs: resolvedRateLimitDecision.retryAfterMs
         });
         recordMetric({
           toolName: name,
@@ -435,11 +475,11 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
           toolName: name,
           traceId,
           status: "blocked-rate-limit",
-          scope: rateLimitDecision.scope,
-          key: rateLimitDecision.key,
-          limit: rateLimitDecision.limit,
-          remaining: rateLimitDecision.remaining,
-          retryAfterMs: rateLimitDecision.retryAfterMs,
+          scope: resolvedRateLimitDecision.scope,
+          key: resolvedRateLimitDecision.key,
+          limit: resolvedRateLimitDecision.limit,
+          remaining: resolvedRateLimitDecision.remaining,
+          retryAfterMs: resolvedRateLimitDecision.retryAfterMs,
           input: inputSummary
         });
         return {
@@ -451,11 +491,11 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
                   blocked: true,
                   code: "rate_limited",
                   httpStatus: 429,
-                  scope: rateLimitDecision.scope,
-                  key: rateLimitDecision.key,
-                  limit: rateLimitDecision.limit,
-                  remaining: rateLimitDecision.remaining,
-                  retryAfterMs: rateLimitDecision.retryAfterMs
+                  scope: resolvedRateLimitDecision.scope,
+                  key: resolvedRateLimitDecision.key,
+                  limit: resolvedRateLimitDecision.limit,
+                  remaining: resolvedRateLimitDecision.remaining,
+                  retryAfterMs: resolvedRateLimitDecision.retryAfterMs
                 },
                 null,
                 2
@@ -483,6 +523,16 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
         });
         if (!budgetCheck.allowed) {
           const usdEstimate = costBudget.estimateUsd(modelName, estimate.inputTokens, estimate.outputTokens);
+          await recordCostLedger({
+            toolName: name,
+            model: modelName,
+            inputTokens: estimate.inputTokens,
+            outputTokens: estimate.outputTokens,
+            usdEstimate,
+            status: "blocked",
+            traceId,
+            reason: budgetCheck.reason
+          });
           await costBudget.recordUsage({
             ts: new Date().toISOString(),
             toolName: name,
@@ -578,6 +628,15 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
               outputRatio: config.outputTokenRatio
             });
             const usdEstimate = costBudget.estimateUsd(modelName, usage.inputTokens, usage.outputTokens);
+            await recordCostLedger({
+              toolName: name,
+              model: modelName,
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              usdEstimate,
+              status: "success",
+              traceId
+            });
             await costBudget.recordUsage({
               ts: new Date().toISOString(),
               toolName: name,
@@ -674,6 +733,15 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
                 outputRatio: config.outputTokenRatio
               });
               const usdEstimate = costBudget.estimateUsd(modelName, usage.inputTokens, usage.outputTokens);
+              await recordCostLedger({
+                toolName: name,
+                model: modelName,
+                inputTokens: usage.inputTokens,
+                outputTokens: usage.outputTokens,
+                usdEstimate,
+                status: "error",
+                traceId
+              });
               await costBudget.recordUsage({
                 ts: new Date().toISOString(),
                 toolName: name,

@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "sf-ai": "scripts/sf-ai.cjs"
+  },
   "scripts": {
     "help": "node scripts/help.js",
     "init": "node scripts/init-config.js",
@@ -39,13 +42,16 @@
     "docs:error-codes": "tsx scripts/generate-error-codes-doc.ts",
     "docs:build": "npm run docs:tools && npm run docs:manifest && npm run docs:error-codes",
     "ai": "tsx scripts/ai.ts",
+    "eval:ci": "tsx scripts/eval-suite.ts --ci",
+    "eval:save-baseline": "tsx scripts/eval-suite.ts --save-baseline",
     "replay:session": "tsx scripts/replay-session.ts",
     "evals:run": "tsx scripts/evals-run.ts",
     "migrate:tenant-scope": "tsx scripts/migrate-tenant-scope.ts",
     "release:notes": "tsx scripts/release-notes.ts",
     "dr:drill": "tsx scripts/dr-drill.ts",
     "typecheck": "tsc --noEmit",
-    "audit:deps": "npm audit --audit-level=moderate"
+    "audit:deps": "npm audit --audit-level=moderate",
+    "sf-ai": "node scripts/sf-ai.cjs"
   },
   "dependencies": {
     "@apexdevtools/apex-parser": "^4.4.1",
@@ -60,6 +66,9 @@
     "@opentelemetry/exporter-trace-otlp-http": "^0.57.2",
     "@opentelemetry/instrumentation-pg": "^0.57.0",
     "@opentelemetry/sdk-node": "^0.57.2",
+    "@temporalio/client": "^1.17.0",
+    "@temporalio/worker": "^1.17.0",
+    "@temporalio/workflow": "^1.17.0",
     "ajv": "^8.20.0",
     "awilix": "^12.1.1",
     "chalk": "^5.6.2",
@@ -99,8 +108,8 @@
     "@types/pg": "^8.20.0",
     "@typescript-eslint/eslint-plugin": "^8.59.0",
     "@typescript-eslint/parser": "^8.59.0",
-    "drizzle-kit": "^0.31.10",
     "dependency-cruiser": "^16.10.4",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
     "fast-check": "^4.6.0",

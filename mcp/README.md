@@ -134,3 +134,32 @@ MCP サーバー起動時の流れ：
 - [GitHub Copilot Chat — MCP サーバーアーキテクチャ](../docs/system-architecture-with-uml.md)
 - [ツール一覧（自動生成）](../docs/resource-inventory.md)
 - [ハンドラー登録パターン](../docs/developer-guide.md)
+
+## Workflow (Phase2 POC)
+
+Temporal ベースの durable workflow POC を使う場合は、workflow profile を起動します。
+
+```bash
+docker compose --profile workflow up -d temporal-postgres temporal temporal-ui
+```
+
+MCP 側の `.env` では以下を設定します。
+
+```env
+SF_AI_WORKFLOW_ENGINE=temporal
+SF_AI_TEMPORAL_ADDRESS=localhost:7233
+SF_AI_TEMPORAL_NAMESPACE=default
+SF_AI_TEMPORAL_TASK_QUEUE=sfai-orchestration
+SF_AI_TEMPORAL_RUN_WORKER=true
+SF_AI_TEMPORAL_WORKFLOW_RETRY_MAX_ATTEMPTS=1
+SF_AI_TEMPORAL_ACTIVITY_TIMEOUT_SECONDS=60
+SF_AI_TEMPORAL_ACTIVITY_RETRY_MAX_ATTEMPTS=3
+SF_AI_TEMPORAL_ACTIVITY_RETRY_INITIAL_INTERVAL_MS=1000
+SF_AI_TEMPORAL_ACTIVITY_RETRY_BACKOFF_COEFFICIENT=2
+```
+
+現時点の POC 実装は fallback 委譲を含む段階的移行モードです。既存 in-process 動作を維持したまま、workflow runtime の切替経路を検証できます。
+`SF_AI_TEMPORAL_RUN_WORKER=true` を指定すると、MCP サーバープロセス内で Temporal worker も起動します。
+workflow 実行は `SF_AI_TEMPORAL_WORKFLOW_RETRY_MAX_ATTEMPTS`、activity 実行は `SF_AI_TEMPORAL_ACTIVITY_*` で retry / timeout を調整できます。
+
+実 Temporal 統合テストを回す場合は、workflow profile 起動後に `SF_AI_TEMPORAL_INTEGRATION=true` を付けて対象テストを実行します。

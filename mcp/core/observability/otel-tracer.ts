@@ -10,15 +10,20 @@
  *  - traceId は MCP 内部の活性 trace ID と OTel spanId を 1:1 でマップ
  *  - exporter 設定 (OTLP HTTP) は別 module で初期化される想定
  *    (本ファイルは tracer の取得とスパン制御のみに責務限定)
+ *  - PII redaction: 全 span attributes は自動的に redact (email/phone/token/SSN など)
  *
  * 環境変数:
  *  - OTEL_ENABLED=true で有効化 (既定 false)
  *  - OTEL_SERVICE_NAME=salesforce-ai-company (既定)
+ *  - OTEL_TRACES_SAMPLER_RATIO=0.1 (10% sampling, 既定)
+ *  - OTEL_PII_REDACTION_ENABLED=true (既定, PII redaction を有効化)
  */
 
 import { createLogger } from "../logging/logger.js";
 import { isEnvFlagEnabled } from "../config/env-flags.js";
 import { getOtelServiceName, getOtelTraceSampleRatio } from "../config/runtime-config.js";
+import { redactSpanAttributes } from "./pii-redactor.js";
+import { recordTraceSamplingForPrometheus } from "./prometheus-metrics.js";
 
 const logger = createLogger("OtelTracer");
 
@@ -94,17 +99,25 @@ async function getTracer(): Promise<OtelTracer | null> {
 
 /** トレース開始時に呼ぶ。span 起点を作成して内部マップへ記録 */
 export function notifyOtelTraceStart(traceId: string, toolName: string, attrs: Record<string, string | number | boolean> = {}): void {
-  if (!shouldSampleOtelTrace(traceId)) {
+  const shouldSample = shouldSampleOtelTrace(traceId);
+  
+  // Record sampling decision to Prometheus
+  recordTraceSamplingForPrometheus(toolName, shouldSample);
+  
+  if (!shouldSample) {
     return;
   }
   void getTracer().then((t) => {
     if (!t) return;
     try {
+      // Redact all attributes before setting on span
+      const redactedAttrs = redactSpanAttributes(attrs);
+      
       const span = t.startSpan(`tool.${toolName}`, {
         attributes: {
           "sfai.tool_name": toolName,
           "sfai.trace_id": traceId,
-          ...attrs
+          ...redactedAttrs
         }
       });
       activeSpans.set(traceId, span);
@@ -119,7 +132,9 @@ export function notifyOtelTraceEnd(traceId: string, attrs: Record<string, string
   const span = activeSpans.get(traceId);
   if (!span) return;
   try {
-    for (const [k, v] of Object.entries(attrs)) span.setAttribute(k, v);
+    // Redact all attributes before setting on span
+    const redactedAttrs = redactSpanAttributes(attrs);
+    for (const [k, v] of Object.entries(redactedAttrs)) span.setAttribute(k, v);
     if (api) span.setStatus({ code: api.SpanStatusCode.OK });
   } finally {
     span.end();

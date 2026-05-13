@@ -74,20 +74,30 @@ export async function persistInitialOrchestrationSession(args: {
   upsertSession: (session: OrchestrationSession) => Promise<unknown>;
   replaceQueue: (sessionId: string, queue: string[]) => Promise<unknown>;
   workflowEngine: {
-    enqueue(input: {
+    start(input: {
       sessionId: string;
       topic: string;
       agents: string[];
       turns?: number;
-    }): Promise<void>;
+    }): Promise<{
+      workflowId: string;
+      runId?: string;
+      sessionId: string;
+      mode: "in-process" | "temporal";
+    }>;
   };
   mode: "dag" | "linear";
-}): Promise<void> {
+}): Promise<{
+  workflowId: string;
+  runId?: string;
+  sessionId: string;
+  mode: "in-process" | "temporal";
+}> {
   args.setLiveSession(args.session.id, args.session);
   await args.upsertSession(args.session);
   await args.replaceQueue(args.session.id, args.session.queue);
 
-  await args.workflowEngine.enqueue({
+  return args.workflowEngine.start({
     sessionId: args.session.id,
     topic: args.session.topic,
     agents: args.session.queue,
@@ -103,6 +113,12 @@ export function buildOrchestrateChatResponse(args: {
   dagLayers: string[][];
   disabledSkills: string[];
   prompt: string;
+  workflowRun: {
+    workflowId: string;
+    runId?: string;
+    sessionId: string;
+    mode: "in-process" | "temporal";
+  };
 }): Record<string, unknown> {
   return {
     sessionId: args.sessionId,
@@ -116,6 +132,7 @@ export function buildOrchestrateChatResponse(args: {
       currentAgent: args.nextQueue[0] ?? null
     },
     triggerRuleCount: args.triggerRuleCount,
+    workflow: args.workflowRun,
     dagLayers: args.dagLayers.length > 0 ? args.dagLayers : undefined,
     disabledSkills: args.disabledSkills,
     prompt: args.prompt
@@ -150,12 +167,17 @@ export async function executeOrchestrateChatTool(args: {
   upsertSession: (session: OrchestrationSession) => Promise<unknown>;
   replaceQueue: (sessionId: string, queue: string[]) => Promise<unknown>;
   workflowEngine: {
-    enqueue(input: {
+    start(input: {
       sessionId: string;
       topic: string;
       agents: string[];
       turns?: number;
-    }): Promise<void>;
+    }): Promise<{
+      workflowId: string;
+      runId?: string;
+      sessionId: string;
+      mode: "in-process" | "temporal";
+    }>;
   };
   startTrace: (name: string, attrs?: Record<string, unknown>) => string;
   withPhase: <T>(
@@ -227,8 +249,8 @@ export async function executeOrchestrateChatTool(args: {
       dagLayers
     });
 
-    await args.withPhase(traceId, "render", async () => {
-      await persistInitialOrchestrationSession({
+    const workflowRun = await args.withPhase(traceId, "render", async () => {
+      return persistInitialOrchestrationSession({
         session,
         setLiveSession: args.setLiveSession,
         upsertSession: args.upsertSession,
@@ -236,7 +258,6 @@ export async function executeOrchestrateChatTool(args: {
         workflowEngine: args.workflowEngine,
         mode: orchestrationMode
       });
-      return true;
     });
 
     args.endTrace(traceId, { agentCount: selectedAgents.length });
@@ -245,6 +266,7 @@ export async function executeOrchestrateChatTool(args: {
       orchestrationMode,
       nextQueue: session.queue,
       triggerRuleCount: session.triggerRules.length,
+      workflowRun,
       dagLayers,
       disabledSkills,
       prompt

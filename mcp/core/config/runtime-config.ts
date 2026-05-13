@@ -66,6 +66,87 @@ export function getVectorBackend(defaultBackend = "tfidf"): string {
   return configured && configured.length > 0 ? configured : defaultBackend;
 }
 
+export function getWorkflowEngineMode(
+  defaultMode: "in-process" | "temporal" = "in-process",
+  env: NodeJS.ProcessEnv = process.env
+): "in-process" | "temporal" {
+  const configured = env.SF_AI_WORKFLOW_ENGINE?.trim().toLowerCase();
+  if (configured === "temporal") {
+    return "temporal";
+  }
+  if (configured === "in-process") {
+    return "in-process";
+  }
+  return defaultMode;
+}
+
+export function getTemporalAddress(
+  defaultAddress = "localhost:7233",
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  const configured = env.SF_AI_TEMPORAL_ADDRESS?.trim();
+  return configured && configured.length > 0 ? configured : defaultAddress;
+}
+
+export function getTemporalNamespace(
+  defaultNamespace = "default",
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  const configured = env.SF_AI_TEMPORAL_NAMESPACE?.trim();
+  return configured && configured.length > 0 ? configured : defaultNamespace;
+}
+
+export function getTemporalTaskQueue(
+  defaultTaskQueue = "sfai-orchestration",
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  const configured = env.SF_AI_TEMPORAL_TASK_QUEUE?.trim();
+  return configured && configured.length > 0 ? configured : defaultTaskQueue;
+}
+
+export function getTemporalRunWorkerEnabled(
+  defaultEnabled = false,
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  return parseBooleanEnv(env.SF_AI_TEMPORAL_RUN_WORKER, defaultEnabled);
+}
+
+export function getTemporalWorkflowRetryMaximumAttempts(
+  defaultAttempts = 1,
+  env: NodeJS.ProcessEnv = process.env
+): number {
+  return parsePositiveIntOrFallback(env.SF_AI_TEMPORAL_WORKFLOW_RETRY_MAX_ATTEMPTS, defaultAttempts);
+}
+
+export function getTemporalActivityTimeoutSeconds(
+  defaultSeconds = 60,
+  env: NodeJS.ProcessEnv = process.env
+): number {
+  return parsePositiveIntOrFallback(env.SF_AI_TEMPORAL_ACTIVITY_TIMEOUT_SECONDS, defaultSeconds);
+}
+
+export function getTemporalActivityRetryMaximumAttempts(
+  defaultAttempts = 3,
+  env: NodeJS.ProcessEnv = process.env
+): number {
+  return parsePositiveIntOrFallback(env.SF_AI_TEMPORAL_ACTIVITY_RETRY_MAX_ATTEMPTS, defaultAttempts);
+}
+
+export function getTemporalActivityRetryInitialIntervalMs(
+  defaultMs = 1000,
+  env: NodeJS.ProcessEnv = process.env
+): number {
+  return parsePositiveIntOrFallback(env.SF_AI_TEMPORAL_ACTIVITY_RETRY_INITIAL_INTERVAL_MS, defaultMs);
+}
+
+export function getTemporalActivityRetryBackoffCoefficient(
+  defaultCoefficient = 2,
+  env: NodeJS.ProcessEnv = process.env
+): number {
+  const parsed = Number.parseFloat(env.SF_AI_TEMPORAL_ACTIVITY_RETRY_BACKOFF_COEFFICIENT ?? "");
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultCoefficient;
+}
+
 export function getOllamaBaseUrl(): string | undefined {
   const configured = process.env.OLLAMA_BASE_URL?.trim();
   return configured && configured.length > 0 ? configured : undefined;
@@ -165,9 +246,58 @@ export function getOtelTraceSampleRatio(defaultRatio = 0.1): number {
   return parsed;
 }
 
+export function getOtelPiiRedactionEnabled(defaultEnabled = true): boolean {
+  return parseBooleanEnv(process.env.OTEL_PII_REDACTION_ENABLED, defaultEnabled);
+}
+
+export function getOtelPiiHashSeed(): string | undefined {
+  const seed = process.env.OTEL_PII_HASH_SEED?.trim();
+  return seed && seed.length > 0 ? seed : undefined;
+}
+
 export function getPrometheusMetricsPort(defaultPort = 0): number {
   const parsed = Number.parseInt(process.env.PROMETHEUS_METRICS_PORT ?? "", 10);
   return Number.isFinite(parsed) ? parsed : defaultPort;
+}
+
+export function getEmbeddingProviderType(
+  defaultProvider: "ollama" | "openai" | "cohere" | "ngram" = "ngram"
+): "ollama" | "openai" | "cohere" | "ngram" {
+  const provider = process.env.SF_AI_EMBEDDING_PROVIDER?.trim().toLowerCase();
+  if (provider === "openai" || provider === "cohere" || provider === "ollama" || provider === "ngram") {
+    return provider;
+  }
+  return defaultProvider;
+}
+
+export function getOpenAiApiKey(): string | undefined {
+  const key = process.env.OPENAI_API_KEY?.trim();
+  return key && key.length > 0 ? key : undefined;
+}
+
+export function getOpenAiEmbeddingModel(
+  defaultModel: "text-embedding-3-small" | "text-embedding-3-large" | "text-embedding-ada-002" = "text-embedding-3-small"
+): "text-embedding-3-small" | "text-embedding-3-large" | "text-embedding-ada-002" {
+  const model = process.env.OPENAI_EMBEDDING_MODEL?.trim();
+  if (model === "text-embedding-3-small" || model === "text-embedding-3-large" || model === "text-embedding-ada-002") {
+    return model;
+  }
+  return defaultModel;
+}
+
+export function getCohereApiKey(): string | undefined {
+  const key = process.env.COHERE_API_KEY?.trim();
+  return key && key.length > 0 ? key : undefined;
+}
+
+export function getCohereEmbeddingModel(
+  defaultModel: "embed-english-v3.0" | "embed-english-light-v3.0" = "embed-english-v3.0"
+): "embed-english-v3.0" | "embed-english-light-v3.0" {
+  const model = process.env.COHERE_EMBEDDING_MODEL?.trim();
+  if (model === "embed-english-v3.0" || model === "embed-english-light-v3.0") {
+    return model;
+  }
+  return defaultModel;
 }
 
 export function getNodeEnv(defaultEnv = "development"): string {
@@ -252,6 +382,14 @@ export function getAutoApplyMaxPerDay(defaultMax = 5): number {
 
 export function getAutoApplyMaxDeletions(defaultMax = 3): number {
   return parsePositiveIntOrFallback(process.env.SF_AI_AUTO_APPLY_MAX_DELETIONS, defaultMax);
+}
+
+function parsePositiveFloatOrFallback(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseFloat(value ?? "");
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
 }
 
 function parseRatio(value: string | undefined, fallback: number): number {
@@ -441,6 +579,22 @@ export function getAgentTrustThreshold(): number {
     process.env.AI_AGENT_TRUST_THRESHOLD ?? process.env.SF_AI_AGENT_TRUST_THRESHOLD,
     0.55
   );
+}
+
+export function getCriticJudgeTargetScore(defaultScore = 8.5): number {
+  return parsePositiveFloatOrFallback(process.env.SF_AI_CRITIC_JUDGE_TARGET_SCORE, defaultScore);
+}
+
+export function getCriticHeuristicTargetScore(defaultScore = 7): number {
+  return parsePositiveFloatOrFallback(process.env.SF_AI_CRITIC_HEURISTIC_TARGET_SCORE, defaultScore);
+}
+
+export function getCriticProposalScoreThreshold(defaultScore = 6): number {
+  return parsePositiveFloatOrFallback(process.env.SF_AI_CRITIC_PROPOSAL_SCORE_THRESHOLD, defaultScore);
+}
+
+export function getCriticMinImprovementThreshold(defaultImprovement = 0.2): number {
+  return parsePositiveFloatOrFallback(process.env.SF_AI_CRITIC_MIN_IMPROVEMENT_THRESHOLD, defaultImprovement);
 }
 
 export function getResourceScoringOverrideByAgent(): ResourceScoringOverrideByAgent {

@@ -4,6 +4,8 @@ import { resolveRuntimeProfile } from "./core/config/runtime-profile.js";
 const stateBackendSchema = z.enum(["sqlite", "postgres", "memory"]);
 const proposalQueueBackendSchema = z.enum(["file", "pg-boss", "memory"]);
 const vectorBackendSchema = z.enum(["tfidf", "pgvector", "memory"]);
+const workflowEngineSchema = z.enum(["in-process", "temporal"]);
+const embeddingProviderSchema = z.enum(["ollama", "openai", "cohere", "ngram"]);
 const eventBusBackendSchema = z.enum(["in-memory", "postgres-notify", "redis-streams"]);
 const secretBackendSchema = z.enum(["env", "file", "vault", "aws-sm"]);
 const mcpTransportSchema = z.enum(["stdio", "http"]);
@@ -33,10 +35,30 @@ const envSchema = z
     SF_AI_STATE_BACKEND: stateBackendSchema.optional(),
     SF_AI_PROPOSAL_QUEUE_BACKEND: proposalQueueBackendSchema.optional(),
     SF_AI_VECTOR_BACKEND: vectorBackendSchema.optional(),
+    SF_AI_WORKFLOW_ENGINE: workflowEngineSchema.optional(),
+    SF_AI_TEMPORAL_ADDRESS: optionalNonEmptyString(),
+    SF_AI_TEMPORAL_NAMESPACE: optionalNonEmptyString(),
+    SF_AI_TEMPORAL_TASK_QUEUE: optionalNonEmptyString(),
+    SF_AI_TEMPORAL_RUN_WORKER: z.enum(["true", "false", "1", "0"]).optional(),
+    SF_AI_TEMPORAL_WORKFLOW_RETRY_MAX_ATTEMPTS: optionalNonEmptyString(),
+    SF_AI_TEMPORAL_ACTIVITY_TIMEOUT_SECONDS: optionalNonEmptyString(),
+    SF_AI_TEMPORAL_ACTIVITY_RETRY_MAX_ATTEMPTS: optionalNonEmptyString(),
+    SF_AI_TEMPORAL_ACTIVITY_RETRY_INITIAL_INTERVAL_MS: optionalNonEmptyString(),
+    SF_AI_TEMPORAL_ACTIVITY_RETRY_BACKOFF_COEFFICIENT: optionalNonEmptyString(),
+    SF_AI_EMBEDDING_PROVIDER: embeddingProviderSchema.optional(),
+    SF_AI_CRITIC_JUDGE_TARGET_SCORE: optionalNonEmptyString(),
+    SF_AI_CRITIC_HEURISTIC_TARGET_SCORE: optionalNonEmptyString(),
+    SF_AI_CRITIC_PROPOSAL_SCORE_THRESHOLD: optionalNonEmptyString(),
+    SF_AI_CRITIC_MIN_IMPROVEMENT_THRESHOLD: optionalNonEmptyString(),
     SF_AI_EVENT_BUS_BACKEND: eventBusBackendSchema.optional(),
     SF_AI_EVENT_BUS_REDIS_URL: optionalNonEmptyString(),
     SF_AI_EVENT_BUS_STREAM_KEY: optionalNonEmptyString(),
     SF_AI_SECRET_BACKEND: secretBackendSchema.optional(),
+    // Embedding API keys
+    OPENAI_API_KEY: optionalNonEmptyString(),
+    OPENAI_EMBEDDING_MODEL: optionalNonEmptyString(),
+    COHERE_API_KEY: optionalNonEmptyString(),
+    COHERE_EMBEDDING_MODEL: optionalNonEmptyString(),
     MCP_TRANSPORT: mcpTransportSchema.optional(),
     MCP_HTTP_HOST: optionalNonEmptyString(),
     MCP_HTTP_PORT: optionalNonEmptyString(),
@@ -44,6 +66,12 @@ const envSchema = z
     MCP_HTTP_RATE_LIMIT_PER_MIN: optionalNonEmptyString(),
     SF_AI_PROFILE_STRICT: z.enum(["true", "false", "1", "0"]).optional(),
     SF_AI_DOTENV_DISABLE: z.enum(["1", "0"]).optional(),
+    // Observability: OpenTelemetry
+    OTEL_ENABLED: z.enum(["true", "false", "1", "0"]).optional(),
+    OTEL_SERVICE_NAME: optionalNonEmptyString(),
+    OTEL_EXPORTER_OTLP_ENDPOINT: optionalNonEmptyString(),
+    OTEL_TRACES_SAMPLER_RATIO: optionalNonEmptyString(), // 0.0-1.0, default 0.1 (10%)
+    OTEL_PII_REDACTION_ENABLED: z.enum(["true", "false", "1", "0"]).optional(), // default: true
     DATABASE_URL: optionalNonEmptyString(),
     SF_AI_VAULT_ADDR: optionalNonEmptyString(),
     SF_AI_VAULT_AUTH_VALUE: optionalNonEmptyString(),
