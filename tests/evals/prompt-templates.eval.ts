@@ -5,7 +5,7 @@
  */
 
 import type { EvalCase } from "../../mcp/core/learning/eval-harness.js";
-import { evaluatePromptMetrics } from "../../prompt-engine/prompt-evaluator.js";
+import { evaluatePromptMetrics } from "../../mcp/core/prompt/prompt-evaluator.js";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";

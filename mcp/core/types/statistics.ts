@@ -1,7 +1,60 @@
-import type { CreatedResourceTracker } from "../../handlers/resource/resource-created.handler.js";
-import type { DeletedResourceTracker } from "../../handlers/resource/resource-deleted.handler.js";
-import type { ErrorAggregateTracker } from "../../handlers/governance/error-aggregate.handler.js";
-import type { QualityCheckFailureTracker } from "../../handlers/governance/quality-check-failed.handler.js";
+export interface CreatedResourceTracker {
+  totalCreated: number;
+  createdByType: Record<"skills" | "tools" | "presets", number>;
+  createdBySource: Record<string, number>;
+  lastCreatedResources: Array<{
+    resourceType: string;
+    name: string;
+    timestamp: string;
+    source?: string;
+  }>;
+}
+
+export interface DeletedResourceRecord {
+  resourceType: "skills" | "tools" | "presets";
+  name: string;
+  timestamp: string;
+  reason?: string;
+}
+
+export interface DeletedResourceTracker {
+  deletedResources: DeletedResourceRecord[];
+  deletedByType: Record<"skills" | "tools" | "presets", number>;
+  deletionHistory: Array<{
+    date: string;
+    count: number;
+  }>;
+}
+
+export interface ToolErrorRecord {
+  toolName: string;
+  errorCount: number;
+  lastError?: string;
+  lastErrorTime?: string;
+  errorHistory: Array<{
+    error: string;
+    timestamp: string;
+  }>;
+}
+
+export interface ErrorAggregateTracker {
+  toolErrors: Map<string, ToolErrorRecord>;
+  aggregateWindow: number;
+  aggregateThreshold: number;
+}
+
+export interface QualityFailureRecord {
+  resourceType: "skills" | "tools" | "presets";
+  resourceName: string;
+  errors: string[];
+  timestamp: string;
+}
+
+export interface QualityCheckFailureTracker {
+  failures: QualityFailureRecord[];
+  failuresByResource: Map<string, number>;
+  failuresByType: Record<"skills" | "tools" | "presets", number>;
+}
 
 /**
  * Handlers dashboard state

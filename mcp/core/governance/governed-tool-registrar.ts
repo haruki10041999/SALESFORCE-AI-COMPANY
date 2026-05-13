@@ -1,4 +1,6 @@
-﻿import type { GovToolConfig, GovToolHandler, RegisterToolFn } from "@mcp/tool-types.js";
+﻿import { z } from "zod";
+import type { ZodTypeAny } from "zod";
+import type { GovToolConfig, GovToolHandler, RegisterToolFn } from "@mcp/tool-types.js";
 import type { BanditState } from "../learning/rl-feedback.js";
 import { saveBanditState } from "../learning/rl-feedback.js";
 import { isRetryableByCode, isRetryableError } from "../errors/tool-error.js";
@@ -10,7 +12,7 @@ import { addRecord as addVectorRecord } from "../../../memory/vector-store.js";
 import { buildProgressBanner } from "../progress/progress-formatter.js";
 import { defineTool, type ToolDefinition } from "../registry/define-tool.js";
 import { PostgresRuntimeLogStore } from "../persistence/postgres-runtime-log-store.js";
-import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
+import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
 import { appendExecutionOrigin, buildExecutionOriginRecord } from "./outputs-origin.js";
 import { authorizeToolExecution } from "../identity/rbac.js";
 import { evaluateExecutionPolicy, loadExecutionPolicy } from "./execution-policy.js";
@@ -26,6 +28,7 @@ import {
 } from "../identity/actor.js";
 import { resolveActorFromOidcInput } from "../identity/oidc-verifier.js";
 import { currentActor, runWithActorContext } from "../identity/actor-context.js";
+import { buildTraceparentFromTraceId, runWithTraceContext } from "../trace/trace-context.js";
 
 const PROGRESS_BANNER_SKIP_TOOLS = new Set([
   // 進捗表示の意味が薄い軽量ツール (応答が JSON のみで構造化されているもの含む)
@@ -141,10 +144,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
   const runtimeStorePromise = databaseUrl
     ? PostgresRuntimeLogStore.open({ databaseUrl }).catch(() => null)
     : Promise.resolve(null);
-  const artifactWriter = new OutputsArtifactWriter({
-    outputsDir,
-    databaseUrl
-  });
+  const outputsPort = new LocalOutputsAdapter({ outputsDir });
   const toolRecorder = new ToolExecutionRecorder({
     outputsDir,
     databaseUrl
@@ -186,13 +186,12 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
       ...entry
     };
     try {
-      await artifactWriter.appendAuditArtifact(
-        "tool_execution",
-        "tools",
-        record,
-        new Date().toISOString(),
-        "audit/tool-executions.jsonl"
-      );
+      await outputsPort.appendEvent("audit/tool-executions.jsonl", {
+        recordedAt: new Date().toISOString(),
+        eventType: "tool_execution",
+        resourceType: "tools",
+        ...record
+      });
     } catch {
       // audit logging failures should not block tool execution
     }
@@ -221,6 +220,16 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
       && "_def" in value;
   }
 
+  /**
+   * dict-of-Zod: { field: z.string(), ... } パターンを検出する。
+   * 全エントリが Zod スキーマの場合 true を返す。
+   */
+  function isDictOfZod(value: unknown): value is Record<string, ZodTypeAny> {
+    if (typeof value !== "object" || value === null) return false;
+    const entries = Object.entries(value as Record<string, unknown>);
+    return entries.length > 0 && entries.every(([, v]) => isZodSchema(v));
+  }
+
   function govTool<TInput = unknown>(name: string, config: GovToolConfig, handler: GovToolHandler<TInput>): void {
     const rawSchema = config.inputSchema;
     const toolDefinition = defineTool({
@@ -229,8 +238,10 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
       description: config.description,
       tags: config.tags,
       ...(isZodSchema(rawSchema)
-        ? { inputSchemaZod: rawSchema as unknown as import("zod").ZodTypeAny }
-        : (typeof rawSchema === "object" && rawSchema !== null ? { inputSchema: rawSchema as Record<string, unknown> } : {}))
+        ? { inputSchemaZod: rawSchema as unknown as ZodTypeAny }
+        : isDictOfZod(rawSchema)
+          ? { inputSchemaZod: z.object(rawSchema) }
+          : (typeof rawSchema === "object" && rawSchema !== null ? { inputSchema: rawSchema as Record<string, unknown> } : {}))
     });
     onToolDefined?.(toolDefinition);
 
@@ -248,6 +259,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
       const startedAt = new Date();
       const inputSummary = summarizeValue(input);
       const traceId = startTrace(name, { input: inputSummary });
+      const traceparent = buildTraceparentFromTraceId(traceId);
       const sessionId = typeof (input as { sessionId?: unknown } | null | undefined)?.sessionId === "string"
         ? (input as { sessionId: string }).sessionId
         : undefined;
@@ -262,6 +274,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
         input: inputSummary
       });
 
+      return runWithTraceContext({ traceId, traceparent }, async () => {
       const access = await authorizeToolExecution(actor, normalizeResourceName(name), serverRoot);
       if (!access.allowed) {
         await emitSystemEvent("tool_after_execute", {
@@ -739,6 +752,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
           attempt += 1;
         }
       }
+      });
       });
     });
   }

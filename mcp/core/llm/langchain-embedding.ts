@@ -11,6 +11,7 @@ export interface LangChainEmbeddingProviderOptions {
 
 export class LangChainEmbeddingProvider implements VectorEmbeddingProvider {
   readonly name = "ollama" as const;
+  readonly profileId: string;
   dimension = -1;
 
   private readonly embeddings: OllamaEmbeddings;
@@ -27,8 +28,10 @@ export class LangChainEmbeddingProvider implements VectorEmbeddingProvider {
   });
 
   constructor(options: LangChainEmbeddingProviderOptions = {}) {
+    const model = options.model ?? getLangChainEmbeddingModel("nomic-embed-text");
+    this.profileId = `langchain:${model}`;
     this.embeddings = new OllamaEmbeddings({
-      model: options.model ?? getLangChainEmbeddingModel("nomic-embed-text"),
+      model,
       baseUrl: options.baseUrl ?? getOllamaBaseUrl()
     });
   }

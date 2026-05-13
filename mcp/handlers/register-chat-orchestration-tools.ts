@@ -2,9 +2,9 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { TriggerRule, AgentMessage, OrchestrationSession } from "../core/types/index.js";
 import type { SessionStore } from "../core/persistence/session-store.js";
-import type { OrchestrationQueueStore } from "../core/orchestration/orchestration-queue-store.js";
-import type { OrchestrationJobRunner } from "../core/orchestration/job-runner.js";
-import type { PolicySnapshotManager } from "../core/learning/policy-snapshot.js";
+import type { OrchestrationQueueStore } from "../infrastructure/workflow/orchestration-queue-store.js";
+import type { OrchestrationJobRunner } from "../infrastructure/workflow/orchestration-job-runner.js";
+import type { WorkflowEngine } from "../core/ports/workflow-engine.js";
 import type { RegisterGovToolDeps } from "./types.js";
 import { defineChatTool } from "./core-chat-basic/chat.js";
 import { defineSimulateChatTool } from "./core-chat-basic/simulate-chat.js";
@@ -51,7 +51,12 @@ interface RegisterChatOrchestrationToolsDeps extends RegisterGovToolDeps {
   sessionStore: SessionStore;
   orchestrationQueueStore: OrchestrationQueueStore;
   orchestrationJobRunner: OrchestrationJobRunner;
-  policySnapshotManager?: PolicySnapshotManager;
+  workflowEngine: WorkflowEngine;
+  policySnapshotManager?: {
+    current?: { version: number } | null;
+    isLive?: boolean;
+    reputationScores?: (agents: string[], topic: string) => Map<string, number>;
+  };
   saveSessionHistory: (topic: string, entries: AgentMessage[]) => Promise<string>;
   onSessionCompleted?: (input: {
     sessionId: string;
@@ -74,6 +79,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     sessionStore,
     orchestrationQueueStore,
     orchestrationJobRunner,
+    workflowEngine,
     policySnapshotManager,
     saveSessionHistory,
     onSessionCompleted,
@@ -109,6 +115,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     sessionStore,
     orchestrationQueueStore,
     orchestrationJobRunner,
+    workflowEngine,
     liveSessionCache
   });
   defineEvaluateTriggersTool({
@@ -119,6 +126,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     sessionStore,
     orchestrationQueueStore,
     orchestrationJobRunner,
+    workflowEngine,
     getSessionOrRestore
   });
   defineDequeueNextAgentTool({
@@ -126,6 +134,7 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
     sessionStore,
     orchestrationQueueStore,
     orchestrationJobRunner,
+    workflowEngine,
     policySnapshotManager,
     saveSessionHistory,
     onSessionCompleted,

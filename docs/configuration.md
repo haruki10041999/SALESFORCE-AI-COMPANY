@@ -77,6 +77,47 @@ Get-Content env.profiles/prod.overlay | Add-Content .env
 - 旧 `../.env.sample` / `../.env.local.sample` / `../.env.operations.sample` は移行期間中の互換サンプルです
 - `SF_AI_ENV_VALIDATE=true`（既定）で起動時に env schema 検証を実施し、明らかな設定不備を fail-fast します
 
+## MCP transport
+
+`MCP_TRANSPORT` を切り替えると、stdio と HTTP の transport を選べます。
+
+| 変数名 | 何に使うか | 既定値 |
+|---|---|---|
+| `MCP_TRANSPORT` | MCP transport の種類（`stdio` / `http`） | `stdio` |
+| `MCP_HTTP_HOST` | HTTP transport の待受ホスト | `127.0.0.1` |
+| `MCP_HTTP_PORT` | HTTP transport の待受ポート | `3800` |
+| `MCP_HTTP_CORS_ORIGIN` | HTTP transport の CORS 許可オリジン | `*` |
+| `MCP_HTTP_RATE_LIMIT_PER_MIN` | クライアント単位の 1 分あたりリクエスト上限 | `120` |
+
+補足:
+
+- HTTP transport を使う場合は `MCP_TRANSPORT=http` を設定します
+- セッション ID は `mcp-session-id` ヘッダで維持されます
+
+## Event bus
+
+| 変数名 | 何に使うか | 既定値 |
+|---|---|---|
+| `SF_AI_EVENT_BUS_BACKEND` | イベントバス実装（`in-memory` / `postgres-notify` / `redis-streams`） | `in-memory` |
+| `SF_AI_EVENT_BUS_REDIS_URL` | `redis-streams` 利用時の Redis 接続先 | 未設定 |
+| `SF_AI_EVENT_BUS_STREAM_KEY` | Redis Streams のキー名 | `sfai_event_bus_stream` |
+
+補足:
+
+- `postgres-notify` は `DATABASE_URL` を使います
+- `redis-streams` は trace context（`traceId` / `traceparent`）を message に含めて伝播します
+
+## Observability / trace
+
+| 変数名 | 何に使うか | 既定値 |
+|---|---|---|
+| `OTEL_TRACES_SAMPLER_RATIO` | trace の deterministic sampling 比率（0.0〜1.0） | `0.1` |
+
+補足:
+
+- 低い比率にすると trace コストは下がりますが、詳細追跡性も下がります
+- `OTEL_ENABLED=true` と組み合わせて利用します
+
 ### profile固定 (T-26)
 
 `SF_AI_PROFILE` を設定すると backend switcher をプロファイル値に固定します。
@@ -249,6 +290,10 @@ Get-Content env.profiles/prod.overlay | Add-Content .env
 | `DATABASE_URL` | Postgres 接続文字列（`STATE_BACKEND=postgres` または `PROPOSAL_QUEUE_BACKEND=pg-boss` 時） | 未設定 |
 | `SF_AI_DB_URL_PRIMARY` | Postgres の primary 接続先。設定時は `DATABASE_URL` より優先して write/read の基準になる | 未設定 |
 | `SF_AI_DB_URL_REPLICA` | Postgres の replica 接続先。設定時は read 用コネクションとして利用（未設定時は primary を利用） | 未設定 |
+| `SF_AI_DR_DRILL_EXECUTE` | `dr:drill` を本実行モードにする補助フラグ | `false` |
+| `SF_AI_DR_PROMOTE_COMMAND` | DR drill 時の promote コマンド | 未設定 |
+| `SF_AI_DR_DNS_COMMAND` | DR drill 時の DNS 切替コマンド | 未設定 |
+| `SF_AI_DR_ROLLBACK_COMMAND` | DR drill 失敗時の rollback コマンド | 未設定 |
 | `DATABASE_POOL_SIZE` | Postgres コネクションプール数 | `10` |
 | `DATABASE_POOL_IDLE_TIMEOUT_MS` | アイドル接続のタイムアウト（ミリ秒） | `30000` |
 | `CLEANUP_SCHEDULER_QUEUE` | pg-boss recurring job 用のキュー名 | `governance-auto-cleanup` |

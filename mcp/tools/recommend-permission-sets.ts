@@ -6,8 +6,8 @@ import {
   type PermissionSetCapabilities
 } from "./permission-set-analyzer.js";
 import { diffPermissionSet, type PermissionSetDiffResult } from "./permission-set-diff.js";
-import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
-import { getOutputsDir, getPrimaryDatabaseUrl } from "../core/config/runtime-config.js";
+import { LocalOutputsAdapter } from "../infrastructure/outputs/local-outputs-adapter.js";
+import { getOutputsDir } from "../core/config/runtime-config.js";
 
 export type PermissionUsageSignals = {
   objects?: string[];
@@ -230,10 +230,7 @@ function buildMarkdown(result: RecommendPermissionSetsResult): string {
 
 export async function recommendPermissionSets(input: RecommendPermissionSetsInput): Promise<RecommendPermissionSetsResult> {
   const runtimeOutputsDir = resolve(getOutputsDir());
-  const artifactWriter = new OutputsArtifactWriter({
-    outputsDir: runtimeOutputsDir,
-    databaseUrl: getPrimaryDatabaseUrl()
-  });
+  const outputsPort = new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir });
   if (!Array.isArray(input.permissionSetFiles) || input.permissionSetFiles.length === 0) {
     throw new Error("permissionSetFiles must include at least one file path");
   }
@@ -367,9 +364,13 @@ export async function recommendPermissionSets(input: RecommendPermissionSetsInpu
     const reportRelativeDir = relative(runtimeOutputsDir, reportDir);
     const useArtifactWriter = reportRelativeDir.length > 0 && !reportRelativeDir.startsWith("..") && !isAbsolute(reportRelativeDir);
     if (useArtifactWriter) {
-      await artifactWriter.appendJsonl(join(reportRelativeDir, "runs.jsonl"), result);
-      await artifactWriter.writeJson(join(reportRelativeDir, "latest.json"), result);
-      await artifactWriter.writeText(join(reportRelativeDir, "latest.md"), buildMarkdown(result));
+      await outputsPort.appendEvent(join(reportRelativeDir, "runs.jsonl"), result);
+      await outputsPort.writeArtifact(join(reportRelativeDir, "latest.json"), `${JSON.stringify(result, null, 2)}\n`, {
+        contentType: "application/json"
+      });
+      await outputsPort.writeArtifact(join(reportRelativeDir, "latest.md"), buildMarkdown(result), {
+        contentType: "text/markdown"
+      });
     } else {
       await fsPromises.mkdir(reportDir, { recursive: true });
       await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");

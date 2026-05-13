@@ -1,6 +1,6 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
-import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
+import { LocalOutputsAdapter } from "../infrastructure/outputs/local-outputs-adapter.js";
 
 type ResourceType = "skills" | "agents" | "personas" | "presets";
 
@@ -237,10 +237,7 @@ export async function buildResourceDependencyGraph(
   const runtimeOutputsDir = process.env.SF_AI_OUTPUTS_DIR
     ? resolve(process.env.SF_AI_OUTPUTS_DIR)
     : resolve("outputs");
-  const artifactWriter = new OutputsArtifactWriter({
-    outputsDir: runtimeOutputsDir,
-    databaseUrl: process.env.DATABASE_URL
-  });
+  const outputsPort = new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir });
   const includeTypes = new Set<ResourceType>(input.includeTypes ?? ["skills", "agents", "personas", "presets"]);
   const includeIsolated = input.includeIsolated !== false;
   const maxImpacts = Number.isFinite(input.maxImpacts) ? Math.max(1, Math.floor(input.maxImpacts ?? 50)) : 50;
@@ -426,8 +423,12 @@ export async function buildResourceDependencyGraph(
     const reportRelativeDir = relative(runtimeOutputsDir, reportDir);
     const useArtifactWriter = reportRelativeDir.length > 0 && !reportRelativeDir.startsWith("..") && !isAbsolute(reportRelativeDir);
     if (useArtifactWriter) {
-      await artifactWriter.writeJson(join(reportRelativeDir, basename(reportJsonPath)), result);
-      await artifactWriter.writeText(join(reportRelativeDir, basename(reportMarkdownPath)), markdown);
+      await outputsPort.writeArtifact(join(reportRelativeDir, basename(reportJsonPath)), `${JSON.stringify(result, null, 2)}\n`, {
+        contentType: "application/json"
+      });
+      await outputsPort.writeArtifact(join(reportRelativeDir, basename(reportMarkdownPath)), markdown, {
+        contentType: "text/markdown"
+      });
     } else {
       await fsPromises.mkdir(reportDir, { recursive: true });
       await fsPromises.writeFile(reportJsonPath, JSON.stringify(result, null, 2), "utf-8");

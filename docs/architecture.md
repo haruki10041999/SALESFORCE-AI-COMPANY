@@ -29,6 +29,8 @@ Salesforce 開発業務を対象に、MCP サーバとして次の機能を提�
 - `mcp/server.ts`
   - MCP サーバのエントリポイント
   - 各 register モジュールを呼び出してツール登録
+- `mcp/transport.ts` / `mcp/transport-http.ts`
+  - stdio / HTTP の MCP transport 切り替えとセッション管理
 
 ### Handler Layer
 
@@ -49,9 +51,11 @@ Salesforce 開発業務を対象に、MCP サーバとして次の機能を提�
   - `quality/`: zod を使った検証 / `agent-trust-score` (synergy bonus 対応) / `scan-exclusions` (`.sf` / `.sfdx` / `node_modules` 等の走査除外を集中管理)
   - `resource/`: リソース選択・提案・スコアリング / `embedding-ranker` (n-gram cosine hybrid) / `synergy-model` / `query-intent-classifier` / `usage-pattern` / `cascading-delete` / `cleanup-scheduler` / `feedback-loop-visualization` (rejectReason 分布・heatmap・トレンド)
   - `governance/`: しきい値、上限、disable 状態管理 / `defaults` (既定値の一元管理) / `governance-ui` (HTML/Markdown レンダラ) / `handler-schedule` (allow/deny + wrap-around 時間帯)
-  - `event/`: イベント発火と履歴管理
+  - `event/`: イベント発火と履歴管理 / `postgres-notify` / `redis-streams` backend / trace 伝播
   - `trace/`: トレース文脈管理 (`startPhase`/`endPhase`/`withPhase` で input/plan/execute/render を計測)
   - `learning/`: `rl-feedback` (Thompson sampling bandit) / `model-registry` (shadow/promote/rollback) / `model-arbitration` (shadow vs production アービトレーション) / `agent-graph-learner` (agent sequence learning)
+  - `ports/`: `WorkflowEngine` / `OutputsPort` などの境界契約
+  - `infrastructure/workflow/`: in-process workflow engine と queue/runner 実装
   - `observability/`: `runtime.ts` (OTel SDK + Prometheus exporter / LangSmith auto-toggle) / `dashboard` (HTML/Markdown/JSON 出力) / `dashboard-drill-down` (filter / 5 秒窓相関)
   - `context/`: `persona-style-registry` / `prompt-cache-persistence` / `context-budget` (tokens × priority カット) / `prompt-rendering`
   - `errors/`: `messages` (errorCode テーブル) と `i18n/` ロケール辞書による多言語化
@@ -63,8 +67,11 @@ Salesforce 開発業務を対象に、MCP サーバとして次の機能を提�
 
 - `agents/`, `skills/`, `personas/`, `context/`
   - プロンプト生成時に参照する定義群
+- `mcp/core/prompt/`
+  - プロンプト組み立て、評価、レビュー補助の本体
 - `prompt-engine/`
-  - プロンプト組み立て、評価、レビュー補助
+  - 後方互換の再エクスポート層
+  - 新規実装は `mcp/core/prompt/` を参照する
 
 ### Persistence Layer
 
@@ -101,7 +108,7 @@ Salesforce 開発業務を対象に、MCP サーバとして次の機能を提�
 ### Smart Chat
 
 1. `smart_chat` が topic から関連ファイル・リソース候補を抽出
-2. prompt-engine がコンテキストを統合してプロンプト生成
+2. `mcp/core/prompt/` と `mcp/core/context/` がコンテキストを統合してプロンプト生成
 3. エージェント構成で応答を作成
 4. 必要に応じてログ・履歴へ記録
 
@@ -119,6 +126,13 @@ Salesforce 開発業務を対象に、MCP サーバとして次の機能を提�
 2. `dequeue_next_agent` で担当エージェントを順次取得
 3. `evaluate_triggers` でルール評価
 4. 履歴とセッション状態を更新
+
+### Tenant Lifecycle
+
+1. `tenant_create` で tenant の lifecycle レコードを作成
+2. `tenant_suspend` / `tenant_resume` で状態を切り替え
+3. `tenant_export` で監査・セッション・メモリを tar.gz に退避
+4. `tenant_delete` で best-effort 削除と deleted 反映を行う
 
 ## 5. サブシステム関係図
 

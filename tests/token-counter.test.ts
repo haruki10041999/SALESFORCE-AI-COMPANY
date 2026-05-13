@@ -64,7 +64,7 @@ test("token-counter: large input does not throw", () => {
 });
 
 test("token-counter: PromptMetrics integration uses tiktoken method", async () => {
-  const { evaluatePromptMetrics } = await import("../prompt-engine/prompt-evaluator.js");
+  const { evaluatePromptMetrics } = await import("../mcp/core/prompt/prompt-evaluator.js");
   const metrics = evaluatePromptMetrics("Apex trigger pattern review please.", [], []);
   assert.equal(metrics.tokenMethod, "tiktoken");
   assert.ok(metrics.estimatedTokens > 0);

@@ -2,13 +2,15 @@
 
 ---
 
-## 1. プロンプト生成ロジック (`prompt-engine/`)
+## 1. プロンプト生成ロジック (`mcp/core/prompt/`)
 
 ### 1-1. エントリポイント: `buildPrompt()`
 
 ```
-prompt-engine/prompt-builder.ts → buildPrompt(agent, task, options)
+mcp/core/prompt/prompt-builder.ts → buildPrompt(agent, task, options)
 ```
+
+`prompt-engine/prompt-builder.ts` は後方互換の再エクスポート層として残し、本体実装は `mcp/core/prompt/` に集約済み。
 
 **処理フロー**
 

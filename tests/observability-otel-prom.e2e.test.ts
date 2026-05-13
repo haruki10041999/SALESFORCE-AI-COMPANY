@@ -7,13 +7,15 @@ import { startObservabilityRuntime } from "../mcp/core/observability/runtime.js"
 import {
   _resetPrometheusForTest,
   recordToolExecutionForPrometheus,
+  recordCostBudgetForPrometheus,
   getPrometheusMetricsText
 } from "../mcp/core/observability/prometheus-metrics.js";
 import {
   _resetOtelTracerForTest,
   notifyOtelTraceEnd,
   notifyOtelTraceFail,
-  notifyOtelTraceStart
+  notifyOtelTraceStart,
+  shouldSampleOtelTrace
 } from "../mcp/core/observability/otel-tracer.js";
 
 async function findFreePort(): Promise<number> {
@@ -116,4 +118,28 @@ test("otel tracer handles start/end/fail lifecycle safely", async () => {
       process.env.OTEL_SERVICE_NAME = oldService;
     }
   }
+});
+
+test("otel sampler respects deterministic sample ratio", () => {
+  assert.equal(shouldSampleOtelTrace("trace-sample-1", 0), false);
+  assert.equal(shouldSampleOtelTrace("trace-sample-1", 1), true);
+  assert.equal(shouldSampleOtelTrace("trace-sample-1", 0.5), shouldSampleOtelTrace("trace-sample-1", 0.5));
+});
+
+test("prometheus cost metrics bucket high-cardinality labels", async () => {
+  await _resetPrometheusForTest();
+  for (let index = 0; index < 70; index += 1) {
+    recordCostBudgetForPrometheus({
+      actorId: `actor-${index}`,
+      tenantId: `tenant-${index}`,
+      model: `model-${index}`,
+      usd: 0.01,
+      toolName: `tool-${index}`,
+      exceeded: index % 2 === 0
+    });
+  }
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  const metrics = await getPrometheusMetricsText();
+  assert.ok(metrics.text.includes('_other'));
 });

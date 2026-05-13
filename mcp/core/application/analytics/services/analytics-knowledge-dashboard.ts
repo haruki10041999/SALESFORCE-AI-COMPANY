@@ -1,4 +1,5 @@
 import { escapeMermaidId, trimForNodeLabel } from "./analytics-formatters.js";
+import type { OutputsPort } from "../../../ports/outputs-port.js";
 
 interface DashboardEntity {
   id: string;
@@ -77,7 +78,7 @@ export async function executeKnowledgeGraphDashboard(args: {
   write?: boolean;
   listKnowledgeEntities: () => DashboardEntity[];
   listKnowledgeRelations: () => DashboardRelation[];
-  artifactWriter: { writeText(relativePath: string, content: string): Promise<void> };
+  outputsPort: OutputsPort;
 }): Promise<Record<string, unknown>> {
   const entityLimit = args.limitEntities ?? 60;
   const relationLimit = args.limitRelations ?? 120;
@@ -89,7 +90,7 @@ export async function executeKnowledgeGraphDashboard(args: {
   let outputPath: string | null = null;
   if (args.write ?? false) {
     outputPath = "dashboards/knowledge-graph.md";
-    await args.artifactWriter.writeText(outputPath, payload.markdown);
+    await args.outputsPort.writeArtifact(outputPath, payload.markdown, { contentType: "text/markdown" });
   }
 
   return {

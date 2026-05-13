@@ -2,6 +2,7 @@
  * Snapshot of a recorded session for replay and AB testing
  */
 export interface SessionSnapshot {
+  schemaVersion: number;
   id: string;
   tenantId: string;
   sessionType: "agent-session" | "flow-session";

@@ -3,6 +3,9 @@
 スキル・ツール・プリセットの横断検索・利用状況追跡・閾値管理・一括 CRUD 操作を行うツール群です。
 ガバナンス状態は `outputs/resource-governance.json` に保持されます。
 
+`review_resource_governance` では、`approvalQueue` 設定を使った proposal 滞留監視と auto-approval / escalation も扱います。
+期限超過した low-risk proposal は自動承認され、その他はエスカレーション対象として audit に記録されます。
+
 ---
 
 ## ガバナンスの概念

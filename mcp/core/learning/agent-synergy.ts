@@ -13,6 +13,7 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { getAnalyticsStore } from "../persistence/analytics-store-provider.js";
 import { ensureParentDirectorySync } from "../io/atomic-write.js";
+import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,6 +55,7 @@ export type AgentPersonaWeeklySeries = {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_PATH = "outputs/learning/agent-synergy.jsonl";
+const localOutputsAdapter = new LocalOutputsAdapter({ outputsDir: resolve("outputs") });
 
 function resolvePath(filePath?: string): string {
   return resolve(filePath ?? DEFAULT_PATH);
@@ -70,9 +72,17 @@ export function recordAgentSynergySession(
       await analyticsStore.insertAgentSynergyRecord(record);
       return;
     }
+    if (!filePath || fp === resolvePath(DEFAULT_PATH)) {
+      await localOutputsAdapter.appendEvent("learning/agent-synergy.jsonl", record);
+      return;
+    }
     ensureParentDirectorySync(fp);
     appendFileSync(fp, JSON.stringify(record) + "\n", "utf-8");
   }).catch(() => {
+    if (!filePath || fp === resolvePath(DEFAULT_PATH)) {
+      void localOutputsAdapter.appendEvent("learning/agent-synergy.jsonl", record);
+      return;
+    }
     ensureParentDirectorySync(fp);
     appendFileSync(fp, JSON.stringify(record) + "\n", "utf-8");
   });

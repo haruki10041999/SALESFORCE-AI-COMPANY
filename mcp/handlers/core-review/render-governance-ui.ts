@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { resolve } from "node:path";
-import { getOutputsDir, getPrimaryDatabaseUrl } from "../../core/config/runtime-config.js";
-import { OutputsArtifactWriter } from "../../core/persistence/outputs-artifact-writer.js";
+import { getOutputsDir } from "../../core/config/runtime-config.js";
+import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
 import { executeRenderGovernanceUi } from "../../core/application/governance/services/resource-governance-ui.js";
 import type { RegisterGovToolDeps } from "../types.js";
 import type { GovernanceState } from "../../core/governance/governance-state.js";
@@ -13,10 +13,7 @@ export interface DefineRenderGovernanceUiDeps extends RegisterGovToolDeps {
 export function defineRenderGovernanceUiTool(deps: DefineRenderGovernanceUiDeps): void {
   const { govTool, loadGovernanceState } = deps;
   const outputsDir = resolve(getOutputsDir());
-  const artifactWriter = new OutputsArtifactWriter({
-    outputsDir,
-    databaseUrl: getPrimaryDatabaseUrl()
-  });
+  const outputsPort = new LocalOutputsAdapter({ outputsDir });
 
   govTool(
     "render_governance_ui",
@@ -43,7 +40,7 @@ export function defineRenderGovernanceUiTool(deps: DefineRenderGovernanceUiDeps)
         write,
         outputsDir,
         loadGovernanceState,
-        artifactWriter
+        outputsPort
       });
       return { content: [{ type: "text", text: result.text }] };
     }

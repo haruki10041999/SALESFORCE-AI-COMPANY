@@ -21,6 +21,7 @@
 #   - Prometheus UI: http://localhost:9090
 #   - Grafana UI:    http://localhost:3000  (admin/admin)
 #   - Ollama API:    http://localhost:11434
+#   - MCP HTTP:      http://localhost:3800/mcp  (profile: mcp-http)
 #
 # MCP サーバ側 (.env):
 #   DATABASE_URL=postgres://sfai:sfai@localhost:5432/sfai
@@ -131,6 +132,27 @@ services:
       - prometheus
     volumes:
       - grafana-data:/var/lib/grafana
+
+  mcp-http:
+    image: node:22-bookworm
+    container_name: sfai-mcp-http
+    profiles: ["mcp-http"]
+    restart: unless-stopped
+    working_dir: /workspace
+    command: ["sh", "-lc", "npm ci --ignore-scripts && npx tsx mcp/server.ts"]
+    environment:
+      MCP_TRANSPORT: http
+      MCP_HTTP_HOST: 0.0.0.0
+      MCP_HTTP_PORT: 3800
+      DATABASE_URL: postgres://sfai:sfai@postgres:5432/sfai
+      OLLAMA_BASE_URL: http://ollama:11434
+    ports:
+      - "3800:3800"
+    volumes:
+      - ./:/workspace
+    depends_on:
+      - postgres
+      - ollama
 
 volumes:
   grafana-data:

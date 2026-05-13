@@ -8,9 +8,23 @@ import type { ProposalQueueStore } from "../resource/proposal/proposal-queue-sto
 import type { SessionStore } from "../persistence/session-store.js";
 import type { OrchestrationQueueStore } from "../orchestration/orchestration-queue-store.js";
 import type { OrchestrationJobRunner } from "../orchestration/job-runner.js";
+import type { WorkflowEngine } from "../ports/workflow-engine.js";
 import type { PolicySnapshotManager } from "../learning/policy-snapshot.js";
 import type { AgentMessage, ChatSession, HandlersDashboardState, StoredPreset, ResourceOperation } from "../types/index.js";
-import type { HandlersState } from "../../handlers/auto-init.js";
+import type {
+  CreatedResourceTracker,
+  DeletedResourceTracker,
+  ErrorAggregateTracker,
+  QualityCheckFailureTracker
+} from "../types/statistics.js";
+
+interface HandlersState {
+  createdTracker: CreatedResourceTracker;
+  deletedTracker: DeletedResourceTracker;
+  errorTracker: ErrorAggregateTracker;
+  qualityTracker: QualityCheckFailureTracker;
+  registeredHandlers: number;
+}
 
 type RegisterAllToolsDeps = Parameters<typeof registerAllTools>[0];
 
@@ -32,6 +46,7 @@ interface ChatAndSessionDeps {
   sessionStore: SessionStore;
   orchestrationQueueStore: OrchestrationQueueStore;
   orchestrationJobRunner: OrchestrationJobRunner;
+  workflowEngine: WorkflowEngine;
   policySnapshotManager: PolicySnapshotManager;
   saveSessionHistory: RegisterAllToolsDeps["saveSessionHistory"];
   onSessionCompleted?: RegisterAllToolsDeps["onSessionCompleted"];

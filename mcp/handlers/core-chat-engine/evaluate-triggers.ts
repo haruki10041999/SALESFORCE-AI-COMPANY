@@ -10,8 +10,9 @@ import {
 } from "../../core/application/chat/services/chat-orchestration-trigger-tool.js";
 import { buildSessionNotFoundText } from "../../core/application/chat/services/chat-orchestration-responses.js";
 import type { SessionStore } from "../../core/persistence/session-store.js";
-import type { OrchestrationQueueStore } from "../../core/orchestration/orchestration-queue-store.js";
-import type { OrchestrationJobRunner } from "../../core/orchestration/job-runner.js";
+import type { OrchestrationQueueStore } from "../../infrastructure/workflow/orchestration-queue-store.js";
+import type { OrchestrationJobRunner } from "../../infrastructure/workflow/orchestration-job-runner.js";
+import type { WorkflowEngine } from "../../core/ports/workflow-engine.js";
 
 export interface DefineEvaluateTriggersDeps extends RegisterGovToolDeps {
   triggerRuleSchema: z.ZodTypeAny;
@@ -25,6 +26,7 @@ export interface DefineEvaluateTriggersDeps extends RegisterGovToolDeps {
   sessionStore: SessionStore;
   orchestrationQueueStore: OrchestrationQueueStore;
   orchestrationJobRunner: OrchestrationJobRunner;
+  workflowEngine: WorkflowEngine;
   getSessionOrRestore: (sessionId: string) => Promise<any>;
 }
 
@@ -37,6 +39,7 @@ export function defineEvaluateTriggersTool(deps: DefineEvaluateTriggersDeps): vo
     sessionStore,
     orchestrationQueueStore,
     orchestrationJobRunner,
+    workflowEngine,
     getSessionOrRestore
   } = deps;
 
@@ -82,7 +85,7 @@ export function defineEvaluateTriggersTool(deps: DefineEvaluateTriggersDeps): vo
         getSessionOrRestore,
         buildSessionNotFoundText,
         replaceQueue: (targetSessionId, queue) => orchestrationQueueStore.replace(targetSessionId, queue),
-        enqueueStep: (input) => orchestrationJobRunner.enqueueStep(input),
+        workflowEngine,
         upsertSession: (session) => sessionStore.upsert(session, -1),
         emitSystemEvent,
         startTrace,

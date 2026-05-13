@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { estimatePromptCost, type PromptMetrics } from "../prompt-engine/prompt-evaluator.js";
+import { estimatePromptCost, type PromptMetrics } from "../mcp/core/prompt/prompt-evaluator.js";
 
 const BASE_METRICS: PromptMetrics = {
   lengthChars: 120,

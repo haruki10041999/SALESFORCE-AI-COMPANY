@@ -1,5 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import type { SessionSnapshot } from "../recording/session-snapshot.js";
+import { migrateSessionSnapshot } from "@mcp/core/recording/snapshot-migrator.js";
+import { assertRewardDesignWeights, DEFAULT_REWARD_DESIGN_WEIGHTS } from "./reward-aggregator.js";
 
 /**
  * Configuration for running an AB test variant against a recorded session
@@ -39,6 +41,7 @@ export interface ABTestResult {
   isSignificant: boolean;
   confidenceLevel: number; // 0-1
   scorerVersion: string;
+  snapshotSchemaVersion: number;
   metadata?: Record<string, any>;
 }
 
@@ -50,6 +53,7 @@ export interface ABTestResult {
  */
 export class ReplayABEvaluator {
   private scorerVersion = "v1"; // Increment on scoring logic changes
+  private readonly rewardDesign = assertRewardDesignWeights(DEFAULT_REWARD_DESIGN_WEIGHTS);
 
   /**
    * Run AB test: replay session with variant config and compare to control
@@ -66,16 +70,17 @@ export class ReplayABEvaluator {
     variantType: ABTestResult["variantType"],
   ): Promise<ABTestResult> {
     const testId = uuidv4();
+    const migratedSnapshot = migrateSessionSnapshot(sessionSnapshot);
 
     // Evaluate control (original recording)
     const controlScore = await this.scoreSessionSnapshot(
-      sessionSnapshot,
+      migratedSnapshot,
       undefined,
     );
 
     // Apply variant and evaluate
     const variantSnapshot = this.applyVariantOverrides(
-      sessionSnapshot,
+      migratedSnapshot,
       variantConfig,
     );
     const variantScore = await this.scoreSessionSnapshot(
@@ -105,6 +110,7 @@ export class ReplayABEvaluator {
       isSignificant,
       confidenceLevel,
       scorerVersion: this.scorerVersion,
+      snapshotSchemaVersion: migratedSnapshot.schemaVersion,
     };
   }
 
@@ -117,41 +123,44 @@ export class ReplayABEvaluator {
    */
   private async scoreSessionSnapshot(
     snapshot: SessionSnapshot,
-    appliedVariant?: VariantConfig,
+    _appliedVariant?: VariantConfig,
   ): Promise<number> {
     let score = 50; // Baseline
+    const rewardDesign = this.rewardDesign;
 
-    // Factor 1: Feedback score if available
+    // Factor 1: Quality signal from feedback score / adjustment.
     if (snapshot.feedback) {
       const feedback = snapshot.feedback as any;
-      score += feedback.scoreAdjustment || (feedback.score ? feedback.score * 10 : 0);
+      const qualitySignal = typeof feedback.scoreAdjustment === "number"
+        ? Math.max(0, Math.min(1, feedback.scoreAdjustment / 10))
+        : typeof feedback.score === "number"
+          ? Math.max(0, Math.min(1, feedback.score))
+          : 0;
+      score += qualitySignal * rewardDesign.qualityWeight * 30;
     }
 
-    // Factor 2: Tool success rate
+    // Factor 2: Success signal from tool execution rate.
     if (snapshot.toolExecutions && snapshot.toolExecutions.length > 0) {
       const successful = snapshot.toolExecutions.filter(
         (t: any) => t.status === "success",
       ).length;
       const successRate = successful / snapshot.toolExecutions.length;
-      score += successRate * 20; // +0 to +20 points
+      score += successRate * rewardDesign.successWeight * 20; // +0 to +6 points
     }
 
-    // Factor 3: Conversation turn count (fewer turns = more efficient)
+    // Factor 3: Cost signal from token usage (higher cost reduces score).
+    if (snapshot.metrics?.tokenUsage?.total) {
+      const tokenCostSignal = Math.min(snapshot.metrics.tokenUsage.total / 10000, 1);
+      score -= tokenCostSignal * rewardDesign.costWeight * 5;
+    }
+
+    // Factor 4: Conversation turn count (fewer turns = more efficient)
     if (snapshot.turns) {
       const turnPenalty = Math.min(
         snapshot.turns.length / 10,
         10,
       );
       score -= turnPenalty;
-    }
-
-    // Factor 4: Token efficiency
-    if (snapshot.metrics?.tokenUsage?.total) {
-      const tokenEfficiency = Math.min(
-        snapshot.metrics.tokenUsage.total / 10000,
-        5,
-      );
-      score -= tokenEfficiency;
     }
 
     // Clamp to 0-100

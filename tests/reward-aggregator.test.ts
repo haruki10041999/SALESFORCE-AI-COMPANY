@@ -14,6 +14,7 @@ import {
   loadRewardsForTool,
   aggregateRewardsBySource,
   computeCompositeReward,
+  assertRewardDesignWeights,
   syncRewardsToFeedback,
   getRewardStats
 } from "../mcp/core/learning/reward-aggregator.js";
@@ -248,6 +249,14 @@ test("computeCompositeReward clamps result to [-1, 1]", async () => {
   } finally {
     await cleanupTest();
   }
+});
+
+test("reward design weights keep quality dominant", () => {
+  const weights = assertRewardDesignWeights();
+
+  assert.ok(weights.qualityWeight > weights.successWeight);
+  assert.ok(weights.qualityWeight > weights.costWeight);
+  assert.ok(weights.qualityWeight >= weights.successWeight + weights.costWeight);
 });
 
 test("syncRewardsToFeedback converts rewards to feedback entries", async () => {

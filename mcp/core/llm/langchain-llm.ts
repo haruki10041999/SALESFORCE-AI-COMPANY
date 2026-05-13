@@ -4,6 +4,7 @@ import type { OllamaChatRequest, OllamaChatResponse } from "./ollama-client.js";
 import { circuitBreakerRegistry } from "../reliability/circuit-breaker.js";
 import { bulkheadRegistry, DEFAULT_OLLAMA_CONCURRENCY } from "../reliability/bulkhead.js";
 import { getOllamaBaseUrl } from "../config/runtime-config.js";
+import { getActiveTraceContext } from "../trace/trace-context.js";
 
 export interface LangChainLlmClientOptions {
   baseUrl?: string;
@@ -46,9 +47,11 @@ export class LangChainLlmClient {
   }
 
   public async chat(req: OllamaChatRequest): Promise<OllamaChatResponse> {
+    const trace = getActiveTraceContext();
     const chat = new ChatOllama({
       baseUrl: this.baseUrl,
       model: req.model,
+      ...(trace ? { headers: { traceparent: trace.traceparent, "x-sfai-trace-id": trace.traceId } } : {}),
       ...(req.options ? { modelKwargs: req.options } : {})
     });
 

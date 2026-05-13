@@ -2,6 +2,7 @@ export type MemoryRecord = {
   id: string;
   text: string;
   tags: string[];
+  tier?: "hot" | "warm" | "cold";
 };
 
 export interface EmbeddingProvider {

@@ -17,14 +17,11 @@ import type {
 import { getRewardStats } from "./reward-aggregator.js";
 import { loadAgentReputationRecords } from "./agent-reputation.js";
 import { getRewardHealth } from "./feedback-manager.js";
-import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
-import { getOutputsDir, getPrimaryDatabaseUrl } from "../config/runtime-config.js";
+import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
+import { getOutputsDir } from "../config/runtime-config.js";
 
 const DASHBOARD_PATH = resolve("outputs", "dashboards", "learning-progress.json");
-const artifactWriter = new OutputsArtifactWriter({
-  outputsDir: resolve(getOutputsDir()),
-  databaseUrl: getPrimaryDatabaseUrl()
-});
+const outputsPort = new LocalOutputsAdapter({ outputsDir: resolve(getOutputsDir()) });
 
 /**
  * Compute bandit convergence metrics
@@ -295,7 +292,9 @@ export async function saveLearningProgressDashboard(
   dashboard: LearningProgressDashboard
 ): Promise<void> {
   try {
-    await artifactWriter.writeJson("dashboards/learning-progress.json", dashboard);
+    await outputsPort.writeArtifact("dashboards/learning-progress.json", `${JSON.stringify(dashboard, null, 2)}\n`, {
+      contentType: "application/json"
+    });
   } catch (error) {
     throw new Error(
       `Failed to save dashboard: ${error instanceof Error ? error.message : String(error)}`

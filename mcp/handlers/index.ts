@@ -95,3 +95,4 @@ export { registerAnalyticsTools } from "./register-analytics-tools.js";
 export { registerExportTools } from "./register-export-tools.js";
 export { registerMemoryTools } from "./register-memory-tools.js";
 export { registerContextTools } from "./register-context-tools.js";
+export { registerTenantLifecycleTools } from "./tenant/tenant-lifecycle-tools.js";

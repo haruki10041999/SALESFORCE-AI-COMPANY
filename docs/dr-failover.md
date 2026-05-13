@@ -45,6 +45,19 @@
 2. 失効した old-primary の再同期手順を開始
 3. release-notes / 監査ログに failover を反映
 
+## 自動ドリル
+
+手順の定期実行や事前確認には `npm run dr:drill -- --dry-run` を使います。
+
+詳細な実行モード、必要な環境変数、生成物は [features/13-dr-automation.md](./features/13-dr-automation.md) を参照してください。
+
+実行時は `--execute` を付けて、`SF_AI_DB_URL_PRIMARY` / `SF_AI_DB_URL_REPLICA` を有効な接続先に設定してください。
+
+例:
+
+- `npm run dr:drill -- --snapshot-name dr-drill-2026-05-13 --dry-run`
+- `npm run dr:drill -- --execute --primary-url <primary> --replica-url <replica> --promote-command "..." --dns-command "..."`
+
 ## 参考設定
 
 - `SF_AI_DB_URL_PRIMARY`: write/read の基準 DB URL

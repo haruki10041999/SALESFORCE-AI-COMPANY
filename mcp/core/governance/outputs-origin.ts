@@ -1,8 +1,8 @@
 import { existsSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
-import { getOutputsDir, getPrimaryDatabaseUrl } from "../config/runtime-config.js";
+import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
+import { getOutputsDir } from "../config/runtime-config.js";
 
 export interface ExecutionOriginRecord {
   timestamp: string;
@@ -16,14 +16,6 @@ export interface ExecutionOriginRecord {
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const DEFAULT_OUTPUTS_DIR = resolve(getOutputsDir(resolve(ROOT, "outputs")));
-const artifactWriter = new OutputsArtifactWriter({
-  outputsDir: DEFAULT_OUTPUTS_DIR,
-  databaseUrl: getPrimaryDatabaseUrl()
-});
-
-function shouldUseDatabaseExecutionOrigins(outputsDir: string): boolean {
-  return Boolean(getPrimaryDatabaseUrl()) && resolve(outputsDir) === DEFAULT_OUTPUTS_DIR;
-}
 
 function isRecordLike(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -123,15 +115,11 @@ export function buildExecutionOriginRecord(
 }
 
 export async function appendExecutionOrigin(outputsDir: string, record: ExecutionOriginRecord): Promise<void> {
-  if (shouldUseDatabaseExecutionOrigins(outputsDir)) {
-    await artifactWriter.appendExecutionOrigin(record).catch(() => {
-      // provenance 記録失敗はツール実行を阻害しない
-    });
-    return;
-  }
-
-  const fileWriter = new OutputsArtifactWriter({ outputsDir });
-  await fileWriter.appendExecutionOrigin(record).catch(() => {
+  const relativePath = resolve(outputsDir) === DEFAULT_OUTPUTS_DIR
+    ? "execution-origins.jsonl"
+    : join("execution-origins.jsonl");
+  const outputsPort = new LocalOutputsAdapter({ outputsDir });
+  await outputsPort.appendEvent(relativePath, record).catch(() => {
     // provenance 記録失敗はツール実行を阻害しない
   });
 }

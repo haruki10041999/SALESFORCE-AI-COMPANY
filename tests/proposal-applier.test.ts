@@ -3,7 +3,7 @@ import { strict as assert } from "node:assert";
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyProposal, slugifyResourceName } from "../mcp/core/resource/proposal/applier.js";
+import { applyProposal, applyProposalAsync, slugifyResourceName } from "../mcp/core/resource/proposal/applier.js";
 import type { ProposalRecord } from "../mcp/core/resource/proposal/queue.js";
 
 function withTmp(): { repoRoot: string; outputsDir: string; cleanup: () => void } {
@@ -160,4 +160,49 @@ test("Phase2: applyProposal overwrite=true replaces existing file", () => {
     assert.equal(r2.applied, true);
     assert.equal(readFileSync(r2.filePath, "utf-8"), "v2");
   } finally { tmp.cleanup(); }
+});
+
+test("Phase2: applyProposalAsync writes tool JSON via outputs port path", async () => {
+  const tmp = withTmp();
+  const prev = process.env.SF_AI_CUSTOM_TOOL_FILE_FALLBACK;
+  process.env.SF_AI_CUSTOM_TOOL_FILE_FALLBACK = "true";
+  try {
+    const r = await applyProposalAsync(
+      rec({ id: "prop-async", resourceType: "tools", name: "Async Tool", content: JSON.stringify({ description: "async", agents: ["captain"] }) }),
+      { repoRoot: tmp.repoRoot, outputsDir: tmp.outputsDir }
+    );
+    assert.equal(r.applied, true);
+    const data = JSON.parse(readFileSync(r.filePath, "utf-8"));
+    assert.equal(data.proposalId, "prop-async");
+    assert.equal(data.name, "async-tool");
+  } finally {
+    if (prev === undefined) {
+      delete process.env.SF_AI_CUSTOM_TOOL_FILE_FALLBACK;
+    } else {
+      process.env.SF_AI_CUSTOM_TOOL_FILE_FALLBACK = prev;
+    }
+    tmp.cleanup();
+  }
+});
+
+test("Phase2: applyProposalAsync writes preset version and latest", async () => {
+  const tmp = withTmp();
+  const prev = process.env.SF_AI_PRESET_FILE_FALLBACK;
+  process.env.SF_AI_PRESET_FILE_FALLBACK = "true";
+  try {
+    const r = await applyProposalAsync(
+      rec({ resourceType: "presets", name: "Async Preset", content: JSON.stringify({ description: "a" }) }),
+      { repoRoot: tmp.repoRoot, outputsDir: tmp.outputsDir }
+    );
+    assert.equal(r.applied, true);
+    assert.match(r.filePath, /presets[\\/]async-preset[\\/]v1\.json$/);
+    assert.ok(existsSync(join(tmp.outputsDir, "presets", "async-preset.json")));
+  } finally {
+    if (prev === undefined) {
+      delete process.env.SF_AI_PRESET_FILE_FALLBACK;
+    } else {
+      process.env.SF_AI_PRESET_FILE_FALLBACK = prev;
+    }
+    tmp.cleanup();
+  }
 });

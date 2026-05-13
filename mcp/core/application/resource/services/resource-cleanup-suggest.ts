@@ -2,10 +2,87 @@ import { existsSync, promises as fsPromises } from "node:fs";
 import { dirname, join } from "node:path";
 import type { GovernanceState } from "../../../governance/governance-state.js";
 import type { SystemEventRecord } from "../../../event/system-event-manager.js";
-import type { HandlersStatistics } from "../../../../handlers/statistics-manager.js";
-import { buildResourceActivityIndex } from "../../../../handlers/statistics-manager.js";
 import { suggestCleanupResources } from "../../../../tools/suggest-cleanup-resources.js";
-import { OutputsArtifactWriter } from "../../../persistence/outputs-artifact-writer.js";
+import type { GovernedResourceType } from "../../../governance/governance-state.js";
+import type { OutputsPort } from "../../../ports/outputs-port.js";
+import { LocalOutputsAdapter } from "../../../../infrastructure/outputs/local-outputs-adapter.js";
+
+interface ResourceActivitySnapshot {
+  lastUsedAt?: string;
+  firstSeenAt?: string;
+}
+
+interface HandlersStatistics {
+  created: {
+    lastCreatedResources: Array<{
+      resourceType: string;
+      name: string;
+      timestamp: string;
+    }>;
+  };
+  deleted: {
+    deletedResources: Array<{
+      resourceType: string;
+      name: string;
+      timestamp: string;
+    }>;
+  };
+}
+
+function buildResourceActivityIndex(
+  stats: HandlersStatistics,
+  events: SystemEventRecord[]
+): Record<GovernedResourceType, Record<string, ResourceActivitySnapshot>> {
+  const index: Record<GovernedResourceType, Record<string, ResourceActivitySnapshot>> = {
+    skills: {},
+    tools: {},
+    presets: {}
+  };
+
+  const observe = (type: GovernedResourceType, name: string, timestamp: string) => {
+    const slot = index[type][name] ?? {};
+    const observedAt = new Date(timestamp).toISOString();
+    if (!slot.firstSeenAt || observedAt < slot.firstSeenAt) {
+      slot.firstSeenAt = observedAt;
+    }
+    if (!slot.lastUsedAt || observedAt > slot.lastUsedAt) {
+      slot.lastUsedAt = observedAt;
+    }
+    index[type][name] = slot;
+  };
+
+  for (const record of stats.created.lastCreatedResources) {
+    const type = record.resourceType as GovernedResourceType;
+    if (!(type in index)) {
+      continue;
+    }
+    observe(type, record.name, record.timestamp);
+  }
+
+  for (const record of stats.deleted.deletedResources) {
+    const type = record.resourceType as GovernedResourceType;
+    if (!(type in index)) {
+      continue;
+    }
+    observe(type, record.name, record.timestamp);
+  }
+
+  for (const event of events) {
+    const payload = event.payload as Record<string, unknown>;
+    const resourceType = payload.resourceType;
+    const resourceName = payload.name;
+    if (
+      typeof resourceType !== "string" ||
+      typeof resourceName !== "string" ||
+      !(resourceType in index)
+    ) {
+      continue;
+    }
+    observe(resourceType as GovernedResourceType, resourceName, event.timestamp);
+  }
+
+  return index;
+}
 
 function renderCleanupMarkdown(payload: {
   generatedAt: string;
@@ -50,6 +127,7 @@ export async function executeSuggestCleanupResources(args: {
   loadSystemEvents: (limit?: number, event?: string) => Promise<SystemEventRecord[]>;
   handlersStatistics: HandlersStatistics;
   toPosixPath: (pathValue: string) => string;
+  outputsPort?: OutputsPort;
 }): Promise<Record<string, unknown>> {
   const state = await args.loadGovernanceState();
   const targetTypes = args.resourceTypes ?? ["skills", "tools", "presets"];
@@ -99,13 +177,10 @@ export async function executeSuggestCleanupResources(args: {
   const jsonPath = join(reportsDir, "latest.json");
   const mdPath = join(reportsDir, "latest.md");
 
-  const artifactWriter = new OutputsArtifactWriter({
-    outputsDir,
-    databaseUrl: process.env.DATABASE_URL
-  });
-  await artifactWriter.appendJsonl("reports/cleanup-suggestions/runs.jsonl", suggestion);
-  await artifactWriter.writeJson("reports/cleanup-suggestions/latest.json", suggestion);
-  await artifactWriter.writeText("reports/cleanup-suggestions/latest.md", renderCleanupMarkdown(suggestion));
+  const outputsPort = args.outputsPort ?? new LocalOutputsAdapter({ outputsDir });
+  await outputsPort.appendEvent("reports/cleanup-suggestions/runs.jsonl", suggestion);
+  await outputsPort.writeArtifact("reports/cleanup-suggestions/latest.json", `${JSON.stringify(suggestion, null, 2)}\n`);
+  await outputsPort.writeArtifact("reports/cleanup-suggestions/latest.md", renderCleanupMarkdown(suggestion));
 
   return {
     dryRun: true,

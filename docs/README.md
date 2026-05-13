@@ -21,4 +21,6 @@
 - 設計要約: [architecture.md](./architecture.md)
 - 詳細 UML: [system-architecture-with-uml.md](./system-architecture-with-uml.md)
 - プロンプト/リソース選択: [prompt-resource-logic.md](./prompt-resource-logic.md)
+- テナントライフサイクル: [features/12-tenant-lifecycle.md](./features/12-tenant-lifecycle.md)
+- DR 自動化: [features/13-dr-automation.md](./features/13-dr-automation.md)
 - テスト責務マップ: [test-file-responsibility-map.md](./test-file-responsibility-map.md)

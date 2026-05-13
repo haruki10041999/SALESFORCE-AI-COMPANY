@@ -9,6 +9,7 @@ import pgvector from "pgvector/pg";
 import { Pool, type PoolClient } from "pg";
 import type { MemoryChunker } from "../../../memory/chunker.js";
 import { createEmbeddingProvider, type VectorEmbeddingProvider } from "../../core/llm/embedding-provider.js";
+import { classifyVectorTier } from "../../core/memory/vector-tier.js";
 import { getOrCreatePgPool, releasePgPoolKey } from "../../core/persistence/pg-pool-registry.js";
 import { currentTenantId } from "../../core/identity/tenant-context.js";
 import { resetTenantSetting, setTenantSetting } from "../../core/persistence/postgres-tenant-context.js";
@@ -95,10 +96,15 @@ export class PgvectorHierarchicalStore implements HierarchicalStore {
 
           for (const [chunkIndex, chunk] of section.chunks.entries()) {
             const embedding = await this.embedText(chunk.text);
+            const tier = classifyVectorTier({
+              text: chunk.text,
+              tags: [input.title, section.heading ?? ""].filter((value) => value.length > 0),
+              estimatedTokens: chunk.endToken - chunk.startToken
+            });
             await client.query(
               [
-                "INSERT INTO memory_chunks(section_id, chunk_index, text, start_token, end_token, embedding_model, embedding_dim, embedding)",
-                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector)"
+                "INSERT INTO memory_chunks(section_id, chunk_index, text, start_token, end_token, embedding_model, embedding_dim, embedding, vector_tier)",
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector, $9)"
               ].join("\n"),
               [
                 sectionId,
@@ -108,7 +114,8 @@ export class PgvectorHierarchicalStore implements HierarchicalStore {
                 chunk.endToken,
                 this.embeddingProvider.name,
                 this.embeddingProvider.dimension,
-                pgvector.toSql(embedding)
+                pgvector.toSql(embedding),
+                tier
               ]
             );
             chunkCount += 1;
@@ -148,6 +155,7 @@ export class PgvectorHierarchicalStore implements HierarchicalStore {
       next_text: string | null;
       document_external_id: string;
       document_title: string;
+      vector_tier: string | null;
       score: number;
     };
 
@@ -163,6 +171,7 @@ export class PgvectorHierarchicalStore implements HierarchicalStore {
           "  ms.content,",
           "  mc.chunk_index,",
           "  mc.text AS chunk_text,",
+          "  mc.vector_tier,",
           "  LAG(mc.text) OVER (PARTITION BY mc.section_id ORDER BY mc.chunk_index) AS prev_text,",
           "  LEAD(mc.text) OVER (PARTITION BY mc.section_id ORDER BY mc.chunk_index) AS next_text,",
           "  md.external_id AS document_external_id,",
@@ -190,6 +199,7 @@ export class PgvectorHierarchicalStore implements HierarchicalStore {
       text: row.chunk_text,
       documentId: row.document_external_id,
       summary: row.document_title,
+      tier: row.vector_tier === "hot" || row.vector_tier === "warm" || row.vector_tier === "cold" ? row.vector_tier : undefined,
       ...(input.withContext
         ? {
           context: {
@@ -263,11 +273,13 @@ export class PgvectorHierarchicalStore implements HierarchicalStore {
               "  end_token INTEGER NOT NULL,",
               "  embedding_model TEXT,",
               "  embedding_dim INTEGER,",
+              "  vector_tier TEXT NOT NULL DEFAULT 'warm',",
               "  created_at TIMESTAMPTZ DEFAULT NOW()",
               ")"
             ].join("\n")
           );
           await client.query("ALTER TABLE memory_chunks ADD COLUMN IF NOT EXISTS embedding vector(768)");
+          await client.query("ALTER TABLE memory_chunks ADD COLUMN IF NOT EXISTS vector_tier text NOT NULL DEFAULT 'warm'");
           await client.query("CREATE INDEX IF NOT EXISTS idx_memory_documents_external_id ON memory_documents(external_id)");
           await client.query("CREATE INDEX IF NOT EXISTS idx_memory_documents_tenant ON memory_documents(tenant_id)");
           await client.query("CREATE INDEX IF NOT EXISTS idx_memory_sections_document_id ON memory_sections(document_id)");

@@ -33,6 +33,7 @@ export const abTestRunsTable = pgTable("ab_test_runs", {
   proposed_at: timestamp("proposed_at").defaultNow().notNull(),
   proposed_to_governance: boolean("proposed_to_governance").default(false),
   governance_proposal_id: varchar("governance_proposal_id", { length: 255 }),
+  snapshot_schema_version: integer("snapshot_schema_version").default(2).notNull(),
   applied_at: timestamp("applied_at"),
   created_at: timestamp("created_at").defaultNow().notNull(),
   updated_at: timestamp("updated_at").defaultNow().notNull(),

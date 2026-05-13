@@ -7,7 +7,6 @@
       "@mcp/*": ["./mcp/*"],
       "@surface/*": ["./mcp/surface/*"],
       "@runtime/*": ["./mcp/core/runtime/*"],
-      "@domain/*": ["./mcp/core/domain/*"],
       "@persistence/*": ["./mcp/core/persistence/*"]
     },
     "lib": ["ES2022"],

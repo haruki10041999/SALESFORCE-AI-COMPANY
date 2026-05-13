@@ -6,15 +6,20 @@ import {
 } from "../../core/application/chat/services/chat-orchestration-dequeue-tool.js";
 import { buildSessionNotFoundText } from "../../core/application/chat/services/chat-orchestration-responses.js";
 import type { SessionStore } from "../../core/persistence/session-store.js";
-import type { OrchestrationQueueStore } from "../../core/orchestration/orchestration-queue-store.js";
-import type { OrchestrationJobRunner } from "../../core/orchestration/job-runner.js";
-import type { PolicySnapshotManager } from "../../core/learning/policy-snapshot.js";
+import type { OrchestrationQueueStore } from "../../infrastructure/workflow/orchestration-queue-store.js";
+import type { OrchestrationJobRunner } from "../../infrastructure/workflow/orchestration-job-runner.js";
+import type { WorkflowEngine } from "../../core/ports/workflow-engine.js";
 
 export interface DefineDequeueNextAgentDeps extends RegisterGovToolDeps {
   sessionStore: SessionStore;
   orchestrationQueueStore: OrchestrationQueueStore;
   orchestrationJobRunner: OrchestrationJobRunner;
-  policySnapshotManager?: PolicySnapshotManager;
+  workflowEngine: WorkflowEngine;
+  policySnapshotManager?: {
+    current?: { version: number } | null;
+    isLive?: boolean;
+    reputationScores?: (agents: string[], topic: string) => Map<string, number>;
+  };
   saveSessionHistory: (topic: string, entries: any[]) => Promise<string>;
   onSessionCompleted?: (input: {
     sessionId: string;
@@ -32,6 +37,7 @@ export function defineDequeueNextAgentTool(deps: DefineDequeueNextAgentDeps): vo
     sessionStore,
     orchestrationQueueStore,
     orchestrationJobRunner,
+    workflowEngine,
     policySnapshotManager,
     saveSessionHistory,
     onSessionCompleted,
@@ -64,10 +70,7 @@ export function defineDequeueNextAgentTool(deps: DefineDequeueNextAgentDeps): vo
           dequeue: (targetSessionId, take) => orchestrationQueueStore.dequeue(targetSessionId, take),
           clear: (targetSessionId) => orchestrationQueueStore.clear(targetSessionId)
         },
-        orchestrationJobRunner: {
-          markDequeued: (targetSessionId, agent) => orchestrationJobRunner.markDequeued(targetSessionId, agent),
-          completeLatestRunningStep: (input) => orchestrationJobRunner.completeLatestRunningStep(input)
-        },
+        workflowEngine,
         policySnapshotManager,
         agentGraphFile,
         agentReputationFile,

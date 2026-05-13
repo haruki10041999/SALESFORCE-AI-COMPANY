@@ -1,13 +1,20 @@
 import { createPostgresNotifyEventBus } from "./backends/postgres-notify.js";
-import { getPrimaryDatabaseUrl } from "../config/runtime-config.js";
+import { getEventBusBackend, getEventBusRedisUrl, getEventBusStreamKey, getPrimaryDatabaseUrl } from "../config/runtime-config.js";
+import {
+  getActiveTraceContext,
+  runWithTraceContext,
+  type ActiveTraceContext
+} from "../trace/trace-context.js";
 
-export type EventBusBackend = "in-memory" | "postgres-notify";
+export type EventBusBackend = "in-memory" | "postgres-notify" | "redis-streams";
 
 export interface EventBusMessage<TPayload = unknown> {
   topic: string;
   payload: TPayload;
   timestamp: string;
   source?: string;
+  traceId?: string;
+  traceparent?: string;
 }
 
 export type EventBusHandler<TPayload = unknown> =
@@ -18,7 +25,7 @@ export interface EventBus {
   publish: <TPayload = unknown>(
     topic: string,
     payload: TPayload,
-    options?: { source?: string; timestamp?: string }
+    options?: { source?: string; timestamp?: string; traceId?: string; traceparent?: string }
   ) => Promise<void>;
   subscribe: <TPayload = unknown>(
     topic: string,
@@ -30,7 +37,16 @@ export interface EventBus {
 export interface CreateEventBusOptions {
   backend?: EventBusBackend;
   databaseUrl?: string;
+  redisUrl?: string;
   channel?: string;
+  streamKey?: string;
+}
+
+async function createRedisStreamsEventBusLazy(options: { redisUrl: string; streamKey?: string }): Promise<EventBus> {
+  const redisModulePath = `./backends/${"redis-streams"}.js`;
+  const mod = await import(redisModulePath);
+  const factory = mod.createRedisStreamsEventBus as (input: { redisUrl: string; streamKey?: string }) => Promise<EventBus>;
+  return factory(options);
 }
 
 class InMemoryEventBus implements EventBus {
@@ -40,23 +56,33 @@ class InMemoryEventBus implements EventBus {
   public async publish<TPayload = unknown>(
     topic: string,
     payload: TPayload,
-    options?: { source?: string; timestamp?: string }
+    options?: { source?: string; timestamp?: string; traceId?: string; traceparent?: string }
   ): Promise<void> {
     const handlers = this.subscribers.get(topic);
     if (!handlers || handlers.size === 0) {
       return;
     }
 
+    const activeTrace = getActiveTraceContext();
     const message: EventBusMessage<TPayload> = {
       topic,
       payload,
       timestamp: options?.timestamp ?? new Date().toISOString(),
-      source: options?.source
+      source: options?.source,
+      traceId: options?.traceId ?? activeTrace?.traceId,
+      traceparent: options?.traceparent ?? activeTrace?.traceparent
     };
 
     await Promise.all(
       [...handlers].map(async (handler) => {
-        await handler(message);
+        const context = message.traceId && message.traceparent
+          ? { traceId: message.traceId, traceparent: message.traceparent }
+          : undefined;
+        if (!context) {
+          await handler(message);
+          return;
+        }
+        await Promise.resolve(runWithTraceContext(context as ActiveTraceContext, () => handler(message)));
       })
     );
   }
@@ -102,14 +128,38 @@ export async function createEventBus(options: CreateEventBusOptions = {}): Promi
     });
   }
 
+  if (backend === "redis-streams") {
+    if (!options.redisUrl) {
+      throw new Error("redisUrl is required for redis-streams backend");
+    }
+    return createRedisStreamsEventBusLazy({
+      redisUrl: options.redisUrl,
+      streamKey: options.streamKey
+    });
+  }
+
   return new InMemoryEventBus();
 }
 
 export async function getGlobalEventBus(): Promise<EventBus> {
   if (!globalEventBus) {
-    globalEventBus = await createEventBus({
-      databaseUrl: getPrimaryDatabaseUrl()
-    });
+    const backend = getEventBusBackend();
+    globalEventBus = await createEventBus(
+      backend === "postgres-notify"
+        ? {
+            backend,
+            databaseUrl: getPrimaryDatabaseUrl() ?? undefined
+          }
+        : backend === "redis-streams"
+          ? {
+              backend,
+              redisUrl: getEventBusRedisUrl(),
+              streamKey: getEventBusStreamKey()
+            }
+          : {
+              backend: "in-memory"
+            }
+    );
   }
   return globalEventBus;
 }

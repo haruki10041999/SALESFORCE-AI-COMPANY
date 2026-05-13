@@ -1,23 +1,25 @@
 import { z } from "zod";
 import { executeKnowledgeGraphDashboard } from "../../core/application/analytics/services/analytics-knowledge-dashboard.js";
-import { listKnowledgeEntities, listKnowledgeRelations } from "../../../memory/knowledge-graph.js";
-import { OutputsArtifactWriter } from "../../core/persistence/outputs-artifact-writer.js";
-import { getPrimaryDatabaseUrl } from "../../core/config/runtime-config.js";
+import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
 import type { RegisterGovToolDeps } from "../types.js";
 
 export interface DefineKnowledgeGraphDashboardDeps extends RegisterGovToolDeps {
   outputsDir: string;
+  listKnowledgeEntities: () => Array<{ id: string; name: string; type: string }>;
+  listKnowledgeRelations: () => Array<{
+    srcId: string;
+    dstId: string;
+    relationType: string;
+    weight: number;
+  }>;
 }
 
 export function defineKnowledgeGraphDashboardTool(
   deps: DefineKnowledgeGraphDashboardDeps
 ): void {
-  const { govTool, outputsDir } = deps;
+  const { govTool, outputsDir, listKnowledgeEntities, listKnowledgeRelations } = deps;
 
-  const artifactWriter = new OutputsArtifactWriter({
-    outputsDir,
-    databaseUrl: getPrimaryDatabaseUrl()
-  });
+  const outputsPort = new LocalOutputsAdapter({ outputsDir });
 
   govTool(
     "knowledge_graph_dashboard",
@@ -41,7 +43,7 @@ export function defineKnowledgeGraphDashboardTool(
         write,
         listKnowledgeEntities,
         listKnowledgeRelations,
-        artifactWriter
+        outputsPort
       });
 
       return {

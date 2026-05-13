@@ -2,6 +2,7 @@ import { z } from "zod";
 import { registerAnalysisDomain } from "./domain-analysis.js";
 import { registerChatDomain } from "./domain-chat.js";
 import { registerHistoryContextDomain } from "./domain-history-context.js";
+import { registerTenantDomain } from "../../registration/domain-tenant.js";
 import { registerResourceDomain } from "./domain-resource.js";
 import type { GovTool } from "@mcp/tool-types.js";
 import type { GovernanceState } from "../governance/governance-state.js";
@@ -11,6 +12,7 @@ import type { ProposalQueueStore } from "../resource/proposal/proposal-queue-sto
 import type { SessionStore } from "../persistence/session-store.js";
 import type { OrchestrationQueueStore } from "../orchestration/orchestration-queue-store.js";
 import type { OrchestrationJobRunner } from "../orchestration/job-runner.js";
+import type { WorkflowEngine } from "../ports/workflow-engine.js";
 import type { PolicySnapshotManager } from "../learning/policy-snapshot.js";
 import type {
   AgentMessage,
@@ -62,6 +64,7 @@ interface RegisterAllToolsDeps {
   sessionStore: SessionStore;
   orchestrationQueueStore: OrchestrationQueueStore;
   orchestrationJobRunner: OrchestrationJobRunner;
+  workflowEngine: WorkflowEngine;
   policySnapshotManager: PolicySnapshotManager;
   saveSessionHistory: (topic: string, entries: AgentMessage[]) => Promise<string>;
   onSessionCompleted?: (input: {
@@ -198,5 +201,6 @@ export function registerAllTools(deps: RegisterAllToolsDeps): void {
   registerAnalysisDomain(deps);
   registerChatDomain(deps);
   registerHistoryContextDomain(deps);
+  registerTenantDomain(deps);
   registerResourceDomain(deps);
 }

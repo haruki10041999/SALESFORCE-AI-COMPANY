@@ -1,8 +1,8 @@
 import { promises as fsPromises } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { buildTestCommand } from "./run-tests.js";
-import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
-import { getOutputsDir, getPrimaryDatabaseUrl } from "../core/config/runtime-config.js";
+import { LocalOutputsAdapter } from "../infrastructure/outputs/local-outputs-adapter.js";
+import { getOutputsDir } from "../core/config/runtime-config.js";
 
 export type VerificationAction = "rollback" | "continue" | "monitor";
 
@@ -133,10 +133,7 @@ export async function runDeploymentVerification(
   input: RunDeploymentVerificationInput
 ): Promise<RunDeploymentVerificationResult> {
   const runtimeOutputsDir = resolve(getOutputsDir());
-  const artifactWriter = new OutputsArtifactWriter({
-    outputsDir: runtimeOutputsDir,
-    databaseUrl: getPrimaryDatabaseUrl()
-  });
+  const outputsPort = new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir });
   const dryRun = input.dryRun ?? true;
   const deploymentSucceeded = input.deploymentSucceeded ?? true;
   const failureRateThresholdPercent = clampNumber(
@@ -238,9 +235,13 @@ export async function runDeploymentVerification(
     const reportRelativeDir = relative(runtimeOutputsDir, reportDir);
     const useArtifactWriter = reportRelativeDir.length > 0 && !reportRelativeDir.startsWith("..") && !isAbsolute(reportRelativeDir);
     if (useArtifactWriter) {
-      await artifactWriter.appendJsonl(join(reportRelativeDir, "runs.jsonl"), result);
-      await artifactWriter.writeJson(join(reportRelativeDir, "latest.json"), result);
-      await artifactWriter.writeText(join(reportRelativeDir, "latest.md"), renderMarkdown(result));
+      await outputsPort.appendEvent(join(reportRelativeDir, "runs.jsonl"), result);
+      await outputsPort.writeArtifact(join(reportRelativeDir, "latest.json"), `${JSON.stringify(result, null, 2)}\n`, {
+        contentType: "application/json"
+      });
+      await outputsPort.writeArtifact(join(reportRelativeDir, "latest.md"), renderMarkdown(result), {
+        contentType: "text/markdown"
+      });
     } else {
       await fsPromises.mkdir(reportDir, { recursive: true });
       await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");

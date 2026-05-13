@@ -1,6 +1,7 @@
 import pRetry from "p-retry";
 
 import { AbortError } from "p-retry";
+import { getActiveTraceContext } from "../trace/trace-context.js";
 
 /**
  * T-OLLAMA-01: Ollama HTTP Client
@@ -130,6 +131,15 @@ function isRetriableStatus(status: number): boolean {
   return status === 408 || status === 429 || (status >= 500 && status < 600);
 }
 
+function buildTraceHeaders(): Record<string, string> | undefined {
+  const trace = getActiveTraceContext();
+  if (!trace) return undefined;
+  return {
+    traceparent: trace.traceparent,
+    "x-sfai-trace-id": trace.traceId
+  };
+}
+
 
 export class OllamaClient {
   private readonly baseUrl: string;
@@ -212,7 +222,7 @@ export class OllamaClient {
       const res = await this.fetchImpl(url, {
         method: "POST",
         signal: controller.signal,
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...(buildTraceHeaders() ?? {}) },
         body: JSON.stringify({ ...req, stream: true })
       });
       if (!res.ok) {
@@ -286,7 +296,9 @@ export class OllamaClient {
             const init: RequestInit = {
               method,
               signal: controller.signal,
-              headers: body !== undefined ? { "content-type": "application/json" } : undefined,
+              headers: body !== undefined
+                ? { "content-type": "application/json", ...(buildTraceHeaders() ?? {}) }
+                : (buildTraceHeaders() ?? undefined),
               body: body !== undefined ? JSON.stringify(body) : undefined
             };
             const res = await this.fetchImpl(url, init);

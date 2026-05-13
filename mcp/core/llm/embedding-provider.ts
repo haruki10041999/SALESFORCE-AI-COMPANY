@@ -21,6 +21,8 @@ import {
 export interface VectorEmbeddingProvider {
   /** プロバイダ識別子 */
   readonly name: "ngram" | "ollama";
+  /** 永続化や移行判定に使う安定した profile ID */
+  readonly profileId?: string;
   /** 出力ベクトル次元 (動的なら -1) */
   readonly dimension: number;
   /** 単一テキスト埋め込み。ベクトル長は `dimension` と一致 */
@@ -63,12 +65,14 @@ export interface NgramEmbeddingOptions {
 
 export class NgramEmbeddingProvider implements VectorEmbeddingProvider {
   readonly name = "ngram" as const;
+  readonly profileId: string;
   readonly dimension: number;
   private readonly ngramSizes: number[];
   private readonly tokenizer: TextTokenizer;
 
   constructor(options: NgramEmbeddingOptions = {}) {
     this.dimension = options.dimension ?? DEFAULT_NGRAM_DIM;
+    this.profileId = `ngram:${this.dimension}`;
     const sizes = options.ngramSizes ?? [1, 2];
     this.ngramSizes = sizes.filter((n) => n >= 1).sort((a, b) => a - b);
     if (this.ngramSizes.length === 0) this.ngramSizes.push(1);
@@ -116,6 +120,7 @@ export interface OllamaEmbeddingOptions {
 
 export class OllamaEmbeddingProvider implements VectorEmbeddingProvider {
   readonly name = "ollama" as const;
+  readonly profileId: string;
   /** 動的次元 (初回 embed で確定) */
   dimension: number;
   private readonly client: OllamaClient;
@@ -126,6 +131,7 @@ export class OllamaEmbeddingProvider implements VectorEmbeddingProvider {
   constructor(options: OllamaEmbeddingOptions = {}) {
     this.client = options.client ?? getDefaultOllamaClient();
     this.model = options.model ?? "nomic-embed-text";
+    this.profileId = `ollama:${this.model}`;
     this.concurrency = Math.max(1, options.concurrency ?? 4);
     if (options.fallback) this.fallback = options.fallback;
     this.dimension = -1;

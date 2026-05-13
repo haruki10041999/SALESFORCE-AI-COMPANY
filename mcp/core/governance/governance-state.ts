@@ -51,6 +51,14 @@ export interface GovernanceConfig {
     stages: string[];
     requireCommentOnReject: boolean;
   };
+  approvalQueue: {
+    timeoutHours: number;
+    autoApproval: {
+      enabled: boolean;
+      lowRiskOnly: boolean;
+    };
+    escalationTargets: string[];
+  };
   /**
    * SLA 閾値設定
    * - default: すべての tool に適用されるデフォルト閾値
@@ -135,6 +143,14 @@ const governanceStateFileSchema = z.object({
       enabled: z.boolean().optional(),
       stages: z.array(z.string()).optional(),
       requireCommentOnReject: z.boolean().optional()
+    }).optional(),
+    approvalQueue: z.object({
+      timeoutHours: z.number().int().positive().optional(),
+      autoApproval: z.object({
+        enabled: z.boolean().optional(),
+        lowRiskOnly: z.boolean().optional()
+      }).optional(),
+      escalationTargets: z.array(z.string()).optional()
     }).optional(),
     sla: z.object({
       default: z.object({
@@ -233,6 +249,14 @@ export function buildDefaultGovernanceState(defaultProtectedTools: string[]): Go
         enabled: true,
         stages: ["reviewer", "admin"],
         requireCommentOnReject: true
+      },
+      approvalQueue: {
+        timeoutHours: 24,
+        autoApproval: {
+          enabled: true,
+          lowRiskOnly: true
+        },
+        escalationTargets: ["PagerDuty", "Slack"]
       },
       sla: {
         default: { maxP95Ms: 200, maxErrorRatePercent: 5 },
@@ -360,6 +384,19 @@ export async function loadGovernanceState(
               parsed.config?.approvalStages?.stages.length > 0
                 ? [...new Set(parsed.config.approvalStages.stages.map((s) => s.trim()).filter((s) => s.length > 0))]
                 : [...defaults.config.approvalStages.stages]
+          },
+          approvalQueue: {
+            ...defaults.config.approvalQueue,
+            ...parsed.config?.approvalQueue,
+            autoApproval: {
+              ...defaults.config.approvalQueue.autoApproval,
+              ...(parsed.config?.approvalQueue?.autoApproval ?? {})
+            },
+            escalationTargets:
+              Array.isArray(parsed.config?.approvalQueue?.escalationTargets) &&
+              parsed.config?.approvalQueue?.escalationTargets.length > 0
+                ? [...new Set(parsed.config.approvalQueue.escalationTargets.map((target) => target.trim()).filter((target) => target.length > 0))]
+                : [...defaults.config.approvalQueue.escalationTargets]
           },
           sla: {
             default: {

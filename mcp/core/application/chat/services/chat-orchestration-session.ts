@@ -1,6 +1,5 @@
 import type { OrchestrationSession } from "../../../types/index.js";
 import type { SessionStore } from "../../../persistence/session-store.js";
-import type { PolicySnapshotManager } from "../../../learning/policy-snapshot.js";
 import {
   computeAgentReputationScore,
   loadAgentReputationRecords
@@ -22,7 +21,11 @@ export async function persistOrchestrationSession(
 export async function prioritizeQueueByPolicy(args: {
   queue: string[];
   topic: string;
-  policySnapshotManager?: PolicySnapshotManager;
+  policySnapshotManager?: {
+    current?: { version: number } | null;
+    isLive?: boolean;
+    reputationScores?: (agents: string[], topic: string) => Map<string, number>;
+  };
   agentReputationFile: string;
 }): Promise<{ ordered: string[]; snapshotVersion: number | null }> {
   const { queue, topic, policySnapshotManager, agentReputationFile } = args;
@@ -30,7 +33,7 @@ export async function prioritizeQueueByPolicy(args: {
     return { ordered: queue, snapshotVersion: policySnapshotManager?.current?.version ?? null };
   }
 
-  if (policySnapshotManager?.isLive && policySnapshotManager.current) {
+  if (policySnapshotManager?.isLive && policySnapshotManager.current && policySnapshotManager.reputationScores) {
     const repScores = policySnapshotManager.reputationScores(queue, topic);
     const topicScores = new Map<string, number>(queue.map((agent) => [agent, scoreByQuery(topic, agent)]));
     const maxTopicScore = Math.max(0, ...Array.from(topicScores.values()));

@@ -4,7 +4,9 @@ import { resolveRuntimeProfile } from "./core/config/runtime-profile.js";
 const stateBackendSchema = z.enum(["sqlite", "postgres", "memory"]);
 const proposalQueueBackendSchema = z.enum(["file", "pg-boss", "memory"]);
 const vectorBackendSchema = z.enum(["tfidf", "pgvector", "memory"]);
+const eventBusBackendSchema = z.enum(["in-memory", "postgres-notify", "redis-streams"]);
 const secretBackendSchema = z.enum(["env", "file", "vault", "aws-sm"]);
+const mcpTransportSchema = z.enum(["stdio", "http"]);
 const runtimeProfileSchema = z.enum(["local", "operations", "custom"]);
 const envModeSchema = z.enum(["dev", "prod"]);
 
@@ -31,7 +33,15 @@ const envSchema = z
     SF_AI_STATE_BACKEND: stateBackendSchema.optional(),
     SF_AI_PROPOSAL_QUEUE_BACKEND: proposalQueueBackendSchema.optional(),
     SF_AI_VECTOR_BACKEND: vectorBackendSchema.optional(),
+    SF_AI_EVENT_BUS_BACKEND: eventBusBackendSchema.optional(),
+    SF_AI_EVENT_BUS_REDIS_URL: optionalNonEmptyString(),
+    SF_AI_EVENT_BUS_STREAM_KEY: optionalNonEmptyString(),
     SF_AI_SECRET_BACKEND: secretBackendSchema.optional(),
+    MCP_TRANSPORT: mcpTransportSchema.optional(),
+    MCP_HTTP_HOST: optionalNonEmptyString(),
+    MCP_HTTP_PORT: optionalNonEmptyString(),
+    MCP_HTTP_CORS_ORIGIN: optionalNonEmptyString(),
+    MCP_HTTP_RATE_LIMIT_PER_MIN: optionalNonEmptyString(),
     SF_AI_PROFILE_STRICT: z.enum(["true", "false", "1", "0"]).optional(),
     SF_AI_DOTENV_DISABLE: z.enum(["1", "0"]).optional(),
     DATABASE_URL: optionalNonEmptyString(),

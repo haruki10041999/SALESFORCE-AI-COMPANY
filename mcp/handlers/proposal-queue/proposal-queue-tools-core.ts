@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { z } from "zod";
 import { currentActor } from "../../core/identity/actor-context.js";
+import { DEFAULT_GOVERNANCE_CONFIG } from "../../core/governance/defaults.js";
 import { loadProposalFeedbackModel } from "../../core/resource/proposal-feedback.js";
 import {
   executeEnqueueProposal,
@@ -71,7 +72,14 @@ export function registerProposalQueueCoreTools(runtime: ProposalQueueRuntime): v
         resourceType,
         limit,
         proposalQueue,
-        historyAcceptRateByResource
+        historyAcceptRateByResource,
+        approvalPolicy: {
+          timeoutHours: DEFAULT_GOVERNANCE_CONFIG.approvalQueue.timeoutHours,
+          autoApprovalEnabled: DEFAULT_GOVERNANCE_CONFIG.approvalQueue.autoApproval.enabled,
+          lowRiskOnly: DEFAULT_GOVERNANCE_CONFIG.approvalQueue.autoApproval.lowRiskOnly,
+          escalationTargets: [...DEFAULT_GOVERNANCE_CONFIG.approvalQueue.escalationTargets]
+        },
+        appendApprovalAudit: runtime.appendApprovalAudit
       });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }

@@ -7,17 +7,13 @@ import { promises as fsPromises } from "fs";
 import { join, resolve } from "path";
 import { randomUUID } from "crypto";
 import { loadAllRewards } from "./reward-aggregator.js";
-import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
-import { getOutputsDir, getPrimaryDatabaseUrl } from "../config/runtime-config.js";
+import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
+import { getOutputsDir } from "../config/runtime-config.js";
 
 export type AdoptionStage = "shadow" | "canary" | "stable" | "rolling-back" | "rolled-back";
 
 const OUTPUTS_DIR = resolve(getOutputsDir());
-
-const artifactWriter = new OutputsArtifactWriter({
-  outputsDir: OUTPUTS_DIR,
-  databaseUrl: getPrimaryDatabaseUrl()
-});
+const outputsPort = new LocalOutputsAdapter({ outputsDir: OUTPUTS_DIR });
 
 export interface StagedToolProposal {
   /** Unique proposal ID */
@@ -124,7 +120,7 @@ export async function createStagedProposal(
   };
 
   try {
-    await artifactWriter.appendJsonl("learning/staged-proposals.jsonl", proposal);
+    await outputsPort.appendEvent("learning/staged-proposals.jsonl", proposal);
   } catch (error) {
     throw new Error(
       `Failed to create staged proposal: ${error instanceof Error ? error.message : String(error)}`
@@ -192,7 +188,7 @@ export async function transitionProposalStage(
   // Save updated proposals
   const updatedContent = proposals.map((p) => JSON.stringify(p)).join("\n") + "\n";
   try {
-    await artifactWriter.writeText("learning/staged-proposals.jsonl", updatedContent);
+    await outputsPort.writeArtifact("learning/staged-proposals.jsonl", updatedContent);
   } catch (error) {
     throw new Error(
       `Failed to update staged proposal: ${error instanceof Error ? error.message : String(error)}`
@@ -396,7 +392,7 @@ export async function executeRollback(proposalId: string): Promise<StagedToolPro
   // Save updated proposals
   const updatedContent = proposals.map((p) => JSON.stringify(p)).join("\n") + "\n";
   try {
-    await artifactWriter.writeText("learning/staged-proposals.jsonl", updatedContent);
+    await outputsPort.writeArtifact("learning/staged-proposals.jsonl", updatedContent);
   } catch (error) {
     throw new Error(
       `Failed to execute rollback: ${error instanceof Error ? error.message : String(error)}`

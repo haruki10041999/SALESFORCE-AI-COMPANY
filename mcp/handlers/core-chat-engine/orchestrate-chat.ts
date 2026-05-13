@@ -6,8 +6,9 @@ import {
   executeOrchestrateChatTool
 } from "../../core/application/chat/services/chat-orchestration-start.js";
 import type { SessionStore } from "../../core/persistence/session-store.js";
-import type { OrchestrationQueueStore } from "../../core/orchestration/orchestration-queue-store.js";
-import type { OrchestrationJobRunner } from "../../core/orchestration/job-runner.js";
+import type { OrchestrationQueueStore } from "../../infrastructure/workflow/orchestration-queue-store.js";
+import type { OrchestrationJobRunner } from "../../infrastructure/workflow/orchestration-job-runner.js";
+import type { WorkflowEngine } from "../../core/ports/workflow-engine.js";
 import type { DagNode } from "../../core/orchestration/dag-engine.js";
 
 export interface DefineOrchestrateChatchDeps extends RegisterGovToolDeps {
@@ -29,6 +30,7 @@ export interface DefineOrchestrateChatchDeps extends RegisterGovToolDeps {
   sessionStore: SessionStore;
   orchestrationQueueStore: OrchestrationQueueStore;
   orchestrationJobRunner: OrchestrationJobRunner;
+  workflowEngine: WorkflowEngine;
   liveSessionCache: Map<string, any>;
 }
 
@@ -43,6 +45,7 @@ export function defineOrchestrateChatTool(deps: DefineOrchestrateChatchDeps): vo
     sessionStore,
     orchestrationQueueStore,
     orchestrationJobRunner,
+    workflowEngine,
     liveSessionCache
   } = deps;
 
@@ -101,7 +104,7 @@ export function defineOrchestrateChatTool(deps: DefineOrchestrateChatchDeps): vo
         },
         upsertSession: (targetSession) => sessionStore.upsert(targetSession, -1),
         replaceQueue: (targetSessionId, queue) => orchestrationQueueStore.replace(targetSessionId, queue),
-        enqueueStep: (input) => orchestrationJobRunner.enqueueStep(input),
+        workflowEngine,
         startTrace,
         withPhase,
         endTrace,

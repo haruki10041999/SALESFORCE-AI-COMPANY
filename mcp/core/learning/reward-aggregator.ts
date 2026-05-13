@@ -13,6 +13,23 @@ import { getAnalyticsStore } from "../persistence/analytics-store-provider.js";
 import { appendTextFileAtomic } from "../persistence/unit-of-work.js";
 
 const REWARD_JSONL_PATH = resolve("outputs", "learning", "rewards.jsonl");
+let rewardWriteLock: Promise<void> = Promise.resolve();
+
+async function runWithRewardWriteLock<T>(action: () => Promise<T>): Promise<T> {
+  const previousLock = rewardWriteLock;
+  let releaseLock: (() => void) | undefined;
+  rewardWriteLock = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+
+  await previousLock;
+
+  try {
+    return await action();
+  } finally {
+    releaseLock?.();
+  }
+}
 
 /**
  * Default reward aggregator configuration
@@ -25,6 +42,40 @@ const DEFAULT_CONFIG: Required<RewardAggregatorConfig> = {
   errorRecoveryWeight: 0.1,
   minSamples: 1
 };
+
+export interface RewardDesignWeights {
+  qualityWeight: number;
+  successWeight: number;
+  costWeight: number;
+}
+
+export const DEFAULT_REWARD_DESIGN_WEIGHTS: RewardDesignWeights = {
+  qualityWeight: 0.6,
+  successWeight: 0.3,
+  costWeight: 0.1
+};
+
+export function assertRewardDesignWeights(
+  weights: RewardDesignWeights = DEFAULT_REWARD_DESIGN_WEIGHTS
+): RewardDesignWeights {
+  if (
+    !Number.isFinite(weights.qualityWeight) ||
+    !Number.isFinite(weights.successWeight) ||
+    !Number.isFinite(weights.costWeight)
+  ) {
+    throw new Error("reward design weights must be finite numbers");
+  }
+  if (weights.qualityWeight <= 0 || weights.successWeight < 0 || weights.costWeight < 0) {
+    throw new Error("reward design weights must be non-negative with positive quality weight");
+  }
+  if (weights.qualityWeight <= weights.successWeight || weights.qualityWeight <= weights.costWeight) {
+    throw new Error("reward quality weight must dominate success and cost weights");
+  }
+  if (weights.qualityWeight < weights.successWeight + weights.costWeight) {
+    throw new Error("reward quality weight must exceed combined success and cost weights");
+  }
+  return weights;
+}
 
 /**
  * Ensure outputs/learning directory exists
@@ -59,7 +110,9 @@ export async function recordReward(
   await ensureLearningDir();
 
   try {
-    await appendTextFileAtomic(REWARD_JSONL_PATH, JSON.stringify(record) + "\n");
+    await runWithRewardWriteLock(async () => {
+      await appendTextFileAtomic(REWARD_JSONL_PATH, JSON.stringify(record) + "\n");
+    });
   } catch (error) {
     throw new Error(`Failed to record reward: ${error instanceof Error ? error.message : String(error)}`);
   }

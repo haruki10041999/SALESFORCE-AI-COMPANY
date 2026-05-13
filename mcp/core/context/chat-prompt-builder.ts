@@ -169,6 +169,19 @@ function hashContent(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function resolvePromptFrameworkPath(root: string, fileName: string): string | null {
+  const candidates = [
+    join(root, "mcp", "core", "prompt", fileName),
+    join(root, "prompt-engine", fileName)
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 async function computePromptDependencyHash(
   input: BuildChatPromptInput,
   deps: BuildChatPromptDeps,
@@ -187,12 +200,22 @@ async function computePromptDependencyHash(
     parts.push(`context:${filePath}:${hashContent(readFileSync(filePath, "utf-8"))}`);
   }
 
-  const frameworkFiles = [join(deps.root, "prompt-engine", "discussion-framework.md")];
+  const frameworkFiles: string[] = [];
+  const discussionFrameworkPath = resolvePromptFrameworkPath(deps.root, "discussion-framework.md");
+  if (discussionFrameworkPath) {
+    frameworkFiles.push(discussionFrameworkPath);
+  }
   if (input.filePaths.length > 0) {
-    frameworkFiles.push(join(deps.root, "prompt-engine", "review-framework.md"));
+    const reviewFrameworkPath = resolvePromptFrameworkPath(deps.root, "review-framework.md");
+    if (reviewFrameworkPath) {
+      frameworkFiles.push(reviewFrameworkPath);
+    }
   }
   if (reviewModeTriggered) {
-    frameworkFiles.push(join(deps.root, "prompt-engine", "review-mode.md"));
+    const reviewModePath = resolvePromptFrameworkPath(deps.root, "review-mode.md");
+    if (reviewModePath) {
+      frameworkFiles.push(reviewModePath);
+    }
   }
 
   for (const frameworkPath of frameworkFiles.sort()) {
@@ -503,16 +526,16 @@ export async function buildChatPromptFromContext(
   const speechBlocks = speechAgents.map((a) => renderSpeechStyleSection(a, personaName ?? null));
   sections.push(`## 発話スタイル一覧\n\n${speechBlocks.join("\n\n")}`);
 
-  const discussionFrameworkPath = join(root, "prompt-engine", "discussion-framework.md");
-  if (existsSync(discussionFrameworkPath)) {
+  const discussionFrameworkPath = resolvePromptFrameworkPath(root, "discussion-framework.md");
+  if (discussionFrameworkPath && existsSync(discussionFrameworkPath)) {
     const raw = readFileSync(discussionFrameworkPath, "utf-8");
     const content = frameworkBudget ? truncateContent(raw, frameworkBudget, "discussion-framework") : raw;
     sections.push(`## ディスカッション規約\n\n${content}`);
   }
 
   if (filePaths.length > 0) {
-    const reviewFrameworkPath = join(root, "prompt-engine", "review-framework.md");
-    if (existsSync(reviewFrameworkPath)) {
+    const reviewFrameworkPath = resolvePromptFrameworkPath(root, "review-framework.md");
+    if (reviewFrameworkPath && existsSync(reviewFrameworkPath)) {
       const raw = readFileSync(reviewFrameworkPath, "utf-8");
       const content = frameworkBudget ? truncateContent(raw, frameworkBudget, "review-framework") : raw;
       sections.push(`## レビュー観点\n\n${content}`);
@@ -520,8 +543,8 @@ export async function buildChatPromptFromContext(
   }
 
   if (reviewModeTriggered) {
-    const reviewModePath = join(root, "prompt-engine", "review-mode.md");
-    if (existsSync(reviewModePath)) {
+    const reviewModePath = resolvePromptFrameworkPath(root, "review-mode.md");
+    if (reviewModePath && existsSync(reviewModePath)) {
       const reviewModeRaw = readFileSync(reviewModePath, "utf-8");
       const reviewModeContent = frameworkBudget
         ? truncateContent(reviewModeRaw, frameworkBudget, "review-mode")

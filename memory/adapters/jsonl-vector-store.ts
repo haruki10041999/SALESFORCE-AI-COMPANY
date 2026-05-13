@@ -14,6 +14,7 @@ import {
   parseEncryptedEnvelope,
   type EncryptedEnvelope
 } from "../../mcp/core/security/at-rest-crypto.js";
+import { classifyVectorTier } from "../../mcp/core/memory/vector-tier.js";
 import type {
   EmbeddingProvider,
   MemoryRecord,
@@ -178,11 +179,12 @@ export class JsonlVectorStoreAdapter implements VectorStoreAdapter {
   }
 
   public addRecord(record: MemoryRecord): void {
+    const tier = record.tier ?? classifyVectorTier({ text: record.text, tags: record.tags });
     const existingIndex = this.records.findIndex((r) => r.id === record.id);
     if (existingIndex >= 0) {
       this.records.splice(existingIndex, 1);
     }
-    this.records.push(record);
+    this.records.push({ ...record, tier });
     this.saveToDisk();
   }
 
@@ -317,7 +319,12 @@ export class JsonlVectorStoreAdapter implements VectorStoreAdapter {
                   && Array.isArray(rec.tags)
                   && rec.tags.every((tag) => typeof tag === "string")
                 ) {
-                  this.records.push({ id: rec.id, text: rec.text, tags: [...rec.tags] });
+                  this.records.push({
+                    id: rec.id,
+                    text: rec.text,
+                    tags: [...rec.tags],
+                    tier: rec.tier === "hot" || rec.tier === "warm" || rec.tier === "cold" ? rec.tier : undefined
+                  });
                 }
               } catch {
                 // skip corrupted rows
@@ -350,7 +357,12 @@ export class JsonlVectorStoreAdapter implements VectorStoreAdapter {
               Array.isArray(parsed.tags) &&
               parsed.tags.every((tag) => typeof tag === "string")
             ) {
-              this.records.push({ id: parsed.id, text: parsed.text, tags: [...parsed.tags] });
+              this.records.push({
+                id: parsed.id,
+                text: parsed.text,
+                tags: [...parsed.tags],
+                tier: parsed.tier === "hot" || parsed.tier === "warm" || parsed.tier === "cold" ? parsed.tier : undefined
+              });
               validCount += 1;
               if (validCount > MAX_STREAMED_RECORDS && this.records.length > this.maxRecords) {
                 const overflow = this.records.length - this.maxRecords;

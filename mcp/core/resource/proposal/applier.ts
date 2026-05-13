@@ -22,6 +22,8 @@ import { atomicWriteFileSync, ensureDirectorySync } from "../../io/atomic-write.
 import { isEnvFlagEnabled } from "../../config/env-flags.js";
 import type { ProposalRecord } from "./queue.js";
 import { DeclarativeToolSpecSchema } from "../../declarative/tool-spec.js";
+import type { OutputsPort } from "../../ports/outputs-port.js";
+import { LocalOutputsAdapter } from "../../../infrastructure/outputs/local-outputs-adapter.js";
 
 export interface ProposalApplyResult {
   applied: boolean;
@@ -36,6 +38,8 @@ export interface ProposalApplyOptions {
   outputsDir: string;
   /** 既存ファイルがあった場合に上書きするかどうか。既定は false。 */
   overwrite?: boolean;
+  /** OutputsPort を明示指定する場合に利用。未指定時は LocalOutputsAdapter。 */
+  outputsPort?: OutputsPort;
 }
 
 const SLUG_PATTERN = /[^a-z0-9-]+/g;
@@ -141,6 +145,143 @@ function nextPresetVersion(versionDir: string): number {
     .map((n) => Number(n.replace(/^v(\d+)\.json$/, "$1")))
     .reduce((acc, v) => (v > acc ? v : acc), 0);
   return max + 1;
+}
+
+function resolveOutputsPort(options: ProposalApplyOptions): OutputsPort {
+  if (options.outputsPort) {
+    return options.outputsPort;
+  }
+  return new LocalOutputsAdapter({ outputsDir: options.outputsDir });
+}
+
+async function applyToolAsync(record: ProposalRecord, options: ProposalApplyOptions): Promise<ProposalApplyResult> {
+  const slug = slugifyResourceName(record.name);
+  const relativePath = `custom-tools/${slug}.json`;
+  const filePath = join(options.outputsDir, relativePath);
+  if (!isFileFallbackEnabled("SF_AI_CUSTOM_TOOL_FILE_FALLBACK")) {
+    return { applied: false, filePath, reason: "file-fallback-disabled" };
+  }
+
+  const outputsPort = resolveOutputsPort(options);
+  const existing = await outputsPort.readArtifact(relativePath);
+  if (existing !== null && !options.overwrite) {
+    return { applied: false, filePath, reason: "already-exists" };
+  }
+
+  let payload: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(record.content);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      payload = parsed as Record<string, unknown>;
+    } else {
+      payload = { description: String(record.content) };
+    }
+  } catch {
+    payload = { description: String(record.content) };
+  }
+
+  const draft: Record<string, unknown> = {
+    schemaVersion: 1,
+    name: payload.name ?? slug,
+    title: payload.title,
+    description: payload.description ?? record.name,
+    tags: payload.tags ?? [],
+    governance: payload.governance,
+    action: payload.action ?? {
+      kind: "compose-prompt",
+      agents: Array.isArray(payload.agents) && payload.agents.length > 0
+        ? payload.agents
+        : ["captain"],
+      persona: payload.persona,
+      skills: Array.isArray(payload.skills) ? payload.skills : [],
+      defaultTopic: payload.defaultTopic
+    },
+    createdAt: new Date().toISOString(),
+    proposalId: record.id
+  };
+
+  if (!DeclarativeToolSpecSchema.safeParse(draft).success) {
+    const legacy = {
+      name: slug,
+      description: typeof payload.description === "string" ? payload.description : record.name,
+      agents: Array.isArray(payload.agents) ? payload.agents : ["captain"],
+      skills: Array.isArray(payload.skills) ? payload.skills : [],
+      persona: typeof payload.persona === "string" ? payload.persona : undefined,
+      tags: Array.isArray(payload.tags) ? payload.tags : [],
+      createdAt: new Date().toISOString(),
+      proposalId: record.id
+    };
+    await outputsPort.writeArtifact(relativePath, JSON.stringify(legacy, null, 2));
+    return { applied: true, filePath, reason: "written" };
+  }
+
+  await outputsPort.writeArtifact(relativePath, JSON.stringify(draft, null, 2));
+  return { applied: true, filePath, reason: "written" };
+}
+
+async function applyPresetAsync(record: ProposalRecord, options: ProposalApplyOptions): Promise<ProposalApplyResult> {
+  const slug = slugifyResourceName(record.name);
+  const presetsRoot = join(options.outputsDir, "presets");
+  const versionDir = join(presetsRoot, slug);
+  if (!isFileFallbackEnabled("SF_AI_PRESET_FILE_FALLBACK")) {
+    return {
+      applied: false,
+      filePath: join(versionDir, "v1.json"),
+      reason: "file-fallback-disabled"
+    };
+  }
+
+  ensureDirectorySync(versionDir);
+  const version = nextPresetVersion(versionDir);
+  const relativeVersionPath = `presets/${slug}/v${version}.json`;
+  const relativeLatestPath = `presets/${slug}.json`;
+  const versionFile = join(versionDir, `v${version}.json`);
+
+  const outputsPort = resolveOutputsPort(options);
+  const existing = await outputsPort.readArtifact(relativeVersionPath);
+  if (existing !== null && !options.overwrite) {
+    return { applied: false, filePath: versionFile, reason: "already-exists" };
+  }
+
+  let payload: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(record.content);
+    payload = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : { description: record.content };
+  } catch {
+    payload = { description: record.content };
+  }
+
+  const out = {
+    name: record.name,
+    slug,
+    version,
+    createdAt: new Date().toISOString(),
+    proposalId: record.id,
+    ...payload
+  };
+
+  const body = JSON.stringify(out, null, 2);
+  await outputsPort.writeArtifact(relativeVersionPath, body);
+  await outputsPort.writeArtifact(relativeLatestPath, body);
+  return { applied: true, filePath: versionFile, reason: "written" };
+}
+
+export async function applyProposalAsync(record: ProposalRecord, options: ProposalApplyOptions): Promise<ProposalApplyResult> {
+  switch (record.resourceType) {
+    case "skills":
+      return applySkill(record, options);
+    case "tools":
+      return applyToolAsync(record, options);
+    case "presets":
+      return applyPresetAsync(record, options);
+    default: {
+      const _exhaustive: never = record.resourceType;
+      void _exhaustive;
+      throw new Error(`unsupported resourceType: ${record.resourceType}`);
+    }
+  }
 }
 
 function applyPreset(record: ProposalRecord, options: ProposalApplyOptions): ProposalApplyResult {

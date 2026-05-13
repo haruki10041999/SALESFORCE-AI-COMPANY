@@ -4,14 +4,11 @@ import {
   getAnalyticsStore,
   hasAnalyticsDatabaseConfig
 } from "../persistence/analytics-store-provider.js";
-import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
-import { getOutputsDir, getPrimaryDatabaseUrl } from "../config/runtime-config.js";
+import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
+import { getOutputsDir } from "../config/runtime-config.js";
 
 const runtimeOutputsDir = resolve(getOutputsDir());
-const artifactWriter = new OutputsArtifactWriter({
-  outputsDir: runtimeOutputsDir,
-  databaseUrl: getPrimaryDatabaseUrl()
-});
+const outputsPort = new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir });
 
 /**
  * Reinforcement Learning Feedback (TASK-047)
@@ -309,7 +306,7 @@ export async function saveBanditState(state: BanditState, filePath: string): Pro
   const relativePath = relative(runtimeOutputsDir, resolvedFilePath);
   const useArtifactWriter = relativePath.length > 0 && !relativePath.startsWith("..") && !isAbsolute(relativePath);
   if (useArtifactWriter) {
-    await artifactWriter.writeText(relativePath, content);
+    await outputsPort.writeArtifact(relativePath, content);
     return;
   }
 

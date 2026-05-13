@@ -31,13 +31,14 @@ export async function executeEvaluateTriggersTool(args: {
   getSessionOrRestore: (sessionId: string) => Promise<OrchestrationSession | undefined>;
   buildSessionNotFoundText: (sessionId: string) => string;
   replaceQueue: (sessionId: string, queue: string[]) => Promise<void>;
-  enqueueStep: (input: {
-    sessionId: string;
-    stepIndex: number;
-    agent: string;
-    payload: { triggeredBy: string; reason: string | null };
-    checkpoint: { queueLength: number; firedRules: number };
-  }) => Promise<unknown>;
+  workflowEngine: {
+    enqueue(input: {
+      sessionId: string;
+      topic: string;
+      agents: string[];
+      turns?: number;
+    }): Promise<void>;
+  };
   upsertSession: (session: OrchestrationSession) => Promise<unknown>;
   emitSystemEvent: (event: string, payload: Record<string, unknown>) => Promise<void>;
   startTrace: (name: string, attrs?: Record<string, unknown>) => string;
@@ -110,7 +111,7 @@ export async function executeEvaluateTriggersTool(args: {
       nextAgents,
       reasons: hookResult.reasons,
       replaceQueue: args.replaceQueue,
-      enqueueStep: args.enqueueStep,
+      workflowEngine: args.workflowEngine,
       upsertSession: args.upsertSession
     });
   }

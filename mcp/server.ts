@@ -53,8 +53,8 @@ import {
 } from "../memory/failure-memory.js";
 import { ingestKnowledgeSummary } from "../memory/knowledge-graph.js";
 import { addRecord, searchByKeyword, searchByKeywordAsync } from "../memory/vector-store.js";
-import { buildPrompt } from "../prompt-engine/prompt-builder.js";
-import { evaluatePromptMetrics } from "../prompt-engine/prompt-evaluator.js";
+import { buildPrompt } from "./core/prompt/prompt-builder.js";
+import { evaluatePromptMetrics } from "./core/prompt/prompt-evaluator.js";
 import {
   exportStatisticsAsCsv,
   exportStatisticsAsJson
@@ -78,8 +78,9 @@ import { createHistoryStore } from "./core/context/history-store.js";
 import { PostgresSessionStore } from "./core/persistence/session-store.postgres.js";
 import { SqliteSessionStore } from "./core/persistence/session-store.sqlite.js";
 import type { SessionStore } from "./core/persistence/session-store.js";
-import { createOrchestrationQueueStore } from "./core/orchestration/orchestration-queue-store.js";
-import { createOrchestrationJobRunner } from "./core/orchestration/job-runner.js";
+import { createOrchestrationQueueStore } from "./infrastructure/workflow/orchestration-queue-store.js";
+import { createOrchestrationJobRunner } from "./infrastructure/workflow/orchestration-job-runner.js";
+import { createInProcessWorkflowEngine } from "./infrastructure/workflow/in-process-workflow-engine.js";
 import { createPolicySnapshotManager } from "./core/learning/policy-snapshot.js";
 import { createPromptRenderer } from "./core/context/prompt-rendering.js";
 import { isEnvFlagEnabled } from "./core/config/env-flags.js";
@@ -396,6 +397,10 @@ const orchestrationJobRunner = createOrchestrationJobRunner({
   stateBackend: STATE_BACKEND,
   databaseUrl: DATABASE_URL
 });
+const workflowEngine = createInProcessWorkflowEngine({
+  orchestrationQueueStore,
+  orchestrationJobRunner
+});
 const policySnapshotManager = createPolicySnapshotManager({
   banditStateFile: BANDIT_STATE_FILE,
   agentReputationFile: join(OUTPUTS_DIR, "agent-reputation.jsonl"),
@@ -500,6 +505,7 @@ const chatAndSessionDeps = {
   sessionStore,
   orchestrationQueueStore,
   orchestrationJobRunner,
+  workflowEngine,
   policySnapshotManager,
   saveSessionHistory,
   onSessionCompleted: async ({ sessionId, topic, history }) => {
@@ -530,6 +536,7 @@ const chatAndSessionDeps = {
   | "sessionStore"
   | "orchestrationQueueStore"
   | "orchestrationJobRunner"
+  | "workflowEngine"
   | "policySnapshotManager"
   | "saveSessionHistory"
   | "onSessionCompleted"

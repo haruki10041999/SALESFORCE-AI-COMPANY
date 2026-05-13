@@ -4,6 +4,7 @@ import {
   type EventBusHandler,
   type EventBusMessage
 } from "../event-bus.js";
+import { getActiveTraceContext, runWithTraceContext } from "../../trace/trace-context.js";
 
 const DEFAULT_CHANNEL = "sfai_event_bus";
 const MAX_NOTIFY_PAYLOAD_BYTES = 7900;
@@ -40,7 +41,9 @@ function decodeMessage(raw: string): EventBusMessage | null {
       topic: parsed.topic,
       payload: parsed.payload,
       timestamp: parsed.timestamp,
-      source: typeof parsed.source === "string" ? parsed.source : undefined
+      source: typeof parsed.source === "string" ? parsed.source : undefined,
+      traceId: typeof parsed.traceId === "string" ? parsed.traceId : undefined,
+      traceparent: typeof parsed.traceparent === "string" ? parsed.traceparent : undefined
     };
   } catch {
     return null;
@@ -82,17 +85,20 @@ class PostgresNotifyEventBus implements EventBus {
   public async publish<TPayload = unknown>(
     topic: string,
     payload: TPayload,
-    options?: { source?: string; timestamp?: string }
+    options?: { source?: string; timestamp?: string; traceId?: string; traceparent?: string }
   ): Promise<void> {
     if (this.closed) {
       throw new Error("event bus is closed");
     }
 
+    const activeTrace = getActiveTraceContext();
     const message: EventBusMessage<TPayload> = {
       topic,
       payload,
       timestamp: options?.timestamp ?? new Date().toISOString(),
-      source: options?.source
+      source: options?.source,
+      traceId: options?.traceId ?? activeTrace?.traceId,
+      traceparent: options?.traceparent ?? activeTrace?.traceparent
     };
 
     const escapedPayload = encodeMessage(message);
@@ -147,6 +153,10 @@ class PostgresNotifyEventBus implements EventBus {
 
     await Promise.allSettled(
       [...handlers].map(async (handler) => {
+        if (message.traceId && message.traceparent) {
+          await Promise.resolve(runWithTraceContext({ traceId: message.traceId, traceparent: message.traceparent }, () => handler(message)));
+          return;
+        }
         await handler(message);
       })
     );

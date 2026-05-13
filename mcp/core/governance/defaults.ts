@@ -23,10 +23,20 @@ export interface GovernanceResourceLimits {
   deletionsPerDay: number;
 }
 
+export interface GovernanceApprovalQueueConfig {
+  timeoutHours: number;
+  autoApproval: {
+    enabled: boolean;
+    lowRiskOnly: boolean;
+  };
+  escalationTargets: string[];
+}
+
 export interface GovernanceConfig {
   maxCounts: GovernanceMaxCounts;
   thresholds: GovernanceThresholds;
   resourceLimits: GovernanceResourceLimits;
+  approvalQueue: GovernanceApprovalQueueConfig;
 }
 
 /**
@@ -48,5 +58,13 @@ export const DEFAULT_GOVERNANCE_CONFIG: GovernanceConfig = {
   resourceLimits: {
     creationsPerDay: 5,
     deletionsPerDay: 3
+  },
+  approvalQueue: {
+    timeoutHours: 24,
+    autoApproval: {
+      enabled: true,
+      lowRiskOnly: true
+    },
+    escalationTargets: ["PagerDuty", "Slack"]
   }
 };

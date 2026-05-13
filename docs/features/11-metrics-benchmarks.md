@@ -3,6 +3,9 @@
 ツール実行のトレース（Trace Context）からリアルタイムにパフォーマンスメトリクスを収集・集計し、
 ベンチマーク評価を行うツール群です。
 
+OTel は deterministic sampling を使い、`OTEL_TRACES_SAMPLER_RATIO` で収集量を抑えます。
+Prometheus は high-cardinality label を `_other` / `_unknown` へ丸めるガードを持ちます。
+
 ---
 
 ## Trace Context の仕組み

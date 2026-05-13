@@ -11,6 +11,8 @@ export interface HierarchicalIngestResult {
   chunks: number;
 }
 
+export type VectorTier = "hot" | "warm" | "cold";
+
 export interface HierarchicalSearchInput {
   query: string;
   limit?: number;
@@ -27,6 +29,7 @@ export interface HierarchicalSearchOutput {
   text: string;
   documentId: string;
   summary?: string;
+  tier?: VectorTier;
   context?: {
     prevChunk?: string;
     nextChunk?: string;

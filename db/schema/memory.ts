@@ -14,11 +14,14 @@ export const memoryRecordsTable = pgTable(
     /** Dimension of the stored vector. */
     embeddingDim: integer("embedding_dim").notNull().default(768),
     /** Whether the vector was L2-normalised before storage. */
-    embeddingNorm: boolean("embedding_norm").notNull().default(true)
+    embeddingNorm: boolean("embedding_norm").notNull().default(true),
+    /** Hot / warm / cold storage tier. */
+    vectorTier: text("vector_tier").notNull().default("warm")
   },
   (table) => ({
     updatedAtIdx: index("idx_memory_records_updated_at").on(table.updatedAt),
     modelDimIdx: index("idx_memory_records_model_dim").on(table.embeddingModel, table.embeddingDim),
-    tenantModelDimIdx: index("idx_memory_records_tenant_model_dim").on(table.tenantId, table.embeddingModel, table.embeddingDim)
+    tenantModelDimIdx: index("idx_memory_records_tenant_model_dim").on(table.tenantId, table.embeddingModel, table.embeddingDim),
+    vectorTierIdx: index("idx_memory_records_vector_tier").on(table.vectorTier)
   })
 );

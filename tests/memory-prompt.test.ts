@@ -21,7 +21,7 @@ import {
   configureVectorStoreForTest,
   searchByKeyword
 } from "../memory/vector-store.js";
-import { buildPrompt } from "../prompt-engine/prompt-builder.js";
+import { buildPrompt } from "../mcp/core/prompt/prompt-builder.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

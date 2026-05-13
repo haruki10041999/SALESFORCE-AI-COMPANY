@@ -46,13 +46,14 @@ export async function applyTriggerTurnToSession(args: {
   nextAgents: string[];
   reasons: string[];
   replaceQueue: (sessionId: string, queue: string[]) => Promise<void>;
-  enqueueStep: (input: {
-    sessionId: string;
-    stepIndex: number;
-    agent: string;
-    payload: { triggeredBy: string; reason: string | null };
-    checkpoint: { queueLength: number; firedRules: number };
-  }) => Promise<unknown>;
+  workflowEngine: {
+    enqueue(input: {
+      sessionId: string;
+      topic: string;
+      agents: string[];
+      turns?: number;
+    }): Promise<void>;
+  };
   upsertSession: (session: OrchestrationSession) => Promise<unknown>;
 }): Promise<void> {
   args.session.history.push({
@@ -68,22 +69,12 @@ export async function applyTriggerTurnToSession(args: {
 
   await args.replaceQueue(args.session.id, args.session.queue);
 
-  const currentMaxStep = args.session.history.length + args.session.queue.length - args.nextAgents.length;
-  for (const [offset, nextAgent] of args.nextAgents.entries()) {
-    await args.enqueueStep({
-      sessionId: args.session.id,
-      stepIndex: currentMaxStep + offset,
-      agent: nextAgent,
-      payload: {
-        triggeredBy: args.lastAgent,
-        reason: args.reasons[offset] ?? null
-      },
-      checkpoint: {
-        queueLength: args.session.queue.length,
-        firedRules: args.session.firedRules.length
-      }
-    });
-  }
+  await args.workflowEngine.enqueue({
+    sessionId: args.session.id,
+    topic: args.session.topic,
+    agents: args.nextAgents,
+    turns: args.session.turns
+  });
 
   await args.upsertSession(args.session);
 }

@@ -4,7 +4,8 @@ import type { GovernanceState, GovernedResourceType } from "../../../governance/
 import type { SystemEventType } from "../../../event/event-dispatcher.js";
 import type { ChatPreset, CustomToolDefinition, ResourceOperation } from "../../../types/index.js";
 import { evaluateCascadeDeletion, renderCascadeImpactMarkdown, type CascadeMode } from "../../../resource/cascading-delete.js";
-import { OutputsArtifactWriter } from "../../../persistence/outputs-artifact-writer.js";
+import type { OutputsPort } from "../../../ports/outputs-port.js";
+import { LocalOutputsAdapter } from "../../../../infrastructure/outputs/local-outputs-adapter.js";
 
 type GovernanceActionType = "create" | "delete" | "disable" | "enable";
 
@@ -52,6 +53,7 @@ export async function executeApplyResourceActions(args: {
   appendOperationLog: (op: ResourceOperation) => Promise<void>;
   emitEvent: (event: { type: SystemEventType; timestamp: string; payload: Record<string, unknown> }) => Promise<void>;
   toPosixPath: (pathValue: string) => string;
+  outputsPort?: OutputsPort;
 }): Promise<Record<string, unknown>> {
   const effectiveDryRun = args.dryRun ?? false;
   const effectiveCascadeMode: CascadeMode = args.cascadeMode ?? "block";
@@ -391,13 +393,10 @@ export async function executeApplyResourceActions(args: {
   }
 
   const auditFile = join(dirname(args.governanceFile), "audit", "resource-actions.jsonl");
-  const artifactWriter = new OutputsArtifactWriter({
-    outputsDir: dirname(args.governanceFile),
-    databaseUrl: process.env.DATABASE_URL
-  });
+  const outputsPort = args.outputsPort ?? new LocalOutputsAdapter({ outputsDir: dirname(args.governanceFile) });
   try {
     const timestamp = new Date().toISOString();
-    const records = results.map((result) => JSON.stringify({
+    const records = results.map((result) => ({
       timestamp,
       source: "apply_resource_actions",
       dryRun: effectiveDryRun,
@@ -406,17 +405,8 @@ export async function executeApplyResourceActions(args: {
       name: result.name,
       outcome: result.result
     }));
-    if (records.length > 0) {
-      for (const row of records) {
-        const payload = JSON.parse(row) as Record<string, unknown>;
-        await artifactWriter.appendAuditArtifact(
-          "resource_action",
-          typeof payload.resourceType === "string" ? payload.resourceType : null,
-          payload,
-          typeof payload.timestamp === "string" ? payload.timestamp : new Date().toISOString(),
-          "audit/resource-actions.jsonl"
-        );
-      }
+    for (const payload of records) {
+      await outputsPort.appendEvent("audit/resource-actions.jsonl", payload);
     }
   } catch {
     // audit logging failures must not break tool execution

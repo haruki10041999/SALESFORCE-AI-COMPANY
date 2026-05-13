@@ -44,6 +44,7 @@ export const memoryChunksTable = pgTable("memory_chunks", {
   // Vector (768-dim pgvector column managed separately by T-06 schema)
   embeddingModel: text("embedding_model"),
   embeddingDim: integer("embedding_dim"),
+  vectorTier: text("vector_tier").notNull().default("warm"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

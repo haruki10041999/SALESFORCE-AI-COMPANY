@@ -2,6 +2,8 @@
 
 この Runbook は、既存データに tenant_id を付与して multi-tenant 運用へ移行するための実運用手順です。
 
+tenant の作成・停止・再開・エクスポート・削除の API 仕様は [features/12-tenant-lifecycle.md](./features/12-tenant-lifecycle.md) を参照してください。
+
 ## 対象
 
 - orchestration_sessions

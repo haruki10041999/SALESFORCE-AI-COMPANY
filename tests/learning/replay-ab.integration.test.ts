@@ -1,11 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert";
 import { ReplayABEvaluator, type ABTestResult } from "../../mcp/core/learning/replay-ab.js";
+import { migrateSessionSnapshot } from "../../mcp/core/recording/snapshot-migrator.js";
 import type { SessionSnapshot } from "../../mcp/core/recording/session-snapshot.js";
 
 test("ReplayABEvaluator runs variant and returns result", async () => {
   const evaluator = new ReplayABEvaluator();
   const snapshot: SessionSnapshot = {
+    schemaVersion: 2,
     id: "session-1",
     tenantId: "tenant-1",
     sessionType: "agent-session",
@@ -61,6 +63,7 @@ test("ReplayABEvaluator runs variant and returns result", async () => {
   assert.ok(result.variantScore >= 0 && result.variantScore <= 100);
   assert.ok(["control", "variant", "tie"].includes(result.winner));
   assert.ok(result.scorerVersion);
+  assert.equal(result.snapshotSchemaVersion, 2);
 });
 
 test("ReplayABEvaluator ranks variants by score", async () => {
@@ -78,6 +81,7 @@ test("ReplayABEvaluator ranks variants by score", async () => {
       isSignificant: false,
       confidenceLevel: 0.5,
       scorerVersion: "v1",
+      snapshotSchemaVersion: 2,
     },
     {
       testId: "t2",
@@ -92,6 +96,7 @@ test("ReplayABEvaluator ranks variants by score", async () => {
       isSignificant: true,
       confidenceLevel: 0.9,
       scorerVersion: "v1",
+      snapshotSchemaVersion: 2,
     },
   ];
 
@@ -117,6 +122,7 @@ test("ReplayABEvaluator filters significant winners", async () => {
       isSignificant: false,
       confidenceLevel: 0.1,
       scorerVersion: "v1",
+      snapshotSchemaVersion: 2,
     },
     {
       testId: "t2",
@@ -131,6 +137,7 @@ test("ReplayABEvaluator filters significant winners", async () => {
       isSignificant: true,
       confidenceLevel: 0.85,
       scorerVersion: "v1",
+      snapshotSchemaVersion: 2,
     },
   ];
 
@@ -144,6 +151,7 @@ test("ReplayABEvaluator filters significant winners", async () => {
 test("ReplayABEvaluator scores sessions based on feedback", async () => {
   const evaluator = new ReplayABEvaluator();
   const snapshot: SessionSnapshot = {
+    schemaVersion: 2,
     id: "session-1",
     tenantId: "tenant-1",
     sessionType: "agent-session",
@@ -185,6 +193,7 @@ test("ReplayABEvaluator scores sessions based on feedback", async () => {
 test("ReplayABEvaluator runs multiple variants", async () => {
   const evaluator = new ReplayABEvaluator();
   const snapshot: SessionSnapshot = {
+    schemaVersion: 2,
     id: "session-1",
     tenantId: "tenant-1",
     sessionType: "agent-session",
@@ -216,4 +225,18 @@ test("ReplayABEvaluator runs multiple variants", async () => {
 
   assert.equal(results.length, 2);
   assert.ok(results.every((r: ABTestResult) => r.scorerVersion === "v1"));
+});
+
+test("snapshot migrator upgrades legacy snapshots to schema version 2", () => {
+  const migrated = migrateSessionSnapshot({
+    id: "session-legacy",
+    tenantId: "tenant-1",
+    sessionType: "agent-session",
+    systemPrompt: "Legacy prompt",
+    createdAt: new Date(),
+    status: "completed"
+  });
+
+  assert.equal(migrated.schemaVersion, 2);
+  assert.equal(migrated.id, "session-legacy");
 });

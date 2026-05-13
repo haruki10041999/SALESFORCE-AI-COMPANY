@@ -3,9 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import { createGovernedToolRegistrar } from "../mcp/core/governance/governed-tool-registrar.js";
 import { createBanditState } from "../mcp/core/learning/rl-feedback.js";
 import type { ToolRateLimiter } from "../mcp/core/reliability/rate-limiter.js";
+import type { ToolDefinition } from "../mcp/core/registry/define-tool.js";
 
 type ToolHandler = (input: unknown) => Promise<{ content: Array<{ type: string; text: string }> }>;
 
@@ -245,5 +248,65 @@ test("governed tool registrar blocks execution when rate limit is exceeded", asy
 
   const blockedEvent = events.find((e) => e.event === "tool_after_execute" && e.payload.blockedByRateLimit === true);
   assert.ok(blockedEvent);
+  paths.cleanup();
+});
+
+test("P0-4: govTool wraps dict-of-Zod inputSchema into inputSchemaZod for descriptor generation", async () => {
+  const capturedDefinitions: ToolDefinition[] = [];
+  const paths = makeTempPaths();
+  const banditState = createBanditState();
+  const banditStateFile = join(paths.outputsDir, "bandit-state.jsonl");
+
+  const { govTool } = createGovernedToolRegistrar({
+    registerTool: () => {},
+    isToolDisabled: () => false,
+    normalizeResourceName: (name) => name,
+    outputsDir: paths.outputsDir,
+    serverRoot: paths.serverRoot,
+    emitSystemEvent: async () => {},
+    summarizeValue: (value) => String(value),
+    registerToolFailure: async () => {},
+    getBanditState: () => banditState,
+    banditStateFile,
+    onToolDefined: (def) => capturedDefinitions.push(def),
+    getRetryConfig: async () => ({
+      retryEnabled: false,
+      maxRetries: 0,
+      baseDelayMs: 0,
+      maxDelayMs: 0,
+      retryablePatterns: [],
+      retryableCodes: []
+    })
+  });
+
+  govTool(
+    "dict_zod_tool",
+    {
+      title: "Test Tool",
+      description: "test",
+      inputSchema: {
+        query: z.string().min(1),
+        limit: z.number().int().optional()
+      }
+    },
+    async () => ({ content: [{ type: "text", text: "ok" }] })
+  );
+
+  assert.equal(capturedDefinitions.length, 1);
+  const def = capturedDefinitions[0];
+  assert.equal(def.name, "dict_zod_tool");
+
+  // dict-of-Zod は自動で inputSchemaZod に昇格される
+  assert.ok(def.inputSchemaZod, "inputSchemaZod should be set from dict-of-Zod");
+
+  // zodToJsonSchema で JSON Schema 変換できる
+  const jsonSchema = zodToJsonSchema(def.inputSchemaZod!, { name: "TestSchema" }) as Record<string, unknown>;
+  const definitions = (jsonSchema.definitions ?? jsonSchema.$defs) as Record<string, { properties?: Record<string, unknown> }> | undefined;
+  const schemaBody = definitions?.["TestSchema"] ?? jsonSchema;
+  assert.ok((schemaBody as { properties?: unknown }).properties, "JSON Schema should have properties");
+  const props = (schemaBody as { properties: Record<string, unknown> }).properties;
+  assert.ok("query" in props, "query field should appear in JSON Schema");
+  assert.ok("limit" in props, "limit field should appear in JSON Schema");
+
   paths.cleanup();
 });

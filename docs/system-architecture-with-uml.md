@@ -371,13 +371,17 @@ salesforce-ai-company/
 ├── memory/
 │   ├── project-memory.ts            ← memory[] 配列 (add/search/list/clear)
 │   └── vector-store.ts             ← records[] 配列 (addRecord/searchByKeyword)
-├── prompt-engine/
+├── mcp/core/prompt/
 │   ├── prompt-builder.ts           ← buildPrompt(agent, task)
+│   ├── prompt-evaluator.ts
 │   ├── base-prompt.md
 │   ├── reasoning-framework.md
 │   ├── discussion-framework.md
 │   ├── review-framework.md
 │   └── review-mode.md
+├── prompt-engine/
+│   ├── prompt-builder.ts           ← compatibility re-export
+│   └── prompt-evaluator.ts         ← compatibility re-export
 ├── agents/          (17 個)
 ├── skills/          (11+ カテゴリ, 31+ ファイル)
 ├── personas/        (15 個)

@@ -7,14 +7,12 @@ import { promises as fsPromises } from "fs";
 import { resolve } from "path";
 import type { FailureMemoryEntry } from "../../../memory/failure-memory.js";
 import { listFailureMemory } from "../../../memory/failure-memory.js";
-import { OutputsArtifactWriter } from "../persistence/outputs-artifact-writer.js";
-import { getOutputsDir, getPrimaryDatabaseUrl } from "../config/runtime-config.js";
+import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
+import { getOutputsDir } from "../config/runtime-config.js";
 
-const RAG_INJECTION_CACHE_PATH = resolve("outputs", "learning", "rag-injection-cache.jsonl");
-const artifactWriter = new OutputsArtifactWriter({
-  outputsDir: resolve(getOutputsDir()),
-  databaseUrl: getPrimaryDatabaseUrl()
-});
+const OUTPUTS_DIR = resolve(getOutputsDir());
+const RAG_INJECTION_CACHE_PATH = resolve(OUTPUTS_DIR, "learning", "rag-injection-cache.jsonl");
+const outputsPort = new LocalOutputsAdapter({ outputsDir: OUTPUTS_DIR });
 
 export interface ErrorSignature {
   code?: string;
@@ -241,7 +239,7 @@ export async function injectFailureContext(errorData: {
   };
 
   try {
-    await artifactWriter.appendJsonl("learning/rag-injection-cache.jsonl", result);
+    await outputsPort.appendEvent("learning/rag-injection-cache.jsonl", result);
   } catch {
     // Ignore cache write failures
   }

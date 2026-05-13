@@ -9,8 +9,8 @@ import {
   scanBranchAndExceptionScaffold,
   type BranchExceptionScaffold
 } from "./test-scaffold-extractor.js";
-import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
-import { getOutputsDir, getPrimaryDatabaseUrl } from "../core/config/runtime-config.js";
+import { LocalOutputsAdapter } from "../infrastructure/outputs/local-outputs-adapter.js";
+import { getOutputsDir } from "../core/config/runtime-config.js";
 
 export type AnalyzeTestCoverageGapInput = CoverageEstimateInput & {
   reportOutputDir?: string;
@@ -111,10 +111,7 @@ export async function analyzeTestCoverageGap(input: AnalyzeTestCoverageGapInput)
   // Debug: keep minimal runtime context without touching outputs paths.
   const cwd = process.cwd();
   const runtimeOutputsDir = resolve(getOutputsDir());
-  const artifactWriter = new OutputsArtifactWriter({
-    outputsDir: runtimeOutputsDir,
-    databaseUrl: getPrimaryDatabaseUrl()
-  });
+  const outputsPort = new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir });
   
   const estimate = estimateChangedCoverage(input);
   const generatedAt = new Date().toISOString();
@@ -203,9 +200,13 @@ export async function analyzeTestCoverageGap(input: AnalyzeTestCoverageGapInput)
     const reportRelativeDir = relative(runtimeOutputsDir, reportDir);
     const useArtifactWriter = reportRelativeDir.length > 0 && !reportRelativeDir.startsWith("..") && !isAbsolute(reportRelativeDir);
     if (useArtifactWriter) {
-      await artifactWriter.appendJsonl(join(reportRelativeDir, "runs.jsonl"), result);
-      await artifactWriter.writeJson(join(reportRelativeDir, "latest.json"), result);
-      await artifactWriter.writeText(join(reportRelativeDir, "latest.md"), renderMarkdown(result));
+      await outputsPort.appendEvent(join(reportRelativeDir, "runs.jsonl"), result);
+      await outputsPort.writeArtifact(join(reportRelativeDir, "latest.json"), `${JSON.stringify(result, null, 2)}\n`, {
+        contentType: "application/json"
+      });
+      await outputsPort.writeArtifact(join(reportRelativeDir, "latest.md"), renderMarkdown(result), {
+        contentType: "text/markdown"
+      });
     } else {
       await fsPromises.mkdir(reportDir, { recursive: true });
       await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");

@@ -18,7 +18,7 @@
 
 import { createLogger } from "../logging/logger.js";
 import { isEnvFlagEnabled } from "../config/env-flags.js";
-import { getOtelServiceName } from "../config/runtime-config.js";
+import { getOtelServiceName, getOtelTraceSampleRatio } from "../config/runtime-config.js";
 
 const logger = createLogger("OtelTracer");
 
@@ -41,7 +41,27 @@ interface OtelApi {
 let api: OtelApi | null = null;
 let tracer: OtelTracer | null = null;
 let initAttempted = false;
+let contextManagerInitialized = false;
 const activeSpans = new Map<string, OtelSpan>();
+
+function hashTraceId(traceId: string): number {
+  let hash = 0;
+  for (let index = 0; index < traceId.length; index += 1) {
+    hash = (hash * 31 + traceId.charCodeAt(index)) >>> 0;
+  }
+  return hash;
+}
+
+export function shouldSampleOtelTrace(traceId: string, sampleRatio = getOtelTraceSampleRatio()): boolean {
+  if (sampleRatio <= 0) {
+    return false;
+  }
+  if (sampleRatio >= 1) {
+    return true;
+  }
+  const bucket = hashTraceId(traceId) / 0xffffffff;
+  return bucket < sampleRatio;
+}
 
 function isEnabled(): boolean {
   return isEnvFlagEnabled("OTEL_ENABLED");
@@ -54,6 +74,16 @@ async function getTracer(): Promise<OtelTracer | null> {
   initAttempted = true;
   try {
     api = (await import("@opentelemetry/api")) as unknown as OtelApi;
+    if (!contextManagerInitialized) {
+      try {
+        const otelApi = await import("@opentelemetry/api");
+        const { AsyncLocalStorageContextManager } = await import("@opentelemetry/context-async-hooks");
+        otelApi.context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
+        contextManagerInitialized = true;
+      } catch (ctxErr) {
+        logger.debug("otel context manager setup skipped", ctxErr);
+      }
+    }
     tracer = api.trace.getTracer(getOtelServiceName());
     return tracer;
   } catch (err) {
@@ -64,6 +94,9 @@ async function getTracer(): Promise<OtelTracer | null> {
 
 /** トレース開始時に呼ぶ。span 起点を作成して内部マップへ記録 */
 export function notifyOtelTraceStart(traceId: string, toolName: string, attrs: Record<string, string | number | boolean> = {}): void {
+  if (!shouldSampleOtelTrace(traceId)) {
+    return;
+  }
   void getTracer().then((t) => {
     if (!t) return;
     try {

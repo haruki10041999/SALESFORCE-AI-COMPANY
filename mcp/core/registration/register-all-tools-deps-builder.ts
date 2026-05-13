@@ -17,6 +17,7 @@ type CoreAndSessionDeps = Pick<
   | "sessionStore"
   | "orchestrationQueueStore"
   | "orchestrationJobRunner"
+  | "workflowEngine"
   | "policySnapshotManager"
   | "saveSessionHistory"
   | "root"
@@ -112,6 +113,7 @@ function buildCoreAndSessionDeps(
     sessionStore: options.sessionStore,
     orchestrationQueueStore: options.orchestrationQueueStore,
     orchestrationJobRunner: options.orchestrationJobRunner,
+    workflowEngine: options.workflowEngine,
     policySnapshotManager: options.policySnapshotManager,
     saveSessionHistory: options.saveSessionHistory,
     ...(options.onSessionCompleted ? { onSessionCompleted: options.onSessionCompleted } : {}),

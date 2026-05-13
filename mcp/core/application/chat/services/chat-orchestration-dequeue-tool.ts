@@ -1,6 +1,5 @@
 import type { AgentMessage, OrchestrationSession } from "../../../types/index.js";
 import type { SessionStore } from "../../../persistence/session-store.js";
-import type { PolicySnapshotManager } from "../../../learning/policy-snapshot.js";
 import {
   applyAgentGraphRecommendation,
   buildDequeueNextAgentResponse,
@@ -22,17 +21,20 @@ export async function executeDequeueNextAgentTool(args: {
     dequeue: (sessionId: string, limit: number) => Promise<string[]>;
     clear: (sessionId: string) => Promise<void>;
   };
-  orchestrationJobRunner: {
+  workflowEngine: {
     markDequeued: (sessionId: string, agent: string) => Promise<unknown>;
-    completeLatestRunningStep: (input: {
+    completeStep: (input: {
       sessionId: string;
       agent: string;
       output?: unknown;
       checkpoint?: Record<string, unknown>;
-      status?: "completed" | "failed";
     }) => Promise<unknown>;
   };
-  policySnapshotManager?: PolicySnapshotManager;
+  policySnapshotManager?: {
+    current?: { version: number } | null;
+    isLive?: boolean;
+    reputationScores?: (agents: string[], topic: string) => Map<string, number>;
+  };
   agentGraphFile: string;
   agentReputationFile: string;
   buildSessionNotFoundText: (sessionId: string) => string;
@@ -76,7 +78,7 @@ export async function executeDequeueNextAgentTool(args: {
   const take = args.limit ?? 1;
   const nextAgents = await args.orchestrationQueueStore.dequeue(session.id, take);
   for (const agent of nextAgents) {
-    await args.orchestrationJobRunner.markDequeued(session.id, agent);
+    await args.workflowEngine.markDequeued(session.id, agent);
   }
   for (const agent of nextAgents) {
     const index = session.queue.indexOf(agent);
@@ -88,7 +90,7 @@ export async function executeDequeueNextAgentTool(args: {
   await args.sessionStore.upsert(session, -1);
 
   for (const agent of nextAgents) {
-    await args.orchestrationJobRunner.completeLatestRunningStep({
+    await args.workflowEngine.completeStep({
       sessionId: session.id,
       agent,
       output: {

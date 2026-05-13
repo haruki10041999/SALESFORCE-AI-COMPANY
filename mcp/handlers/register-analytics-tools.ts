@@ -1,11 +1,7 @@
-﻿import { promises as fsPromises } from "fs";
-import { dirname, resolve, join } from "path";
-import { z } from "zod";
-import { getPrimaryDatabaseUrl } from "../core/config/runtime-config.js";
+﻿import { resolve } from "path";
 import type { GovernanceState } from "../core/governance/governance-state.js";
 import type { SystemEventRecord, SystemEventLogStatus } from "../core/event/system-event-manager.js";
 import type { AgentMessage, ChatSession, HandlersDashboardState, ExportStatistics } from "../core/types/index.js";
-import { getActiveTraces, getCompletedTraces } from "../core/trace/trace-context.js";
 import { defineKnowledgeGraphDashboardTool } from "./analytics/knowledge-graph-dashboard.js";
 import { defineAgentAbTestTool } from "./analytics/agent-ab-test.js";
 import { defineHealthCheckTool } from "./analytics/health-check.js";
@@ -29,9 +25,12 @@ import { defineGetFeedbackMetricsTool } from "./analytics/get-feedback-metrics.j
 import { defineGetSessionFeedbackTool } from "./analytics/get-session-feedback.js";
 import { defineEstimatePromptCostTool } from "./analytics/estimate-prompt-cost.js";
 import type { RegisterGovToolDeps } from "./types.js";
-import type { PolicySnapshotManager } from "../core/learning/policy-snapshot.js";
-import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
-import { computeFeedbackMetrics, loadFeedbackForSession } from "../core/learning/feedback-manager.js";
+import { LocalOutputsAdapter } from "../infrastructure/outputs/local-outputs-adapter.js";
+
+interface PolicySnapshotManagerLike {
+  scheduleRefresh(): void;
+  notifyPolicyUpdated(): Promise<void>;
+}
 
 interface RegisterAnalyticsToolsDeps extends RegisterGovToolDeps {
   agentLog: AgentMessage[];
@@ -65,7 +64,24 @@ interface RegisterAnalyticsToolsDeps extends RegisterGovToolDeps {
   };
   outputsDir: string;
   /** T-07: optional – when provided, scheduleRefresh on feedback writes */
-  policySnapshotManager?: PolicySnapshotManager;
+  policySnapshotManager?: PolicySnapshotManagerLike;
+  computeFeedbackMetrics: (sessionId?: string) => Promise<{
+    totalFeedback: number;
+    thumbsUpCount: number;
+    thumbsUpRate: number;
+    thumbsDownCount: number;
+    neutralCount: number;
+    averageQualityScore?: number | null;
+    mostCommonTags?: Array<{ tag: string; count: number }>;
+  }>;
+  loadFeedbackForSession: (sessionId: string) => Promise<unknown[]>;
+  listKnowledgeEntities: () => Array<{ id: string; name: string; type: string }>;
+  listKnowledgeRelations: () => Array<{
+    srcId: string;
+    dstId: string;
+    relationType: string;
+    weight: number;
+  }>;
 }
 
 export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
@@ -84,32 +100,33 @@ export function registerAnalyticsTools(deps: RegisterAnalyticsToolsDeps): void {
     runChatTool,
     evaluatePromptMetrics,
     outputsDir,
-    policySnapshotManager
+    policySnapshotManager,
+    computeFeedbackMetrics,
+    loadFeedbackForSession,
+    listKnowledgeEntities,
+    listKnowledgeRelations
   } = deps;
 
-  const artifactWriter = new OutputsArtifactWriter({
-    outputsDir,
-    databaseUrl: getPrimaryDatabaseUrl()
-  });
+  const outputsPort = new LocalOutputsAdapter({ outputsDir });
 
   const agentReputationFile = resolve(outputsDir, "agent-reputation.jsonl");
   const outputRatioFeedbackFile = resolve(outputsDir, "output-ratio.jsonl");
 
   // Register all analytics tools using split factory functions (18 tools)
-  defineKnowledgeGraphDashboardTool({ govTool, outputsDir });
+  defineKnowledgeGraphDashboardTool({ govTool, outputsDir, listKnowledgeEntities, listKnowledgeRelations });
   defineAgentAbTestTool({ govTool, runChatTool, evaluatePromptMetrics, outputsDir });
   defineHealthCheckTool({ govTool, loadSystemEvents, loadGovernanceState, generateHandlersDashboard, handlersState, getSystemEventLogStatus });
   defineAnalyzeChatTrendsTool({ govTool, agentLog, loadChatHistories });
   defineGetToolExecutionStatisticsTool({ govTool, loadSystemEvents, loadGovernanceState });
   defineGetHandlersDashboardTool({ govTool, generateHandlersDashboard, handlersState });
   defineExportHandlersStatisticsTool({ govTool, handlersState, exportStatisticsAsCsv, exportStatisticsAsJson, ensureDir });
-  defineObservabilityDashboardTool({ govTool, outputsDir, loadSystemEvents, loadGovernanceState, artifactWriter });
+  defineObservabilityDashboardTool({ govTool, outputsDir, loadSystemEvents, loadGovernanceState });
   defineSynergyRecommendComboTool({ govTool });
   defineScoreAgentSynergyTool({ govTool, loadChatHistories });
   defineDrillDownDashboardTool({ govTool, loadSystemEvents });
-  defineTuneTriggerRulesTool({ govTool, outputsDir, loadSystemEvents, ensureDir, artifactWriter });
+  defineTuneTriggerRulesTool({ govTool, outputsDir, loadSystemEvents, ensureDir });
   defineEvaluateCostSlaTool({ govTool, evaluatePromptMetrics, outputsDir });
-  defineAnalyzeAbTestHistoryTool({ govTool, outputsDir, artifactWriter });
+  defineAnalyzeAbTestHistoryTool({ govTool, outputsDir, outputsPort });
   defineLinUcbRankArmsTool({ govTool });
   defineUpdateAgentReputationTool({ govTool, agentReputationFile });
   defineGetAgentReputationTool({ govTool, agentReputationFile });

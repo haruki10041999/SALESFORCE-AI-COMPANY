@@ -15,13 +15,16 @@ Context Layer ← ★ ここで自動注入
     ├─ coding-conventions.md
     ├─ environments.md
     ├─ project.md
-    └─ prompt-engine/
-        ├─ base-prompt.md
-        ├─ reasoning-framework.md
-        ├─ discussion-framework.md
-        ├─ review-mode.md
-        ├─ prompt-builder.ts
-        └─ prompt-evaluator.ts
+  ├─ mcp/core/prompt/
+  │   ├─ base-prompt.md
+  │   ├─ reasoning-framework.md
+  │   ├─ discussion-framework.md
+  │   ├─ review-mode.md
+  │   ├─ prompt-builder.ts
+  │   └─ prompt-evaluator.ts
+  └─ prompt-engine/
+    ├─ prompt-builder.ts
+    └─ prompt-evaluator.ts
     ↓
 Prompt to LLM
     ↓
@@ -63,17 +66,19 @@ Response
 
 ## プロンプトエンジン
 
-### `prompt-engine/base-prompt.md`
+### `mcp/core/prompt/base-prompt.md`
 全エージェント共通ベースプロンプト。
 
-### `prompt-engine/reasoning-framework.md`
+### `mcp/core/prompt/reasoning-framework.md`
 推論フレームワーク（CoT / Tree of Thought）。
 
-### `prompt-engine/discussion-framework.md`
+### `mcp/core/prompt/discussion-framework.md`
 複数エージェント議論・合意形成フレームワーク。
 
-### `prompt-engine/review-mode.md`
+### `mcp/core/prompt/review-mode.md`
 レビュー用プロンプト（詳細・段階的）。
+
+`prompt-engine/` 配下は後方互換の再エクスポート層で、本体実装とテンプレート資産は `mcp/core/prompt/` に集約されています。
 
 ## プロンプト構築パイプライン
 
@@ -89,7 +94,7 @@ Response
         └────────┬───────────┘
                  ↓
         ┌────────────────────────────────┐
-        │ prompt-engine/prompt-builder   │
+        │ mcp/core/prompt/prompt-builder │
         │ (TypeScript)                   │
         │                                │
         │ assembles:                     │
@@ -112,8 +117,8 @@ Response
       └──────────────────────────┘
 ```
 
-### `prompt-engine/prompt-builder.ts`
-プロンプト動的構築（TypeScript）。
+### `mcp/core/prompt/prompt-builder.ts`
+プロンプト動的構築（TypeScript、本体実装）。
 
 ```typescript
 export interface PromptConfig {
@@ -135,8 +140,8 @@ export function buildPrompt(config: PromptConfig): string {
 }
 ```
 
-### `prompt-engine/prompt-evaluator.ts`
-プロンプト品質評価。
+### `mcp/core/prompt/prompt-evaluator.ts`
+プロンプト品質評価。本体実装で、`prompt-engine/` 側は互換レイヤーです。
 
 ```typescript
 export function evaluatePromptQuality(prompt: string): {

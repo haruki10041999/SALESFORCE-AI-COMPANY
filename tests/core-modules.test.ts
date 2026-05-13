@@ -58,6 +58,7 @@ import {
   endPhase,
   withPhase,
   findTrace,
+  getCompletedTraces,
   configureTraceStorageForTest,
   clearTraceStorageForTest
 } from "../mcp/core/trace/trace-context.js";
@@ -358,7 +359,15 @@ test("Governance Manager - Capacity Check", () => {
   const isOver = isOverCapacity("skills", 35, {
     maxCounts: { skills: 30, tools: 40, presets: 20 },
     thresholds: { minUsageToKeep: 2, bugSignalToFlag: 2 },
-    resourceLimits: { creationsPerDay: 5, deletionsPerDay: 3 }
+    resourceLimits: { creationsPerDay: 5, deletionsPerDay: 3 },
+    approvalQueue: {
+      timeoutHours: 24,
+      autoApproval: {
+        enabled: true,
+        lowRiskOnly: true
+      },
+      escalationTargets: ["PagerDuty", "Slack"]
+    }
   });
 
   assert.ok(isOver, "Should be over capacity");
@@ -746,6 +755,49 @@ test("Trace Phase Decomposition - failTrace marks running phase as error", () =>
     assert.equal(finished?.status, "error");
     assert.equal(finished?.phases?.[0]?.status, "error");
     assert.equal(finished?.phases?.[0]?.errorMessage, "boom");
+  } finally {
+    clearTraceStorageForTest();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Trace retention prunes stale completed traces", () => {
+  const root = mkdtempSync(pathJoin(tmpdir(), "trace-retention-"));
+  const traceFile = pathJoin(root, "trace-log.jsonl");
+  const now = new Date();
+  const staleStartedAt = new Date(now.getTime() - 200 * 24 * 60 * 60 * 1000).toISOString();
+  const freshStartedAt = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString();
+
+  writeFileSync(traceFile, [
+    JSON.stringify({
+      traceId: "trace-stale",
+      toolName: "old_tool",
+      startedAt: staleStartedAt,
+      endedAt: staleStartedAt,
+      durationMs: 1,
+      status: "success",
+      metadata: { reasoningSteps: [{ stage: "think", message: "old", timestamp: staleStartedAt }] }
+    }),
+    JSON.stringify({
+      traceId: "trace-fresh",
+      toolName: "new_tool",
+      startedAt: freshStartedAt,
+      endedAt: freshStartedAt,
+      durationMs: 1,
+      status: "success",
+      metadata: { reasoningSteps: [{ stage: "think", message: "new", timestamp: freshStartedAt }] }
+    })
+  ].join("\n") + "\n", "utf-8");
+
+  configureTraceStorageForTest(traceFile);
+  try {
+    const traces = getCompletedTraces(20);
+    assert.equal(traces.some((trace) => trace.traceId === "trace-stale"), false);
+    assert.equal(traces.some((trace) => trace.traceId === "trace-fresh"), true);
+    assert.equal(findTrace("trace-stale"), undefined);
+    const freshTrace = findTrace("trace-fresh");
+    const reasoningSteps = Array.isArray(freshTrace?.metadata.reasoningSteps) ? freshTrace?.metadata.reasoningSteps : [];
+    assert.equal(reasoningSteps.length, 1);
   } finally {
     clearTraceStorageForTest();
     rmSync(root, { recursive: true, force: true });

@@ -17,6 +17,9 @@ orchestrate_chat        ← セッション開始・初期キュー生成
 セッション状態はメモリ上に保持され、`save_orchestration_session` で `outputs/sessions/` に永続化できます。
 中断後は `restore_orchestration_session` で再開可能です。
 
+実装面では、`WorkflowEngine` が queue / step record / retry の責務をまとめ、in-process 版は `mcp/infrastructure/workflow/in-process-workflow-engine.ts` にあります。
+このため、ハンドラはキュー操作の細部よりも、セッション制御とトリガー評価に集中できます。
+
 ---
 
 ## orchestrate_chat

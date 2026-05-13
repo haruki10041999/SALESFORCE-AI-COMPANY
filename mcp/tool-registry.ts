@@ -10,6 +10,7 @@ import type { GovernanceGate } from "./core/ports/governance-gate.js";
 import type { CostLedgerPort } from "./core/ports/cost-ledger-port.js";
 import type { ObservabilityPort } from "./core/ports/observability-port.js";
 import type { OutputsPort } from "./core/ports/outputs-port.js";
+import { createInProcessWorkflowEngine } from "./infrastructure/workflow/in-process-workflow-engine.js";
 
 export type RegisterServerToolsOptions = BuildRegisterAllToolsDepsOptions;
 
@@ -39,11 +40,10 @@ function buildPortImplementations(options: RegisterServerToolsOptions): {
       list: options.listMemory,
       clear: options.clearMemory
     },
-    workflowEngine: {
-      async enqueue(): Promise<void> {
-        return;
-      }
-    },
+    workflowEngine: createInProcessWorkflowEngine({
+      orchestrationQueueStore: options.orchestrationQueueStore,
+      orchestrationJobRunner: options.orchestrationJobRunner
+    }),
     governanceGate: {
       isToolEnabled: async () => true,
       filterSkills: options.filterDisabledSkills

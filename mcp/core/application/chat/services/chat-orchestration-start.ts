@@ -73,44 +73,26 @@ export async function persistInitialOrchestrationSession(args: {
   setLiveSession: (sessionId: string, session: OrchestrationSession) => void;
   upsertSession: (session: OrchestrationSession) => Promise<unknown>;
   replaceQueue: (sessionId: string, queue: string[]) => Promise<unknown>;
-  enqueueStep: (input: {
-    sessionId: string;
-    stepIndex: number;
-    agent: string;
-    payload: {
+  workflowEngine: {
+    enqueue(input: {
+      sessionId: string;
       topic: string;
-      persona?: string;
-      skills: string[];
-      filePaths: string[];
-    };
-    checkpoint: {
-      queueLength: number;
-      mode: "dag" | "linear";
-    };
-  }) => Promise<unknown>;
+      agents: string[];
+      turns?: number;
+    }): Promise<void>;
+  };
   mode: "dag" | "linear";
 }): Promise<void> {
   args.setLiveSession(args.session.id, args.session);
   await args.upsertSession(args.session);
   await args.replaceQueue(args.session.id, args.session.queue);
 
-  for (const [stepIndex, agent] of args.session.queue.entries()) {
-    await args.enqueueStep({
-      sessionId: args.session.id,
-      stepIndex,
-      agent,
-      payload: {
-        topic: args.session.topic,
-        persona: args.session.persona,
-        skills: args.session.skills,
-        filePaths: args.session.filePaths
-      },
-      checkpoint: {
-        queueLength: args.session.queue.length,
-        mode: args.mode
-      }
-    });
-  }
+  await args.workflowEngine.enqueue({
+    sessionId: args.session.id,
+    topic: args.session.topic,
+    agents: args.session.queue,
+    turns: args.session.turns
+  });
 }
 
 export function buildOrchestrateChatResponse(args: {
@@ -167,21 +149,14 @@ export async function executeOrchestrateChatTool(args: {
   setLiveSession: (sessionId: string, session: OrchestrationSession) => void;
   upsertSession: (session: OrchestrationSession) => Promise<unknown>;
   replaceQueue: (sessionId: string, queue: string[]) => Promise<unknown>;
-  enqueueStep: (input: {
-    sessionId: string;
-    stepIndex: number;
-    agent: string;
-    payload: {
+  workflowEngine: {
+    enqueue(input: {
+      sessionId: string;
       topic: string;
-      persona?: string;
-      skills: string[];
-      filePaths: string[];
-    };
-    checkpoint: {
-      queueLength: number;
-      mode: "dag" | "linear";
-    };
-  }) => Promise<unknown>;
+      agents: string[];
+      turns?: number;
+    }): Promise<void>;
+  };
   startTrace: (name: string, attrs?: Record<string, unknown>) => string;
   withPhase: <T>(
     traceId: string,
@@ -258,7 +233,7 @@ export async function executeOrchestrateChatTool(args: {
         setLiveSession: args.setLiveSession,
         upsertSession: args.upsertSession,
         replaceQueue: args.replaceQueue,
-        enqueueStep: args.enqueueStep,
+        workflowEngine: args.workflowEngine,
         mode: orchestrationMode
       });
       return true;

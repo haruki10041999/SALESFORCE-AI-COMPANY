@@ -16,6 +16,8 @@ import {
   summarizeProposalQueue,
   resolveProposalQueuePaths
 } from "../mcp/core/resource/proposal/queue.js";
+import { createFileProposalQueueStore } from "../mcp/core/resource/proposal/proposal-queue-store.js";
+import { executeListProposals } from "../mcp/core/application/governance/services/proposal-queue-apply-operations.js";
 
 function withTmp(): { outputsDir: string; cleanup: () => void } {
   const root = mkdtempSync(join(tmpdir(), "sf-ai-proposal-"));
@@ -235,6 +237,36 @@ test("listProposals prioritizes higher acceptance-history proposal", () => {
 
     assert.equal(items[0]?.name, "high-rate");
     assert.ok((items[0]?.priorityScore ?? -1) > (items[1]?.priorityScore ?? -1));
+  } finally { tmp.cleanup(); }
+});
+
+test("executeListProposals auto-approves stale low-risk proposals", async () => {
+  const tmp = withTmp();
+  try {
+    const proposalQueue = createFileProposalQueueStore(tmp.outputsDir);
+    const pending = await proposalQueue.enqueue(
+      {
+        resourceType: "tools",
+        name: "safe-change",
+        content: JSON.stringify({ riskLevel: "low", summary: "minor update" })
+      },
+      new Date("2024-01-01T00:00:00.000Z")
+    );
+
+    const result = await executeListProposals({
+      status: "pending",
+      proposalQueue,
+      approvalPolicy: {
+        timeoutHours: 24,
+        autoApprovalEnabled: true,
+        lowRiskOnly: true,
+        escalationTargets: ["PagerDuty", "Slack"]
+      }
+    });
+
+    assert.equal((result as { approvalReview?: { autoApproved: number } }).approvalReview?.autoApproved, 1);
+    assert.equal(await proposalQueue.get(pending.id).then((record) => record?.status), "approved");
+    assert.equal((result as { items: unknown[] }).items.length, 0);
   } finally { tmp.cleanup(); }
 });
 

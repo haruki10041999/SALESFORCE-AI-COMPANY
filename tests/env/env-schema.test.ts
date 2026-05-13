@@ -36,3 +36,13 @@ test("validateEnvironment rejects unsupported enum values", () => {
     /SF_AI_SECRET_BACKEND/,
   );
 });
+
+test("validateEnvironment rejects unsupported MCP_TRANSPORT", () => {
+  assert.throws(
+    () =>
+      validateEnvironment({
+        MCP_TRANSPORT: "grpc",
+      } as NodeJS.ProcessEnv),
+    /MCP_TRANSPORT/,
+  );
+});

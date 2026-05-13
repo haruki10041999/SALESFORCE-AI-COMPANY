@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { z } from "zod";
-import { getOutputsDir, getPrimaryDatabaseUrl } from "../../core/config/runtime-config.js";
-import { OutputsArtifactWriter } from "../../core/persistence/outputs-artifact-writer.js";
+import { getOutputsDir } from "../../core/config/runtime-config.js";
+import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
 import type { ProposalApprovalAudit } from "../../core/application/governance/services/proposal-queue-apply-operations.js";
 import type { GovTool } from "../../tool-types.js";
 import { createFileProposalQueueStore, type ProposalQueueStore } from "../../core/resource/proposal/proposal-queue-store.js";
@@ -30,20 +30,16 @@ export function createProposalQueueRuntime(deps: RegisterProposalQueueToolsDeps)
   const repoRoot = deps.repoRoot ?? resolve(".");
   const proposalQueue = deps.proposalQueue ?? createFileProposalQueueStore(outputsDir);
   const approvalAuditFile = resolve(outputsDir, "audit", "proposal-approvals.jsonl");
-  const artifactWriter = new OutputsArtifactWriter({
-    outputsDir,
-    databaseUrl: getPrimaryDatabaseUrl()
-  });
+  const outputsPort = new LocalOutputsAdapter({ outputsDir });
 
   const appendApprovalAudit = async (event: ProposalApprovalAudit): Promise<void> => {
     try {
-      await artifactWriter.appendAuditArtifact(
-        "proposal_approval",
-        "presets",
-        event,
-        new Date().toISOString(),
-        "audit/proposal-approvals.jsonl"
-      );
+      await outputsPort.appendEvent("audit/proposal-approvals.jsonl", {
+        recordedAt: new Date().toISOString(),
+        eventType: "proposal_approval",
+        resourceType: "presets",
+        ...event
+      });
     } catch {
       // Audit logging failures must not break tool execution.
     }

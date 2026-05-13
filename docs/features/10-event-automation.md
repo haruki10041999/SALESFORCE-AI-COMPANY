@@ -3,6 +3,9 @@
 ツール実行イベントの記録・自動化設定・リトライ戦略・統計分析を管理するツール群です。
 イベントは `outputs/events/system-events.jsonl` に JSONL 形式で永続化されます。
 
+イベントバスは `in-memory` / `postgres-notify` / `redis-streams` を切り替え可能です。
+`redis-streams` 利用時は trace context（`traceId` / `traceparent`）も message に含めて伝播します。
+
 ---
 
 ## システムイベントの種類

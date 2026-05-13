@@ -1,7 +1,7 @@
 import { promises as fsPromises } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { applyAgentOutcomes, type AgentTrustHistoriesFile } from "../core/quality/agent-trust-store.js";
-import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
+import { LocalOutputsAdapter } from "../infrastructure/outputs/local-outputs-adapter.js";
 
 type PromptMetrics = {
   estimatedTokens: number;
@@ -160,10 +160,7 @@ export async function runAgentAbTest(
   // 既定はメモリ返却のみ。必要時のみ reportOutputDir へ保存する。
   const reportDir = input.reportOutputDir ? resolve(input.reportOutputDir) : null;
   const runtimeOutputsDir = resolve(deps.outputsDir);
-  const artifactWriter = new OutputsArtifactWriter({
-    outputsDir: runtimeOutputsDir,
-    databaseUrl: process.env.DATABASE_URL
-  });
+  const outputsPort = new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir });
 
   const [agentA, agentB] = await Promise.all([
     runSingle(deps.runChatTool, deps.evaluatePromptMetrics, input, input.agentA),
@@ -207,12 +204,16 @@ export async function runAgentAbTest(
   };
 
   if (reportDir) {
-    const useArtifactWriter = reportDir.toLowerCase().startsWith(runtimeOutputsDir.toLowerCase());
+    const reportRelativeDir = relative(runtimeOutputsDir, reportDir);
+    const useArtifactWriter = reportRelativeDir.length > 0 && !reportRelativeDir.startsWith("..") && !isAbsolute(reportRelativeDir);
     if (useArtifactWriter) {
-      const reportRelativeDir = relative(runtimeOutputsDir, reportDir);
-      await artifactWriter.appendJsonl(join(reportRelativeDir, "runs.jsonl"), result);
-      await artifactWriter.writeJson(join(reportRelativeDir, "latest.json"), result);
-      await artifactWriter.writeText(join(reportRelativeDir, "latest.md"), buildMarkdown(result));
+      await outputsPort.appendEvent(join(reportRelativeDir, "runs.jsonl"), result);
+      await outputsPort.writeArtifact(join(reportRelativeDir, "latest.json"), `${JSON.stringify(result, null, 2)}\n`, {
+        contentType: "application/json"
+      });
+      await outputsPort.writeArtifact(join(reportRelativeDir, "latest.md"), buildMarkdown(result), {
+        contentType: "text/markdown"
+      });
     } else {
       await fsPromises.mkdir(reportDir, { recursive: true });
       await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");

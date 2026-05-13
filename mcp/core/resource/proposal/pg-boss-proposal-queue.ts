@@ -17,6 +17,7 @@ import {
   type ProposalStatus
 } from "./queue.js";
 import type { ProposalQueueStore } from "./proposal-queue-store.js";
+import { getActiveTraceContext } from "../../trace/trace-context.js";
 
 interface ProposalRow {
   id: string;
@@ -282,12 +283,15 @@ export class PgBossProposalQueueStore implements ProposalQueueStore {
       ]
     );
 
+    const traceContext = getActiveTraceContext();
     const bossJobId = await this.boss.send(this.queueName, {
       proposalId: record.id,
       resourceType: record.resourceType,
       name: record.name,
       sourceEvent: record.sourceEvent,
-      origin: record.origin
+      origin: record.origin,
+      traceId: traceContext?.traceId,
+      traceparent: traceContext?.traceparent
     });
 
     if (bossJobId) {

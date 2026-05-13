@@ -12,11 +12,13 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createLogger } from "../logging/logger.js";
 import { getPrimaryDatabaseUrl, getTraceFilePath, getTraceHistoryMax } from "../config/runtime-config.js";
+import { buildDataRetentionPolicy } from "../governance/data-retention.js";
 import { PostgresRuntimeLogStore } from "../persistence/postgres-runtime-log-store.js";
 
 const logger = createLogger("TraceContext");
@@ -58,6 +60,39 @@ export interface ReasoningStep {
   details?: string;
 }
 
+export interface ActiveTraceContext {
+  traceId: string;
+  traceparent: string;
+}
+
+const traceContextStorage = new AsyncLocalStorage<ActiveTraceContext>();
+
+function stripTraceIdToHex(traceId: string): string {
+  const normalized = traceId.toLowerCase().replace(/-/g, "");
+  return /^[0-9a-f]{32}$/.test(normalized) ? normalized : randomUUID().replace(/-/g, "");
+}
+
+function createParentIdHex(): string {
+  return randomUUID().replace(/-/g, "").slice(0, 16);
+}
+
+export function buildTraceparentFromTraceId(traceId: string): string {
+  const traceIdHex = stripTraceIdToHex(traceId);
+  const parentId = createParentIdHex();
+  return `00-${traceIdHex}-${parentId}-01`;
+}
+
+export function runWithTraceContext<T>(
+  context: ActiveTraceContext,
+  operation: () => Promise<T> | T
+): Promise<T> | T {
+  return traceContextStorage.run(context, operation);
+}
+
+export function getActiveTraceContext(): ActiveTraceContext | undefined {
+  return traceContextStorage.getStore();
+}
+
 /** アクティブトレース（traceId → TraceEntry） */
 const activeTraces = new Map<string, TraceEntry>();
 
@@ -68,12 +103,34 @@ const completedTraces: TraceEntry[] = [];
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const DEFAULT_TRACE_FILE = join(ROOT, "outputs", "events", "trace-log.jsonl");
 let traceFilePath = getTraceFilePath(DEFAULT_TRACE_FILE);
+const TRACE_RETENTION_DAYS = buildDataRetentionPolicy().find((item) => item.classification === "confidential")?.retentionDays ?? 90;
 const runtimeStorePromise = getPrimaryDatabaseUrl()
   ? PostgresRuntimeLogStore.open({ databaseUrl: getPrimaryDatabaseUrl()! }).catch(() => null)
   : Promise.resolve(null);
 
 function shouldUseDatabaseTraceStorage(): boolean {
   return Boolean(getPrimaryDatabaseUrl()) && resolve(traceFilePath) === resolve(DEFAULT_TRACE_FILE);
+}
+
+function getTraceAgeDays(trace: TraceEntry, nowMs: number = Date.now()): number {
+  const startedAtMs = Date.parse(trace.startedAt);
+  if (!Number.isFinite(startedAtMs)) {
+    return 0;
+  }
+  return Math.max(0, (nowMs - startedAtMs) / (24 * 60 * 60 * 1000));
+}
+
+function isTraceWithinRetention(trace: TraceEntry, retentionDays = TRACE_RETENTION_DAYS, nowMs: number = Date.now()): boolean {
+  return getTraceAgeDays(trace, nowMs) <= retentionDays;
+}
+
+function pruneCompletedTracesForRetention(nowMs: number = Date.now()): void {
+  const retained = completedTraces.filter((trace) => isTraceWithinRetention(trace, TRACE_RETENTION_DAYS, nowMs));
+  if (retained.length === completedTraces.length) {
+    return;
+  }
+  completedTraces.length = 0;
+  completedTraces.push(...retained);
 }
 
 async function loadTracesFromStore(): Promise<void> {
@@ -95,7 +152,7 @@ async function loadTracesFromStore(): Promise<void> {
       errorMessage: row.errorMessage,
       metadata: row.metadata,
       phases: Array.isArray(row.phases) ? (row.phases as TracePhaseEntry[]) : undefined
-    })));
+    })).filter((entry) => isTraceWithinRetention(entry)));
   } catch {
     // keep runtime resilient even if trace store is unreadable
   }
@@ -141,6 +198,7 @@ function loadTracesFromDisk(): void {
         // ignore malformed lines
       }
     }
+    pruneCompletedTracesForRetention();
     if (completedTraces.length > MAX_COMPLETED) {
       completedTraces.splice(0, completedTraces.length - MAX_COMPLETED);
     }
@@ -156,6 +214,7 @@ function persistTracesToDisk(): void {
         return;
       }
       try {
+        pruneCompletedTracesForRetention();
         const normalized = completedTraces.slice(-MAX_COMPLETED);
         await Promise.all(normalized.map((entry) => runtimeStore.upsertTrace(entry)));
       } catch {
@@ -167,6 +226,7 @@ function persistTracesToDisk(): void {
 
   try {
     mkdirSync(dirname(traceFilePath), { recursive: true });
+    pruneCompletedTracesForRetention();
     const normalized = completedTraces.slice(-MAX_COMPLETED);
     const payload = normalized.map((entry) => JSON.stringify(entry)).join("\n");
     writeFileSync(traceFilePath, payload.length > 0 ? `${payload}\n` : "", "utf-8");
@@ -486,7 +546,8 @@ export function withTrace<TInput, TOutput>(
   return async (input: TInput): Promise<TOutput> => {
     const traceId = startTrace(toolName);
     try {
-      const result = await fn(input);
+      const traceparent = buildTraceparentFromTraceId(traceId);
+      const result = await runWithTraceContext({ traceId, traceparent }, () => fn(input));
       endTrace(traceId);
       return result;
     } catch (err) {

@@ -38,6 +38,9 @@ jobs:
       - name: Lint core layers
         run: npm run lint:core-layers
 
+      - name: Dependency cruiser layer rules
+        run: npm run lint:depcruise
+
       - name: Lint outputs schema
         run: npm run lint:outputs
 

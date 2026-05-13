@@ -7,7 +7,9 @@ import { bulkheadRegistry, DEFAULT_PGVECTOR_CONCURRENCY } from "../../mcp/core/r
 import { currentTenantId } from "../../mcp/core/identity/tenant-context.js";
 import { ensureTenantRlsPolicy, resetTenantSetting, setTenantSetting } from "../../mcp/core/persistence/postgres-tenant-context.js";
 import { getOrCreatePgPool, releasePgPoolKey } from "../../mcp/core/persistence/pg-pool-registry.js";
+import { classifyVectorTier } from "../../mcp/core/memory/vector-tier.js";
 import type { EmbeddingProvider, MemoryRecord, VectorSearchOptions, VectorStoreAdapter } from "../vector-store-adapter.js";
+import type { VectorTier } from "../../mcp/core/ports/memory-service.js";
 
 function toIsoNow(): string {
   return new Date().toISOString();
@@ -74,8 +76,10 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
   }
 
   public configureEmbeddingProviderForTest(provider: EmbeddingProvider): void {
+    const providerProfileId = (provider as { profileId?: string }).profileId;
     const adapterProvider: VectorEmbeddingProvider = {
       name: "ngram",
+      profileId: providerProfileId ?? (typeof provider.toString === "function" ? provider.toString() : undefined) ?? "ngram:test",
       dimension: 768,
       async embed(text: string): Promise<number[]> {
         const tokens = provider.search([{ id: text, text, tags: [] }], text);
@@ -101,15 +105,15 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
     const writePromise = this.withClient(async (client) => {
       await this.ensureSchema();
       const tenantId = currentTenantId() ?? null;
-      const dim = this.embeddingProvider.dimension ?? 768;
-      const embedding = normalizeVectorDimension(
-        await this.embeddingProvider.embed(`${record.text} ${(record.tags ?? []).join(" ")}`),
-        dim
-      );
+      const profileId = this.embeddingProvider.profileId ?? this.embeddingProvider.name;
+      const tier = record.tier ?? classifyVectorTier({ text: record.text, tags: record.tags });
+      const rawEmbedding = await this.embeddingProvider.embed(`${record.text} ${(record.tags ?? []).join(" ")}`);
+      const dim = this.embeddingProvider.dimension > 0 ? this.embeddingProvider.dimension : rawEmbedding.length;
+      const embedding = normalizeVectorDimension(rawEmbedding, dim);
       await client.query(
         [
-          "INSERT INTO memory_records(id, tenant_id, text, tags_json, embedding, updated_at, embedding_model, embedding_dim, embedding_norm)",
-          "VALUES ($1, $2, $3, $4::jsonb, $5::vector, $6::timestamptz, $7, $8, $9)",
+          "INSERT INTO memory_records(id, tenant_id, text, tags_json, embedding, updated_at, embedding_model, embedding_dim, embedding_norm, vector_tier)",
+          "VALUES ($1, $2, $3, $4::jsonb, $5::vector, $6::timestamptz, $7, $8, $9, $10)",
           "ON CONFLICT(id) DO UPDATE SET",
           "  tenant_id = EXCLUDED.tenant_id,",
           "  text = EXCLUDED.text,",
@@ -118,7 +122,8 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
           "  updated_at = EXCLUDED.updated_at,",
           "  embedding_model = EXCLUDED.embedding_model,",
           "  embedding_dim = EXCLUDED.embedding_dim,",
-          "  embedding_norm = EXCLUDED.embedding_norm"
+          "  embedding_norm = EXCLUDED.embedding_norm,",
+          "  vector_tier = EXCLUDED.vector_tier"
         ].join("\n"),
         [
           record.id,
@@ -127,9 +132,10 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
           JSON.stringify(record.tags ?? []),
           pgvector.toSql(embedding),
           toIsoNow(),
-          this.embeddingProvider.name,
+          profileId,
           dim,
-          true
+          true,
+          tier
         ]
       );
     });
@@ -150,9 +156,10 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
 
     await this.flushPendingWrites();
     const tenantId = currentTenantId();
-    const dim = this.embeddingProvider.dimension ?? 768;
-    const modelName = this.embeddingProvider.name;
-    const queryVector = normalizeVectorDimension(await this.embeddingProvider.embed(query), dim);
+    const modelName = this.embeddingProvider.profileId ?? this.embeddingProvider.name;
+    const rawQueryVector = await this.embeddingProvider.embed(query);
+    const dim = this.embeddingProvider.dimension > 0 ? this.embeddingProvider.dimension : rawQueryVector.length;
+    const queryVector = normalizeVectorDimension(rawQueryVector, dim);
     const limit = Math.max(1, options.limit ?? 10);
     const minScore = options.minScore ?? -1;
 
@@ -162,10 +169,11 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
         id: string;
         text: string;
         tags_json: unknown;
+        vector_tier: string | null;
         score: number;
       }>(
         [
-          "SELECT id, text, tags_json, 1 - (embedding <=> $1::vector) AS score",
+          "SELECT id, text, tags_json, vector_tier, 1 - (embedding <=> $1::vector) AS score",
           "FROM memory_records",
           tenantId
             ? "WHERE embedding_model = $3 AND embedding_dim = $4 AND tenant_id = $5"
@@ -183,10 +191,12 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
           const tags = Array.isArray(row.tags_json)
             ? row.tags_json.filter((tag): tag is string => typeof tag === "string")
             : [];
+          const tier = this.isVectorTier(row.vector_tier) ? row.vector_tier : undefined;
           return {
             id: row.id,
             text: row.text,
             tags,
+            tier,
             score: typeof row.score === "number" ? row.score : Number(row.score)
           };
         })
@@ -214,6 +224,10 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
   private trackWrite(promise: Promise<void>): void {
     this.pendingWrites.add(promise);
     promise.finally(() => this.pendingWrites.delete(promise)).catch(() => undefined);
+  }
+
+  private isVectorTier(value: string | null): value is VectorTier {
+    return value === "hot" || value === "warm" || value === "cold";
   }
 
   private async withClient<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -262,6 +276,7 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
           await client.query("ALTER TABLE memory_records ADD COLUMN IF NOT EXISTS embedding_model text NOT NULL DEFAULT 'legacy-768'");
           await client.query("ALTER TABLE memory_records ADD COLUMN IF NOT EXISTS embedding_dim integer NOT NULL DEFAULT 768");
           await client.query("ALTER TABLE memory_records ADD COLUMN IF NOT EXISTS embedding_norm boolean NOT NULL DEFAULT true");
+          await client.query("ALTER TABLE memory_records ADD COLUMN IF NOT EXISTS vector_tier text NOT NULL DEFAULT 'warm'");
           await client.query(
             "CREATE INDEX IF NOT EXISTS idx_memory_records_embedding_cosine ON memory_records USING hnsw (embedding vector_cosine_ops)"
           );
@@ -271,6 +286,7 @@ export class PgvectorVectorStoreAdapter implements VectorStoreAdapter {
           await client.query(
             "CREATE INDEX IF NOT EXISTS idx_memory_records_tenant_model_dim ON memory_records (tenant_id, embedding_model, embedding_dim)"
           );
+          await client.query("CREATE INDEX IF NOT EXISTS idx_memory_records_vector_tier ON memory_records (vector_tier)");
           await ensureTenantRlsPolicy(client, "memory_records", "memory_records_tenant_isolation");
           this.schemaReady = true;
         } finally {

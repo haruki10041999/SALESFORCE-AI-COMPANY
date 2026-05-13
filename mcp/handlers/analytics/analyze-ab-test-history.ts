@@ -6,15 +6,16 @@ import {
   parseAbHistoryRuns
 } from "../../core/application/analytics/services/analytics-ab-history.js";
 import { persistAbHistoryAnalysis } from "../../core/application/analytics/services/analytics-ab-history-output.js";
+import type { OutputsPort } from "../../core/ports/outputs-port.js";
 import type { RegisterGovToolDeps } from "../types.js";
 
 export interface DefineAnalyzeAbTestHistoryDeps extends RegisterGovToolDeps {
   outputsDir: string;
-  artifactWriter: any;
+  outputsPort: OutputsPort;
 }
 
 export function defineAnalyzeAbTestHistoryTool(deps: DefineAnalyzeAbTestHistoryDeps): void {
-  const { govTool, outputsDir, artifactWriter } = deps;
+  const { govTool, outputsDir, outputsPort } = deps;
 
   govTool(
     "analyze_ab_test_history",
@@ -56,7 +57,9 @@ export function defineAnalyzeAbTestHistoryTool(deps: DefineAnalyzeAbTestHistoryD
             analysisPath,
             payload,
             writeArtifactJson: async (path, payloadToWrite) => {
-              await artifactWriter.writeJson(path, payloadToWrite);
+              await outputsPort.writeArtifact(path, `${JSON.stringify(payloadToWrite, null, 2)}\n`, {
+                contentType: "application/json"
+              });
             }
           });
 

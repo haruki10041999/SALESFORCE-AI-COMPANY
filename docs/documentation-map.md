@@ -32,6 +32,8 @@
 - 学習ロジック全体: [learning-guide.md](./learning-guide.md)
 - リソース一覧: [resource-inventory.md](./resource-inventory.md)
 - テスト責務マップ: [test-file-responsibility-map.md](./test-file-responsibility-map.md)
+- テナントライフサイクル: [features/12-tenant-lifecycle.md](./features/12-tenant-lifecycle.md)
+- DR 自動化: [features/13-dr-automation.md](./features/13-dr-automation.md)
 - プラグイン開発: [plugin-development.md](./plugin-development.md)
 - OpenCode セットアップ: [opencode-setup.md](./opencode-setup.md)
 - Ollama セットアップ: [ollama-setup.md](./ollama-setup.md)

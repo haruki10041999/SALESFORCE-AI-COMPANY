@@ -6,7 +6,7 @@ import {
   selectReasoningStrategy,
   selectPromptVariant,
   buildPrompt
-} from "../prompt-engine/prompt-builder.js";
+} from "../mcp/core/prompt/prompt-builder.js";
 
 test("renderPromptTemplate: replaces nested variables", () => {
   const out = renderPromptTemplate("Agent={{agent.name}}; Task={{task}}", {

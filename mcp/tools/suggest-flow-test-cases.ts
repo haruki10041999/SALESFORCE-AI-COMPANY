@@ -8,7 +8,7 @@ import {
   type FlowConditionNode,
   type FlowConditionSimulationResult
 } from "./flow-condition-simulator.js";
-import { OutputsArtifactWriter } from "../core/persistence/outputs-artifact-writer.js";
+import { LocalOutputsAdapter } from "../infrastructure/outputs/local-outputs-adapter.js";
 
 export type SuggestFlowTestCasesInput = {
   filePath: string;
@@ -338,10 +338,7 @@ export async function suggestFlowTestCases(input: SuggestFlowTestCasesInput): Pr
   const runtimeOutputsDir = process.env.SF_AI_OUTPUTS_DIR
     ? resolve(process.env.SF_AI_OUTPUTS_DIR)
     : resolve("outputs");
-  const artifactWriter = new OutputsArtifactWriter({
-    outputsDir: runtimeOutputsDir,
-    databaseUrl: process.env.DATABASE_URL
-  });
+  const outputsPort = new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir });
   const flowAnalysis = analyzeFlow(input.filePath);
   const source = await fsPromises.readFile(input.filePath, "utf-8");
 
@@ -432,9 +429,13 @@ export async function suggestFlowTestCases(input: SuggestFlowTestCasesInput): Pr
     const reportRelativeDir = relative(runtimeOutputsDir, reportDir);
     const useArtifactWriter = reportRelativeDir.length > 0 && !reportRelativeDir.startsWith("..") && !isAbsolute(reportRelativeDir);
     if (useArtifactWriter) {
-      await artifactWriter.appendJsonl(join(reportRelativeDir, "runs.jsonl"), result);
-      await artifactWriter.writeJson(join(reportRelativeDir, "latest.json"), result);
-      await artifactWriter.writeText(join(reportRelativeDir, "latest.md"), toMarkdown(result));
+      await outputsPort.appendEvent(join(reportRelativeDir, "runs.jsonl"), result);
+      await outputsPort.writeArtifact(join(reportRelativeDir, "latest.json"), `${JSON.stringify(result, null, 2)}\n`, {
+        contentType: "application/json"
+      });
+      await outputsPort.writeArtifact(join(reportRelativeDir, "latest.md"), toMarkdown(result), {
+        contentType: "text/markdown"
+      });
     } else {
       await fsPromises.mkdir(reportDir, { recursive: true });
       await fsPromises.appendFile(runsJsonlPath, `${JSON.stringify(result)}\n`, "utf-8");

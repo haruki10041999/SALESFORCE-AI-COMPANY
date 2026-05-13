@@ -5,7 +5,7 @@ import {
   type ApprovalStage
 } from "../../../resource/proposal/queue.js";
 import { type ProposalQueueStore } from "../../../resource/proposal/proposal-queue-store.js";
-import { applyProposal } from "../../../resource/proposal/applier.js";
+import { applyProposalAsync, type ProposalApplyResult } from "../../../resource/proposal/applier.js";
 import {
   evaluateAutoCreateGate,
   countTodayApplied,
@@ -13,6 +13,11 @@ import {
   type AutoCreateConfig,
   type AutoCreatePolicy
 } from "../../../resource/proposal/auto-create-gate.js";
+import {
+  buildProposalEscalationNotice,
+  shouldAutoApproveProposal,
+  type ProposalApprovalPolicy
+} from "../../../governance/event-automation.js";
 
 export interface ProposalApprovalAudit {
   event: string;
@@ -24,6 +29,50 @@ export interface ProposalApprovalAudit {
   applyError?: string;
   reason?: string;
   [key: string]: unknown;
+}
+
+async function reviewProposalApprovalSla(args: {
+  proposalQueue: ProposalQueueStore;
+  appendApprovalAudit?: (event: ProposalApprovalAudit) => Promise<void>;
+  approvalPolicy: ProposalApprovalPolicy;
+  resourceType?: ProposalResourceType;
+  historyAcceptRateByResource?: Record<string, number>;
+}): Promise<{ autoApproved: number; escalated: number }> {
+  const now = new Date();
+  const pending = await args.proposalQueue.list({
+    status: "pending",
+    resourceType: args.resourceType,
+    historyAcceptRateByResource: args.historyAcceptRateByResource
+  });
+
+  let autoApproved = 0;
+  let escalated = 0;
+
+  for (const proposal of pending) {
+    if (shouldAutoApproveProposal(proposal, args.approvalPolicy, now)) {
+      const record = await args.proposalQueue.approve(proposal.id);
+      autoApproved += 1;
+      await args.appendApprovalAudit?.({
+        event: "proposal_auto_approved",
+        proposalId: proposal.id,
+        actor: "system",
+        status: record.status,
+        reason: `auto-approved after ${args.approvalPolicy.timeoutHours}h timeout`
+      });
+      continue;
+    }
+
+    const notice = buildProposalEscalationNotice(proposal, args.approvalPolicy, now);
+    escalated += 1;
+    await args.appendApprovalAudit?.({
+      event: "proposal_approval_escalated",
+      actor: "system",
+      status: proposal.status,
+      ...notice
+    });
+  }
+
+  return { autoApproved, escalated };
 }
 
 export async function executeEnqueueProposal(args: {
@@ -54,7 +103,20 @@ export async function executeListProposals(args: {
   limit?: number;
   proposalQueue: ProposalQueueStore;
   historyAcceptRateByResource?: Record<string, number>;
+  approvalPolicy?: ProposalApprovalPolicy;
+  appendApprovalAudit?: (event: ProposalApprovalAudit) => Promise<void>;
 }): Promise<Record<string, unknown>> {
+  const shouldReviewApprovalSla = !args.status || args.status === "pending";
+  const approvalReview = shouldReviewApprovalSla && args.approvalPolicy
+    ? await reviewProposalApprovalSla({
+        proposalQueue: args.proposalQueue,
+        appendApprovalAudit: args.appendApprovalAudit,
+        approvalPolicy: args.approvalPolicy,
+        resourceType: args.resourceType,
+        historyAcceptRateByResource: args.historyAcceptRateByResource
+      })
+    : { autoApproved: 0, escalated: 0 };
+
   const items = await args.proposalQueue.list({
     status: args.status,
     resourceType: args.resourceType,
@@ -62,7 +124,7 @@ export async function executeListProposals(args: {
     historyAcceptRateByResource: args.historyAcceptRateByResource
   });
   const summary = await args.proposalQueue.summarize();
-  return { summary, items };
+  return { summary, items, approvalReview };
 }
 
 export async function executeGetProposal(args: {
@@ -172,12 +234,12 @@ export async function executeApproveProposal(args: {
   }
 
   const shouldApply = args.apply !== false;
-  let applyResult: ReturnType<typeof applyProposal> | undefined;
+  let applyResult: ProposalApplyResult | undefined;
   let applyError: string | undefined;
 
   if (shouldApply) {
     try {
-      applyResult = applyProposal(pending, {
+      applyResult = await applyProposalAsync(pending, {
         repoRoot: args.repoRoot,
         outputsDir: args.outputsDir,
         overwrite: args.overwrite === true
@@ -221,7 +283,7 @@ export async function executeApplyProposal(args: {
     return { ok: false, error: `proposal status is ${record.status}; only pending can be applied` };
   }
 
-  const applyResult = applyProposal(record, {
+  const applyResult = await applyProposalAsync(record, {
     repoRoot: args.repoRoot,
     outputsDir: args.outputsDir,
     overwrite: args.overwrite === true
@@ -285,7 +347,7 @@ export async function executeAutoApplyPendingProposals(args: {
         entry.applied = false;
         entry.reason = "dry-run";
       } else {
-        const result = applyProposal(proposal, {
+        const result = await applyProposalAsync(proposal, {
           repoRoot: args.repoRoot,
           outputsDir: args.outputsDir,
           overwrite: args.overwrite === true

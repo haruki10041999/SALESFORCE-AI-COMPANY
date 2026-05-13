@@ -15,6 +15,21 @@ export function getPrimaryDatabaseUrl(): string | undefined {
   return fallback && fallback.length > 0 ? fallback : undefined;
 }
 
+export function getEventBusBackend(defaultBackend = "in-memory"): string {
+  const backend = process.env.SF_AI_EVENT_BUS_BACKEND?.trim().toLowerCase();
+  return backend && backend.length > 0 ? backend : defaultBackend;
+}
+
+export function getEventBusRedisUrl(): string | undefined {
+  const configured = process.env.SF_AI_EVENT_BUS_REDIS_URL?.trim() ?? process.env.REDIS_URL?.trim();
+  return configured && configured.length > 0 ? configured : undefined;
+}
+
+export function getEventBusStreamKey(defaultKey = "sfai_event_bus_stream"): string {
+  const configured = process.env.SF_AI_EVENT_BUS_STREAM_KEY?.trim();
+  return configured && configured.length > 0 ? configured : defaultKey;
+}
+
 export function getStateBackendEnv(): string | undefined {
   const backend = process.env.SF_AI_STATE_BACKEND?.trim();
   return backend && backend.length > 0 ? backend : undefined;
@@ -137,6 +152,17 @@ export function getOtelExporterEndpoint(defaultEndpoint = "http://localhost:4318
 export function getOtelServiceName(defaultServiceName = "salesforce-ai-company"): string {
   const configured = process.env.OTEL_SERVICE_NAME?.trim();
   return configured && configured.length > 0 ? configured : defaultServiceName;
+}
+
+export function getOtelTraceSampleRatio(defaultRatio = 0.1): number {
+  const parsed = Number.parseFloat(process.env.OTEL_TRACES_SAMPLER_RATIO ?? "");
+  if (!Number.isFinite(parsed)) {
+    return defaultRatio;
+  }
+  if (parsed < 0 || parsed > 1) {
+    return defaultRatio;
+  }
+  return parsed;
 }
 
 export function getPrometheusMetricsPort(defaultPort = 0): number {

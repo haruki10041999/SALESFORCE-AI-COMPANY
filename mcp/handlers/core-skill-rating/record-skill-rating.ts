@@ -2,8 +2,7 @@ import { z } from "zod";
 import { join, resolve } from "node:path";
 import { getOutputsDir } from "../../core/config/runtime-config.js";
 import type { RegisterGovToolDeps } from "../types.js";
-import { OutputsArtifactWriter } from "../../core/persistence/outputs-artifact-writer.js";
-import { getPrimaryDatabaseUrl } from "../../core/config/runtime-config.js";
+import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
 import {
   executeRecordSkillRating
 } from "../../core/application/resource/services/resource-search-operations.js";
@@ -19,10 +18,7 @@ export function defineRecordSkillRatingTool(deps: DefineRecordSkillRatingDeps): 
   const skillRatingLogFile = join(outputsDir, "reports", "skill-rating.jsonl");
   const skillRatingModelFile = join(outputsDir, "reports", "skill-rating.json");
   const skillRatingReportFile = join(outputsDir, "reports", "skill-rating.md");
-  const artifactWriter = new OutputsArtifactWriter({
-    outputsDir,
-    databaseUrl: getPrimaryDatabaseUrl()
-  });
+  const outputsPort = new LocalOutputsAdapter({ outputsDir });
 
   govTool(
     "record_skill_rating",
@@ -62,7 +58,7 @@ export function defineRecordSkillRatingTool(deps: DefineRecordSkillRatingDeps): 
         skillRatingLogFile,
         skillRatingModelFile,
         skillRatingReportFile,
-        writeReportMarkdown: async (markdown) => artifactWriter.writeText("reports/skill-rating.md", markdown)
+        writeReportMarkdown: async (markdown) => outputsPort.writeArtifact("reports/skill-rating.md", markdown, { contentType: "text/markdown" })
       });
 
       return {
