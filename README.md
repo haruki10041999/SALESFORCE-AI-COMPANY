@@ -146,6 +146,14 @@ npm run mcp:start
 
 # Docker 依存サービスを先に起動してから MCP を起動
 npm run mcp:start:docker
+
+# 同時起動ショートカット
+npm run docker:up:core      # postgres + ollama
+npm run docker:up:ollama-ha # ollama x2 + haproxy (http://localhost:11444)
+npm run docker:up:replay    # core + mcp-http + replay-ui
+npm run docker:up:extended  # replay + qdrant + observability
+npm run docker:up:full      # extended + temporal(workflow)
+npm run docker:down         # 全停止
 ```
 
 MCP クライアントから Docker 依存サービスも含めて自動起動したい場合は、

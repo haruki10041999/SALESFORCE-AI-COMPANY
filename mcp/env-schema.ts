@@ -3,7 +3,7 @@ import { resolveRuntimeProfile } from "./core/config/runtime-profile.js";
 
 const stateBackendSchema = z.enum(["sqlite", "postgres", "memory"]);
 const proposalQueueBackendSchema = z.enum(["file", "pg-boss", "memory"]);
-const vectorBackendSchema = z.enum(["tfidf", "pgvector", "memory"]);
+const vectorBackendSchema = z.enum(["tfidf", "pgvector", "memory", "qdrant", "lancedb"]);
 const workflowEngineSchema = z.enum(["in-process", "temporal"]);
 const embeddingProviderSchema = z.enum(["ollama", "openai", "cohere", "ngram"]);
 const eventBusBackendSchema = z.enum(["in-memory", "postgres-notify", "redis-streams"]);
@@ -75,6 +75,15 @@ const envSchema = z
     DATABASE_URL: optionalNonEmptyString(),
     SF_AI_VAULT_ADDR: optionalNonEmptyString(),
     SF_AI_VAULT_AUTH_VALUE: optionalNonEmptyString(),
+    // Policy-as-Code (TASK-11): set to "false"/"0" to disable OPA bundle evaluation
+    SF_AI_POLICY_AS_CODE_ENABLED: z.enum(["true", "false", "1", "0"]).optional(),
+    // Event Sourcing (TASK-12): set to "true"/"1" to persist domain events
+    SF_AI_EVENT_SOURCING_ENABLED: z.enum(["true", "false", "1", "0"]).optional(),
+    // HA / Leader Election (TASK-16)
+    SF_AI_LEADER_ELECTION_ENABLED: z.enum(["true", "false", "1", "0"]).optional(),
+    SF_AI_INSTANCE_ID: optionalNonEmptyString(),
+    SF_AI_METRICS_AUTO_UPDATE_ENABLED: z.enum(["true", "false", "1", "0"]).optional(),
+    SF_AI_METRICS_AUTO_UPDATE_INTERVAL_MINUTES: optionalNonEmptyString(),
   })
   .passthrough()
   .superRefine((env, ctx) => {

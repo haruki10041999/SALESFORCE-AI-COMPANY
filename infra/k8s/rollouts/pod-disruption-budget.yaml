@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: sf-ai-mcp-pdb
+  labels:
+    app.kubernetes.io/name: sf-ai-mcp
+    app.kubernetes.io/component: reliability
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: sf-ai-mcp

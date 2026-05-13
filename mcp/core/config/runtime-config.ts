@@ -350,6 +350,16 @@ export interface MetricsAutoUpdateEnvConfig {
   driftReportPath?: string;
   driftFreezeHours?: string;
   driftFreezeStatePath?: string;
+  learningOrchestratorEnabled?: string;
+  learningSnapshotPath?: string;
+  learningModelNames?: string;
+  learningCurrentCanaryMap?: string;
+  learningCanaryStatePath?: string;
+  learningCanaryTrafficPercent?: string;
+  learningManualApprovalRequired?: string;
+  learningManualOverride?: string;
+  learningActorId?: string;
+  learningReportPath?: string;
 }
 
 export function getMetricsAutoUpdateEnvConfig(): MetricsAutoUpdateEnvConfig {
@@ -368,7 +378,17 @@ export function getMetricsAutoUpdateEnvConfig(): MetricsAutoUpdateEnvConfig {
     regressionThreshold: process.env.SF_AI_REGRESSION_THRESHOLD,
     driftReportPath: process.env.SF_AI_DRIFT_REPORT_PATH,
     driftFreezeHours: process.env.SF_AI_DRIFT_FREEZE_HOURS,
-    driftFreezeStatePath: process.env.SF_AI_DRIFT_FREEZE_STATE_PATH
+    driftFreezeStatePath: process.env.SF_AI_DRIFT_FREEZE_STATE_PATH,
+    learningOrchestratorEnabled: process.env.SF_AI_LEARNING_ORCHESTRATOR_ENABLED,
+    learningSnapshotPath: process.env.SF_AI_LEARNING_SNAPSHOT_PATH,
+    learningModelNames: process.env.SF_AI_LEARNING_MODEL_NAMES,
+    learningCurrentCanaryMap: process.env.SF_AI_LEARNING_CURRENT_CANARY_MAP,
+    learningCanaryStatePath: process.env.SF_AI_LEARNING_CANARY_STATE_PATH,
+    learningCanaryTrafficPercent: process.env.SF_AI_LEARNING_CANARY_TRAFFIC_PERCENT,
+    learningManualApprovalRequired: process.env.SF_AI_LEARNING_MANUAL_APPROVAL_REQUIRED,
+    learningManualOverride: process.env.SF_AI_LEARNING_MANUAL_OVERRIDE,
+    learningActorId: process.env.SF_AI_LEARNING_ACTOR_ID,
+    learningReportPath: process.env.SF_AI_LEARNING_ORCHESTRATOR_REPORT_PATH
   };
 }
 

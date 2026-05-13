@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "defaultEffect": "allow",
+  "rules": [
+    {
+      "id": "deny.apply_resource_actions.non_admin",
+      "effect": "deny",
+      "tools": ["apply_resource_actions"],
+      "roles": ["operator", "viewer", "reviewer"]
+    },
+    {
+      "id": "deny.apply_proposal.viewer",
+      "effect": "deny",
+      "tools": ["apply_proposal"],
+      "roles": ["viewer"]
+    }
+  ]
+}

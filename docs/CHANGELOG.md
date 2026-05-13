@@ -5,6 +5,31 @@
 
 ## [Unreleased]
 
+### Added (2026-05-13 Phase 4 — TASK-20: Dashboard-as-Code)
+
+**Grafana ダッシュボード自動生成パイプライン** — JSON 互換 jsonnet テンプレート + render スクリプト + CI workflow
+- ✅ `infra/observability/grafana-dashboards/jsonnet/runtime-overview.jsonnet` — Runtime Overview テンプレート追加
+- ✅ `infra/observability/grafana-dashboards/jsonnet/slo.jsonnet` — SLO ダッシュボードテンプレート追加
+- ✅ `infra/observability/grafana-dashboards/generated/` — render 済み Grafana JSON (runtime-overview.json, slo.json)
+- ✅ `scripts/render-dashboards.ts` — jsonnet → JSON 変換スクリプト (`npm run dashboards:render`)
+- ✅ `scripts/generate-dashboard-catalog.ts` — ダッシュボードカタログ Markdown 自動生成 (`npm run docs:dashboards`)
+- ✅ `.github/workflows/dashboards.yml` — PR 時に差分チェック、main push 時に自動コミット同期する CI workflow
+- ✅ `docs/generated/features/dashboard-catalog.md` — 自動生成カタログドキュメント
+- ✅ `docs/documentation-map.md` — dashboard-catalog.md へのリンク追加
+- ✅ `docs/observability-cleanup-playbook.md` — dashboard-as-code セクション・catalog 生成・CI workflow 説明追加
+
+### Added (2026-05-13 Phase 4 — TASK-19: Learning Orchestrator)
+
+**自動モデル昇格・ロールバック** — canary 移行・drift 検知・proposal queue 統合
+- ✅ `mcp/core/learning/learning-orchestrator.ts` — `runLearningOrchestrator()`: shadow→canary 移行・promote/rollback 自動判断
+- ✅ `mcp/core/learning/metrics-auto-update.ts` — `runLearningOrchestratorBatch()` で canary 状態を JSON ファイルに永続化
+- ✅ `mcp/core/config/runtime-config.ts` — `SF_AI_LEARNING_CANARY_STATE_PATH` 環境変数サポート追加
+- ✅ `mcp/server.ts` — `learningCanaryStatePath` を `runMetricsAutoUpdate` に注入
+- ✅ `mcp/handlers/register-learning-tools.ts` — MCP ツール `learning_orchestrator` として公開 (dryRun/side-effects 対応)
+- ✅ `mcp/core/orchestration/workflows/learning-promotion.workflow.ts` — snapshot ベース実行 helper
+- ✅ `mcp/core/registration/domain-learning.ts` / `domain-replay.ts` — ドメイン登録追加
+- 📋 `tests/learning/learning-orchestrator.test.ts` (5 ケース) + `tests/metrics-auto-update.test.ts` (8 ケース): 13 件全 green
+
 ### Changed (2026-05-13 Phase 1 — TASK-01: Cost Ledger Implementation)
 
 **Token Cost Tracking & Budget Enforcement** — Per-model pricing + daily/monthly budget + SLA burn accounting

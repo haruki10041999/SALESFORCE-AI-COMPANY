@@ -1,5 +1,5 @@
-﻿// .env を全モジュールより前に読み込む (副作用 import)。
-// 注意: ESM の import は宣言順に評価されるため、必ずトップに配置すること。
+// .env ��S���W���[�����O�ɓǂݍ��� (����p import)�B
+// ����: ESM �� import �͐錾���ɕ]������邽�߁A�K���g�b�v�ɔz�u���邱�ƁB
 import "./env-loader.js";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -84,6 +84,7 @@ import { createHistoryStore } from "./core/context/history-store.js";
 import { PostgresSessionStore } from "./core/persistence/session-store.postgres.js";
 import { SqliteSessionStore } from "./core/persistence/session-store.sqlite.js";
 import type { SessionStore } from "./core/persistence/session-store.js";
+import { PostgresEventStore } from "./core/persistence/postgres-event-store.js";
 import { createOrchestrationQueueStore } from "./infrastructure/workflow/orchestration-queue-store.js";
 import { createOrchestrationJobRunner } from "./infrastructure/workflow/orchestration-job-runner.js";
 import { createWorkflowEngine } from "./infrastructure/workflow/workflow-engine-factory.js";
@@ -93,16 +94,19 @@ import {
 } from "./infrastructure/workflow/temporal-workflow-worker.js";
 import { createTemporalWorkflowActivities } from "./infrastructure/workflow/temporal-workflow-activities.js";
 import { createPolicySnapshotManager } from "./core/learning/policy-snapshot.js";
+import { runMetricsAutoUpdate } from "./core/learning/metrics-auto-update.js";
 import { createPromptRenderer } from "./core/context/prompt-rendering.js";
-import { isEnvFlagEnabled } from "./core/config/env-flags.js";
+import { isEnvFlagEnabled, parseBooleanLike } from "./core/config/env-flags.js";
 import { evaluatePseudoHooks as evaluatePseudoHooksCore } from "./core/orchestration/pseudo-hooks.js";
 import { createChatToolRunner, generateSessionId } from "./core/orchestration/chat-tool-runner.js";
 import { clearOrchestrationSessionsForTest } from "./core/orchestration/session-registry.js";
 import { chatInputSchema, triggerRuleSchema } from "./core/orchestration/schemas.js";
 import { getDefaultSchedulesFilePath, loadCleanupSchedules } from "./core/resource/cleanup-scheduler.js";
+import { LeaderElection } from "./core/reliability/leader-election.js";
 import type { SystemEventType } from "./core/event/event-dispatcher.js";
 import { createLogger } from "./core/logging/logger.js";
 import {
+  getMetricsAutoUpdateEnvConfig,
   getLowRelevanceScoreThreshold,
   getTemporalAddress,
   getTemporalNamespace,
@@ -179,7 +183,7 @@ async function emitSystemEventFromTools(event: string, payload: Record<string, u
   await emitSystemEvent(event as SystemEventName, payload);
 }
 
-// エージェントメッセージログ
+// �G�[�W�F���g���b�Z�[�W���O
 interface AgentMessage {
   agent: string;
   message: string;
@@ -195,7 +199,7 @@ const generateHandlersDashboardState = (state: HandlersDashboardState): Handlers
   errorTracker: state.errorTracker,
   qualityTracker: state.qualityTracker
 });
-// NOTE: Postgres ベースではファイルベースのログは不要（audit_logs テーブル使用）
+// NOTE: Postgres �x�[�X�ł̓t�@�C���x�[�X�̃��O�͕s�v�iaudit_logs �e�[�u���g�p�j
 const { loadRecentOperations, appendOperationLog } = createOperationLog({
   logFile: "",
   ensureDir,
@@ -298,7 +302,7 @@ export async function invokeRegisteredToolForTest(name: string, input: unknown):
 export { clearOrchestrationSessionsForTest };
 
 // ============================================================
-// ガバナンス対応ツール登録ラッパー（disable チェック付き）
+// �K�o�i���X�Ή��c�[���o�^���b�p�[�idisable �`�F�b�N�t���j
 // ============================================================
 
 const disabledToolsCache = createDisabledToolsCacheManager({
@@ -404,17 +408,17 @@ const HISTORY_DIR = join(OUTPUTS_DIR, "history");
 const USE_SQLITE_HISTORY = isEnvFlagEnabled("SF_AI_HISTORY_SQLITE");
 const ALLOW_HISTORY_FILE_FALLBACK = isEnvFlagEnabled("SF_AI_HISTORY_FILE_FALLBACK");
 const ALLOW_PRESET_FILE_FALLBACK = isEnvFlagEnabled("SF_AI_PRESET_FILE_FALLBACK");
-// NOTE: Postgres ベースではディレクトリベースの履歴管理は不要
-// すべて Postgres state_records テーブルに保存される
+// NOTE: Postgres �x�[�X�ł̓f�B���N�g���x�[�X�̗����Ǘ��͕s�v
+// ���ׂ� Postgres state_records �e�[�u���ɕۑ������
 const PRESETS_DIR = join(OUTPUTS_DIR, "presets");
 const HISTORY_RETENTION_DAYS = 30;
 const HISTORY_MAX_FILES = 200;
 const SESSION_RETENTION_DAYS = 30;
 
-// NOTE: Postgres ベースでは ensureDir は不要だが、
-// 既存モジュール互換性のため dummy 実装を提供
+// NOTE: Postgres �x�[�X�ł� ensureDir �͕s�v�����A
+// �������W���[���݊����̂��� dummy �������
 async function ensureDir(_dir: string): Promise<void> {
-  // No-op: Postgres ベースでは dir creation は不要
+  // No-op: Postgres �x�[�X�ł� dir creation �͕s�v
 }
 
 const { createPreset, listPresetsData, getPreset } = createPresetStore({
@@ -467,36 +471,56 @@ const proposalQueue: ProposalQueueStore = await createProposalQueueStore({
   outputsDir: OUTPUTS_DIR,
   databaseUrl: DATABASE_URL
 });
+const leaderElection = LeaderElection.open({
+  databaseUrl: DATABASE_URL,
+  enabled: isEnvFlagEnabled("SF_AI_LEADER_ELECTION_ENABLED", process.env, true),
+  lockNamespace: "sfai:leader",
+  instanceId: process.env.SF_AI_INSTANCE_ID
+});
 
 if (
   PROPOSAL_QUEUE_BACKEND === "pg-boss" &&
   typeof proposalQueue.scheduleRecurringJob === "function" &&
   typeof proposalQueue.unscheduleRecurringJob === "function"
 ) {
-  try {
-    const cleanupSchedules = await loadCleanupSchedules(getDefaultSchedulesFilePath(ROOT));
-    for (const schedule of cleanupSchedules.schedules) {
-      if (schedule.status !== "active") {
-        await proposalQueue.unscheduleRecurringJob({
-          queue: "governance-auto-cleanup",
-          key: schedule.id
-        });
-        continue;
-      }
+  const scheduleRecurringJob = proposalQueue.scheduleRecurringJob.bind(proposalQueue);
+  const unscheduleRecurringJob = proposalQueue.unscheduleRecurringJob.bind(proposalQueue);
 
-      await proposalQueue.scheduleRecurringJob({
-        queue: "governance-auto-cleanup",
-        cron: schedule.cron,
-        key: schedule.id,
-        data: {
-          scheduleId: schedule.id,
-          action: schedule.action,
-          daysUnused: schedule.daysUnused,
-          limit: schedule.limit,
-          requireApproval: schedule.requireApproval
+  try {
+    await leaderElection.runIfLeader({
+      lockKey: "governance-auto-cleanup:start-sync",
+      onLeader: async () => {
+        const cleanupSchedules = await loadCleanupSchedules(getDefaultSchedulesFilePath(ROOT));
+        for (const schedule of cleanupSchedules.schedules) {
+          if (schedule.status !== "active") {
+            await unscheduleRecurringJob({
+              queue: "governance-auto-cleanup",
+              key: schedule.id
+            });
+            continue;
+          }
+
+          await scheduleRecurringJob({
+            queue: "governance-auto-cleanup",
+            cron: schedule.cron,
+            key: schedule.id,
+            data: {
+              scheduleId: schedule.id,
+              action: schedule.action,
+              daysUnused: schedule.daysUnused,
+              limit: schedule.limit,
+              requireApproval: schedule.requireApproval
+            }
+          });
         }
-      });
-    }
+        logger.info("cleanup schedule startup sync completed as leader");
+      },
+      onFollower: async () => {
+        logger.info(
+          `cleanup schedule startup sync skipped (not leader, instance=${leaderElection.describeInstance()})`
+        );
+      }
+    });
   } catch (error) {
     logger.warn(`cleanup schedule startup sync failed: ${summarizeValue(error, 300)}`);
   }
@@ -755,6 +779,34 @@ const { persistShutdownState, registerShutdownHooks } = createShutdownStatePersi
   logger
 });
 
+function parseOptionalNumber(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseOptionalCsvList(value: string | undefined): string[] | undefined {
+  if (!value) return undefined;
+  const parsed = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  return parsed.length > 0 ? parsed : undefined;
+}
+
+function parseCanaryVersionMap(value: string | undefined): Record<string, string> | undefined {
+  if (!value || value.trim().length === 0) return undefined;
+  const map: Record<string, string> = {};
+  for (const pair of value.split(",")) {
+    const [modelNameRaw, versionRaw] = pair.split(":");
+    const modelName = modelNameRaw?.trim();
+    const version = versionRaw?.trim();
+    if (!modelName || !version) continue;
+    map[modelName] = version;
+  }
+  return Object.keys(map).length > 0 ? map : undefined;
+}
+
 async function main(): Promise<void> {
   registerShutdownHooks();
   banditState = await loadBanditState(BANDIT_STATE_FILE);
@@ -798,6 +850,93 @@ async function main(): Promise<void> {
   observabilityRuntime.setStartupComplete(true);
   observabilityRuntime.setReady(true);
 
+  let metricsAutoUpdateTimer: NodeJS.Timeout | null = null;
+  const metricsAutoUpdateEnabled = isEnvFlagEnabled("SF_AI_METRICS_AUTO_UPDATE_ENABLED", process.env, false);
+  if (metricsAutoUpdateEnabled) {
+    const intervalMinutes = Math.max(1, parseOptionalNumber(process.env.SF_AI_METRICS_AUTO_UPDATE_INTERVAL_MINUTES) ?? 60);
+    const intervalMs = intervalMinutes * 60 * 1000;
+
+    const runLeaderGatedMetricsUpdate = async (): Promise<void> => {
+      const metricsEnv = getMetricsAutoUpdateEnvConfig();
+      await leaderElection.runIfLeader({
+        lockKey: 'metrics-auto-update',
+        onLeader: async () => {
+          const learningOrchestratorEnabled = parseBooleanLike(metricsEnv.learningOrchestratorEnabled, false);
+          const eventStore =
+            learningOrchestratorEnabled && DATABASE_URL
+              ? await PostgresEventStore.open({ databaseUrl: DATABASE_URL })
+              : undefined;
+          try {
+            const result = await runMetricsAutoUpdate({
+              reportingHours: parseOptionalNumber(metricsEnv.reportingHours),
+              includeDriftDetection: parseBooleanLike(metricsEnv.includeDriftDetection, false),
+              driftBaselineHours: parseOptionalNumber(metricsEnv.driftBaselineHours),
+              driftRecentHours: parseOptionalNumber(metricsEnv.driftRecentHours),
+              minRecentRewardSamples: parseOptionalNumber(metricsEnv.driftMinRewardSamples),
+              rewardDriftThreshold: parseOptionalNumber(metricsEnv.driftThreshold),
+              adaptiveRewardDriftThreshold: metricsEnv.driftAdaptiveThreshold
+                ? parseBooleanLike(metricsEnv.driftAdaptiveThreshold, false)
+                : undefined,
+              minAdaptiveRewardDriftThreshold: parseOptionalNumber(metricsEnv.driftAdaptiveMinThreshold),
+              maxAdaptiveRewardDriftThreshold: parseOptionalNumber(metricsEnv.driftAdaptiveMaxThreshold),
+              minReputationSamplesPerWindow: parseOptionalNumber(metricsEnv.driftMinReputationSamples),
+              regressionThreshold: parseOptionalNumber(metricsEnv.regressionThreshold),
+              driftReportPath: metricsEnv.driftReportPath,
+              freezeOnDriftAlert: parseBooleanLike(metricsEnv.driftFreezeEnabled, true),
+              freezeDurationHours: parseOptionalNumber(metricsEnv.driftFreezeHours),
+              freezeStatePath: metricsEnv.driftFreezeStatePath,
+              learningOrchestratorEnabled,
+              learningSnapshotPath: metricsEnv.learningSnapshotPath,
+              learningModelNames: parseOptionalCsvList(metricsEnv.learningModelNames),
+              learningCurrentCanaryVersions: parseCanaryVersionMap(metricsEnv.learningCurrentCanaryMap),
+              learningCanaryStatePath: metricsEnv.learningCanaryStatePath,
+              learningCanaryTrafficPercent: parseOptionalNumber(metricsEnv.learningCanaryTrafficPercent),
+              learningManualApprovalRequired: metricsEnv.learningManualApprovalRequired
+                ? parseBooleanLike(metricsEnv.learningManualApprovalRequired, false)
+                : undefined,
+              learningManualOverride:
+                metricsEnv.learningManualOverride === "approve" || metricsEnv.learningManualOverride === "reject"
+                  ? metricsEnv.learningManualOverride
+                  : undefined,
+              learningActorId: metricsEnv.learningActorId,
+              learningReportPath: metricsEnv.learningReportPath,
+              learningEventStore: eventStore,
+              learningQueueProposal: async (input) => proposalQueue.enqueue(input)
+            });
+            if (result.driftReport?.shouldAlert) {
+              logger.warn(
+                `[metrics-auto-update] drift alert detected: ${result.driftReport.alerts.join(" | ")}`
+              );
+            } else {
+              logger.info("[metrics-auto-update] leader run completed");
+            }
+          } finally {
+            await eventStore?.close();
+          }
+        },
+        onFollower: async () => {
+          logger.debug(
+            `metrics auto-update skipped (not leader, instance=${leaderElection.describeInstance()})`
+          );
+        }
+      });
+    };
+
+    try {
+      await runLeaderGatedMetricsUpdate();
+    } catch (error) {
+      logger.warn(`metrics auto-update startup run failed: ${summarizeValue(error, 300)}`);
+    }
+
+    metricsAutoUpdateTimer = setInterval(() => {
+      void runLeaderGatedMetricsUpdate().catch((error) => {
+        logger.warn(`metrics auto-update interval run failed: ${summarizeValue(error, 300)}`);
+      });
+    }, intervalMs);
+
+    logger.info(`metrics auto-update scheduler started (interval=${intervalMinutes}m, leader-gated)`);
+  }
+
   try {
     await startMcpTransport(server, logger);
   } finally {
@@ -805,9 +944,13 @@ async function main(): Promise<void> {
     if (typeof proposalQueue.close === "function") {
       await proposalQueue.close();
     }
+    await leaderElection.close();
     await policySnapshotManager.close();
     await orchestrationJobRunner.close();
     await orchestrationQueueStore.close();
+    if (metricsAutoUpdateTimer) {
+      clearInterval(metricsAutoUpdateTimer);
+    }
     await sessionStore.close();
     if (temporalWorker) {
       await temporalWorker.close();

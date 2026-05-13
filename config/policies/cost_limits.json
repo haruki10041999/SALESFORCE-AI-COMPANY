@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "defaultEffect": "allow",
+  "rules": [
+    {
+      "id": "deny.batch_chat.viewer",
+      "effect": "deny",
+      "tools": ["batch_chat"],
+      "roles": ["viewer"]
+    },
+    {
+      "id": "deny.benchmark_suite.non_admin",
+      "effect": "deny",
+      "tools": ["benchmark_suite"],
+      "roles": ["viewer", "reviewer"]
+    }
+  ]
+}

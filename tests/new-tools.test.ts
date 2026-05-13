@@ -203,12 +203,13 @@ test("summarizeMetrics slaEvaluation passes on exact thresholds and alerts only 
   const filePath = join(root, "trace-log.jsonl");
 
   try {
+    const baseMs = Date.now() - 60_000;
     const traces = [
       {
         traceId: "trace-a",
         toolName: "tool-a",
-        startedAt: "2026-01-01T00:00:00.000Z",
-        endedAt: "2026-01-01T00:00:00.100Z",
+        startedAt: new Date(baseMs).toISOString(),
+        endedAt: new Date(baseMs + 100).toISOString(),
         durationMs: 100,
         status: "success",
         metadata: {}
@@ -216,8 +217,8 @@ test("summarizeMetrics slaEvaluation passes on exact thresholds and alerts only 
       {
         traceId: "trace-b",
         toolName: "tool-b",
-        startedAt: "2026-01-01T00:00:00.000Z",
-        endedAt: "2026-01-01T00:00:00.200Z",
+        startedAt: new Date(baseMs).toISOString(),
+        endedAt: new Date(baseMs + 200).toISOString(),
         durationMs: 200,
         status: "success",
         metadata: {}
@@ -225,8 +226,8 @@ test("summarizeMetrics slaEvaluation passes on exact thresholds and alerts only 
       {
         traceId: "trace-c",
         toolName: "tool-c",
-        startedAt: "2026-01-01T00:00:00.000Z",
-        endedAt: "2026-01-01T00:00:00.300Z",
+        startedAt: new Date(baseMs).toISOString(),
+        endedAt: new Date(baseMs + 300).toISOString(),
         durationMs: 300,
         status: "error",
         errorMessage: "expected",
@@ -267,12 +268,13 @@ test("summarizeMetrics evaluates per-tool SLA thresholds with prefix glob and ex
   const filePath = join(root, "trace-log.jsonl");
 
   try {
+    const baseMs = Date.now() - 60_000;
     const traces = [
       {
         traceId: "t1",
         toolName: "deploy_org",
-        startedAt: "2026-01-01T00:00:00.000Z",
-        endedAt: "2026-01-01T00:00:00.500Z",
+        startedAt: new Date(baseMs).toISOString(),
+        endedAt: new Date(baseMs + 500).toISOString(),
         durationMs: 500,
         status: "success",
         metadata: {}
@@ -280,8 +282,8 @@ test("summarizeMetrics evaluates per-tool SLA thresholds with prefix glob and ex
       {
         traceId: "t2",
         toolName: "deploy_org",
-        startedAt: "2026-01-01T00:00:00.000Z",
-        endedAt: "2026-01-01T00:00:00.700Z",
+        startedAt: new Date(baseMs).toISOString(),
+        endedAt: new Date(baseMs + 700).toISOString(),
         durationMs: 700,
         status: "error",
         errorMessage: "boom",
@@ -290,8 +292,8 @@ test("summarizeMetrics evaluates per-tool SLA thresholds with prefix glob and ex
       {
         traceId: "t3",
         toolName: "analyze_repo",
-        startedAt: "2026-01-01T00:00:00.000Z",
-        endedAt: "2026-01-01T00:00:00.050Z",
+        startedAt: new Date(baseMs).toISOString(),
+        endedAt: new Date(baseMs + 50).toISOString(),
         durationMs: 50,
         status: "success",
         metadata: {}

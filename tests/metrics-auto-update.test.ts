@@ -4,12 +4,30 @@ import { promises as fsPromises } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { RewardRecord } from "../mcp/core/types/feedback.js";
 import { runMetricsAutoUpdate } from "../mcp/core/learning/metrics-auto-update.js";
+import {
+  createModelRegistry,
+  registerModelVersion,
+  recordOutcome,
+  setShadowVersion,
+  toSnapshot
+} from "../mcp/core/learning/model-registry.js";
+import type {
+  AppendEventInput,
+  EventHandler,
+  EventStore,
+  ReadEventsOptions,
+  StoredEvent,
+  SubscribeOptions
+} from "../mcp/core/ports/event-store.js";
 
 const TMP_DIR = resolve("outputs", "learning", "metrics-auto-update-test");
 const REWARD_PATH = resolve(TMP_DIR, "rewards.jsonl");
 const REPUTATION_PATH = resolve(TMP_DIR, "agent-reputation.jsonl");
 const REPORT_PATH = resolve(TMP_DIR, "drift-report.jsonl");
 const FREEZE_PATH = resolve(TMP_DIR, "drift-freeze.json");
+const LEARNING_SNAPSHOT_PATH = resolve(TMP_DIR, "learning-registry.snapshot.json");
+const LEARNING_REPORT_PATH = resolve(TMP_DIR, "learning-orchestrator-latest.json");
+const LEARNING_CANARY_STATE_PATH = resolve(TMP_DIR, "learning-canary-state.json");
 
 async function writeJsonl(filePath: string, rows: unknown[]): Promise<void> {
   await fsPromises.mkdir(dirname(filePath), { recursive: true });
@@ -30,6 +48,46 @@ function makeReward(hoursAgo: number, reward: number, agentName = "agent-a"): Re
 
 async function cleanup(): Promise<void> {
   await fsPromises.rm(TMP_DIR, { recursive: true, force: true });
+}
+
+class MemoryEventStore implements EventStore {
+  private readonly events = new Map<string, StoredEvent[]>();
+  private globalSeq = 0;
+
+  async append(input: AppendEventInput): Promise<StoredEvent> {
+    const stream = this.events.get(input.streamId) ?? [];
+    const actualVersion = stream.length;
+    if (actualVersion !== input.expectedVersion) {
+      throw new Error(`unexpected version ${actualVersion}`);
+    }
+    const event: StoredEvent = {
+      id: this.globalSeq + 1,
+      globalSeq: this.globalSeq + 1,
+      version: actualVersion,
+      status: "active",
+      occurredAt: input.occurredAt ?? new Date().toISOString(),
+      streamId: input.streamId,
+      eventType: input.eventType,
+      tenantId: input.tenantId,
+      actorId: input.actorId,
+      payload: input.payload
+    };
+    this.globalSeq += 1;
+    this.events.set(input.streamId, [...stream, event]);
+    return event;
+  }
+
+  async read(streamId: string, _options?: ReadEventsOptions): Promise<StoredEvent[]> {
+    return [...(this.events.get(streamId) ?? [])];
+  }
+
+  subscribe(_handler: EventHandler, _options?: SubscribeOptions): () => void {
+    return () => undefined;
+  }
+
+  async tombstone(_id: number): Promise<void> {
+    return;
+  }
 }
 
 test("metrics-auto-update emits drift alert callback when alert is detected", async () => {
@@ -172,6 +230,193 @@ test("metrics-auto-update supports adaptive drift threshold options", async () =
     assert.ok(result.driftReport);
     assert.equal(result.driftReport?.rewardDrift.adaptiveThresholdEnabled, true);
     assert.ok((result.driftReport?.rewardDrift.effectiveDriftThreshold ?? 0) >= 0.15);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("metrics-auto-update runs learning orchestrator batch from snapshot", async () => {
+  await cleanup();
+  try {
+    const registry = createModelRegistry();
+    registerModelVersion<number, number>(registry, { name: "ranker", version: "v1", predict: (value) => value + 1 });
+    registerModelVersion<number, number>(registry, { name: "ranker", version: "v2", predict: (value) => value + 2 });
+    setShadowVersion(registry, "ranker", "v2");
+    for (let i = 0; i < 40; i++) {
+      recordOutcome(registry, "ranker", "v2", "shadow");
+    }
+    await fsPromises.mkdir(dirname(LEARNING_SNAPSHOT_PATH), { recursive: true });
+    await fsPromises.writeFile(LEARNING_SNAPSHOT_PATH, JSON.stringify(toSnapshot(registry), null, 2), "utf-8");
+
+    const result = await runMetricsAutoUpdate({
+      reportingHours: 24,
+      includeDriftDetection: false,
+      learningOrchestratorEnabled: true,
+      learningSnapshotPath: LEARNING_SNAPSHOT_PATH,
+      learningModelNames: ["ranker"],
+      learningCanaryStatePath: LEARNING_CANARY_STATE_PATH,
+      learningCanaryTrafficPercent: 5,
+      learningReportPath: LEARNING_REPORT_PATH
+    });
+
+    assert.equal(result.learningOrchestratorResults?.length, 1);
+    assert.equal(result.learningOrchestratorResults?.[0]?.stage, "canary");
+
+    const canaryState = JSON.parse(await fsPromises.readFile(LEARNING_CANARY_STATE_PATH, "utf-8")) as Record<string, string>;
+    assert.equal(canaryState.ranker, "v2");
+
+    const report = JSON.parse(await fsPromises.readFile(LEARNING_REPORT_PATH, "utf-8")) as {
+      models: string[];
+      results: Array<{ stage: string }>;
+    };
+    assert.deepEqual(report.models, ["ranker"]);
+    assert.equal(report.results[0]?.stage, "canary");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("metrics-auto-update reuses persisted canary state when explicit map is not passed", async () => {
+  await cleanup();
+  try {
+    const registry = createModelRegistry();
+    registerModelVersion<number, number>(registry, { name: "ranker", version: "v1", predict: (value) => value + 1 });
+    registerModelVersion<number, number>(registry, { name: "ranker", version: "v2", predict: (value) => value + 2 });
+    setShadowVersion(registry, "ranker", "v2");
+    for (let i = 0; i < 40; i++) {
+      recordOutcome(registry, "ranker", "v2", "shadow");
+    }
+    await fsPromises.mkdir(dirname(LEARNING_SNAPSHOT_PATH), { recursive: true });
+    await fsPromises.writeFile(LEARNING_SNAPSHOT_PATH, JSON.stringify(toSnapshot(registry), null, 2), "utf-8");
+
+    // First run records canary state.
+    await runMetricsAutoUpdate({
+      reportingHours: 24,
+      includeDriftDetection: false,
+      learningOrchestratorEnabled: true,
+      learningSnapshotPath: LEARNING_SNAPSHOT_PATH,
+      learningModelNames: ["ranker"],
+      learningCanaryStatePath: LEARNING_CANARY_STATE_PATH
+    });
+
+    let queueCalls = 0;
+    const secondRun = await runMetricsAutoUpdate({
+      reportingHours: 24,
+      includeDriftDetection: false,
+      learningOrchestratorEnabled: true,
+      learningSnapshotPath: LEARNING_SNAPSHOT_PATH,
+      learningModelNames: ["ranker"],
+      learningCanaryStatePath: LEARNING_CANARY_STATE_PATH,
+      learningManualApprovalRequired: true,
+      learningQueueProposal: async (input) => {
+        queueCalls += 1;
+        return {
+          id: "prop-1",
+          resourceType: input.resourceType,
+          name: input.name,
+          content: input.content,
+          confidence: input.confidence ?? 0,
+          sourceEvent: input.sourceEvent,
+          origin: input.origin,
+          createdByActorId: input.createdByActorId,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          status: "pending",
+          approval: {
+            requiredStages: input.requiredApprovalStages ?? ["reviewer", "admin"],
+            currentStage: (input.requiredApprovalStages ?? ["reviewer", "admin"])[0],
+            completedStages: [],
+            history: []
+          }
+        };
+      }
+    });
+
+    assert.equal(queueCalls, 1);
+    assert.equal(secondRun.learningOrchestratorResults?.[0]?.stage, "proposal_required");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("metrics-auto-update forwards queueProposal when manual approval is required", async () => {
+  await cleanup();
+  try {
+    const registry = createModelRegistry();
+    registerModelVersion<number, number>(registry, { name: "ranker", version: "v1", predict: (value) => value + 1 });
+    registerModelVersion<number, number>(registry, { name: "ranker", version: "v2", predict: (value) => value + 2 });
+    setShadowVersion(registry, "ranker", "v2");
+    for (let i = 0; i < 40; i++) {
+      recordOutcome(registry, "ranker", "v2", "shadow");
+    }
+    await fsPromises.mkdir(dirname(LEARNING_SNAPSHOT_PATH), { recursive: true });
+    await fsPromises.writeFile(LEARNING_SNAPSHOT_PATH, JSON.stringify(toSnapshot(registry), null, 2), "utf-8");
+
+    let queueCalls = 0;
+    const result = await runMetricsAutoUpdate({
+      reportingHours: 24,
+      includeDriftDetection: false,
+      learningOrchestratorEnabled: true,
+      learningSnapshotPath: LEARNING_SNAPSHOT_PATH,
+      learningModelNames: ["ranker"],
+      learningCurrentCanaryVersions: { ranker: "v2" },
+      learningManualApprovalRequired: true,
+      learningQueueProposal: async (input) => {
+        queueCalls += 1;
+        return {
+          id: "prop-1",
+          resourceType: input.resourceType,
+          name: input.name,
+          content: input.content,
+          confidence: input.confidence ?? 0,
+          sourceEvent: input.sourceEvent,
+          origin: input.origin,
+          createdByActorId: input.createdByActorId,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          status: "pending",
+          approval: {
+            requiredStages: input.requiredApprovalStages ?? ["reviewer", "admin"],
+            currentStage: (input.requiredApprovalStages ?? ["reviewer", "admin"])[0],
+            completedStages: [],
+            history: []
+          }
+        };
+      }
+    });
+
+    assert.equal(queueCalls, 1);
+    assert.equal(result.learningOrchestratorResults?.[0]?.stage, "proposal_required");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("metrics-auto-update forwards learningEventStore to orchestrator", async () => {
+  await cleanup();
+  try {
+    const registry = createModelRegistry();
+    registerModelVersion<number, number>(registry, { name: "ranker", version: "v1", predict: (value) => value + 1 });
+    registerModelVersion<number, number>(registry, { name: "ranker", version: "v2", predict: (value) => value + 2 });
+    setShadowVersion(registry, "ranker", "v2");
+    for (let i = 0; i < 40; i++) {
+      recordOutcome(registry, "ranker", "v2", "shadow");
+    }
+    await fsPromises.mkdir(dirname(LEARNING_SNAPSHOT_PATH), { recursive: true });
+    await fsPromises.writeFile(LEARNING_SNAPSHOT_PATH, JSON.stringify(toSnapshot(registry), null, 2), "utf-8");
+
+    const eventStore = new MemoryEventStore();
+    const result = await runMetricsAutoUpdate({
+      reportingHours: 24,
+      includeDriftDetection: false,
+      learningOrchestratorEnabled: true,
+      learningSnapshotPath: LEARNING_SNAPSHOT_PATH,
+      learningModelNames: ["ranker"],
+      learningEventStore: eventStore
+    });
+
+    assert.equal(result.learningOrchestratorResults?.[0]?.eventRecorded, true);
+    const events = await eventStore.read("learning-orchestrator:ranker");
+    assert.equal(events.length, 1);
+    assert.equal(events[0]?.eventType, "learning.canary.started");
   } finally {
     await cleanup();
   }

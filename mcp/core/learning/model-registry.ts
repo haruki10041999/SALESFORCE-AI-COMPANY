@@ -335,3 +335,32 @@ export function toSnapshot(registry: ModelRegistry): ModelRegistrySnapshot {
   }
   return { models };
 }
+
+export function restoreRegistryFromSnapshot(snapshot: ModelRegistrySnapshot): ModelRegistry {
+  const registry = createModelRegistry();
+
+  for (const model of snapshot.models) {
+    const versions = new Map<string, ModelVersion<unknown, unknown>>();
+    for (const version of model.versionList) {
+      versions.set(version, {
+        name: model.name,
+        version,
+        registeredAt: new Date().toISOString(),
+        predict: () => {
+          throw new Error(`predict is unavailable for restored snapshot model: ${model.name}@${version}`);
+        }
+      });
+    }
+
+    registry.set(model.name, {
+      name: model.name,
+      productionVersion: model.productionVersion,
+      versions,
+      shadowVersions: new Set(model.shadowVersions),
+      history: [...model.history],
+      evaluations: new Map(model.evaluations.map((evaluation) => [evaluation.shadowVersion, { ...evaluation }]))
+    });
+  }
+
+  return registry;
+}

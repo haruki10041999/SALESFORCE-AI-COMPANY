@@ -7,6 +7,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { Logger } from "./core/logging/logger.js";
 import { resolveActorFromOidcInput } from "./core/identity/oidc-verifier.js";
+import { ReplayReader } from "./core/persistence/replay-reader.js";
 
 interface ConnectableServer {
   connect: (transport: Transport) => Promise<void>;
@@ -255,6 +256,51 @@ export async function startMcpHttpTransport(options: StartMcpHttpTransportOption
       );
     }
     return transport.handleRequest(c.req.raw);
+  });
+
+  // -------------------------------------------------------------------------
+  // Replay Debugger read-only REST API (TASK-15)
+  // Only available when DATABASE_URL is configured.
+  // -------------------------------------------------------------------------
+  const replayReader = env.DATABASE_URL?.trim()
+    ? ReplayReader.create({ databaseUrl: env.DATABASE_URL.trim() })
+    : null;
+
+  app.get("/replay/streams", async (c) => {
+    if (!replayReader) return c.json({ error: "Replay API requires DATABASE_URL" }, 503);
+    const prefix = c.req.query("prefix") ?? "";
+    const tenantId = c.req.query("tenantId");
+    const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
+    const since = c.req.query("since");
+    const streams = await replayReader.listStreams({ prefix, tenantId, limit, since });
+    return c.json({ streams });
+  });
+
+  app.get("/replay/timeline/:sessionId", async (c) => {
+    if (!replayReader) return c.json({ error: "Replay API requires DATABASE_URL" }, 503);
+    const sessionId = c.req.param("sessionId");
+    const tenantId = c.req.query("tenantId");
+    const limit = Math.min(Number(c.req.query("limit") ?? 200), 1000);
+    const result = await replayReader.sessionTimeline(sessionId, { tenantId, limit });
+    return c.json(result);
+  });
+
+  app.get("/replay/stream/:streamId/events", async (c) => {
+    if (!replayReader) return c.json({ error: "Replay API requires DATABASE_URL" }, 503);
+    const streamId = decodeURIComponent(c.req.param("streamId"));
+    const tenantId = c.req.query("tenantId");
+    const fromVersion = Number(c.req.query("fromVersion") ?? 0);
+    const limit = Math.min(Number(c.req.query("limit") ?? 500), 500);
+    const events = await replayReader.readStream(streamId, { tenantId, fromVersion, limit });
+    return c.json({ streamId, events });
+  });
+
+  app.get("/replay/stream/:streamId/diff", async (c) => {
+    if (!replayReader) return c.json({ error: "Replay API requires DATABASE_URL" }, 503);
+    const streamId = decodeURIComponent(c.req.param("streamId"));
+    const tenantId = c.req.query("tenantId");
+    const result = await replayReader.streamDiff(streamId, { tenantId });
+    return c.json(result);
   });
 
   const httpServer = serve({

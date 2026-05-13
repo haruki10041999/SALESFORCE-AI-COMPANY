@@ -38,6 +38,8 @@
 ダッシュボード JSON は次の場所で管理します。
 
 - `infra/observability/grafana-dashboards/`
+- dashboard-as-code テンプレート: `infra/observability/grafana-dashboards/jsonnet/`
+- render 先（生成物）: `infra/observability/grafana-dashboards/generated/`
 
 現在のベースラインダッシュボード:
 
@@ -48,6 +50,23 @@
 1. リポジトリ上の JSON を Grafana にインポートする。
 2. データソース変数 `DS_PROMETHEUS` を使用中の Prometheus データソースに紐付ける。
 3. ダッシュボード変更時は JSON をこのフォルダに再エクスポートし、Git で管理する。
+
+dashboard-as-code (TASK-20 1st increment):
+
+1. `npm run dashboards:render` で `jsonnet/` のテンプレートを `generated/` へ変換する。
+2. `--datasource-uid` で datasource UID を明示できる（既定: `${DS_PROMETHEUS}`）。
+3. 現状のテンプレートは JSON 互換サブセットの `.jsonnet` として管理し、render 時に datasource プレースホルダを展開する。
+
+dashboard catalog 自動生成 (TASK-20):
+
+1. `npm run docs:dashboards` で `docs/generated/features/dashboard-catalog.md` を再生成する。
+2. dashboard の追加/変更時は `npm run dashboards:render && npm run docs:dashboards` を実行して commit する。
+
+CI 運用 (TASK-20):
+
+1. `.github/workflows/dashboards.yml` で dashboard render と catalog 生成を検証する。
+2. PR では render/catolog 結果に差分がある場合に fail し、生成物の commit 漏れを防止する。
+3. `main` push では自動生成差分を bot commit で同期する。
 
 ## 旧 HTML ダッシュボード廃止手順
 

@@ -198,6 +198,8 @@ export interface LearningProgressDashboard {
   selfRefine?: SelfRefineMetrics;
   prompts?: PromptTemplateQualityMetrics;
   errorRecovery?: ErrorRecoveryMetrics;
+  /** Knowledge Graph community detection metrics (T-17) */
+  knowledgeGraphMetrics?: KnowledgeGraphMetrics;
   /** Recommendations for next steps */
   recommendations: Array<{
     subsystem: string;
@@ -207,4 +209,41 @@ export interface LearningProgressDashboard {
   }>;
   /** Raw aggregated stats for debugging */
   rawStats?: Record<string, unknown>;
+}
+
+/**
+ * Knowledge Graph metrics for hybrid memory retrieval (T-17 increment 2)
+ */
+export interface KnowledgeGraphCommunity {
+  /** Community ID */
+  communityId: string;
+  /** Number of entities in this community */
+  memberCount: number;
+  /** Number of relations within community */
+  relationCount: number;
+  /** Density score (0-1) indicating how tightly connected */
+  density: number;
+}
+
+export interface KnowledgeGraphMetrics {
+  /** Total entities in knowledge graph */
+  totalEntities: number;
+  /** Total relations in knowledge graph */
+  totalRelations: number;
+  /** Average degree (relations per entity) */
+  avgDegree: number;
+  /** Number of detected communities */
+  communityCount: number;
+  /** Communities by size */
+  communities: KnowledgeGraphCommunity[];
+  /** Average transitive closure depth (max hops reachable) */
+  avgTransitiveDepth: number;
+  /** Maximum transitive closure found */
+  maxTransitiveDepth: number;
+  /** Hybrid retrieval effectiveness (queries benefiting from KG reasoning) */
+  hybridRetrievalHitRate: number;
+  /** Time window (hours) */
+  windowHours: number;
+  /** Timestamp */
+  snapshotTime: string;
 }

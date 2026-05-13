@@ -22,6 +22,22 @@ spec:
           image: ghcr.io/example/sf-ai-mcp:latest
           ports:
             - containerPort: 3001
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3001
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
           env:
             - name: SF_AI_ROLLOUT_MODE
               value: canary

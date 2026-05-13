@@ -17,6 +17,7 @@ import { appendExecutionOrigin, buildExecutionOriginRecord } from "./outputs-ori
 import { authorizeToolExecution } from "../identity/rbac.js";
 import { evaluateExecutionPolicy, loadExecutionPolicy } from "./execution-policy.js";
 import { createPolicyGate, buildBlockedResponse } from "./policy-gate.js";
+import { createOpaPolicyEngine } from "./opa-policy-engine.js";
 import { CostBudgetManager, buildCostUsageFromInputOutput } from "./cost-budget.js";
 import type { CostLedgerPort } from "../ports/cost-ledger-port.js";
 import { isEnvFlagEnabled } from "../config/env-flags.js";
@@ -153,6 +154,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
     databaseUrl
   });
   const costBudget = new CostBudgetManager({ outputsDir });
+  const policyEngine = createOpaPolicyEngine({ serverRoot });
 
   function isCostBudgetEnforcerEnabled(): boolean {
     return isEnvFlagEnabled("SF_AI_COST_BUDGET_ENFORCER_ENABLED", process.env, true);
@@ -387,6 +389,64 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
             }
           ]
         };
+      }
+
+      const policyAsCodeEnabled = isEnvFlagEnabled("SF_AI_POLICY_AS_CODE_ENABLED", process.env, true);
+      if (policyAsCodeEnabled) {
+        const policyEngineDecision = await policyEngine.evaluate({
+          policySet: "tool_access",
+          toolName: normalizeResourceName(name),
+          actor: {
+            id: actor.id,
+            role: access.role,
+            tenantId: actor.tenantId
+          },
+          input
+        });
+
+        await appendToolAudit({
+          toolName: name,
+          traceId,
+          status: policyEngineDecision.allowed ? "policy-engine-allow" : "blocked-policy-engine",
+          role: access.role,
+          rule: policyEngineDecision.ruleId,
+          reason: policyEngineDecision.reason,
+          policySet: policyEngineDecision.policySet,
+          input: inputSummary
+        });
+
+        if (!policyEngineDecision.allowed) {
+          await emitSystemEvent("tool_after_execute", {
+            toolName: name,
+            traceId,
+            success: false,
+            blockedByPolicyAsCode: true,
+            role: access.role,
+            rule: policyEngineDecision.ruleId,
+            reason: policyEngineDecision.reason,
+            policySet: policyEngineDecision.policySet
+          });
+          endTrace(traceId, {
+            blockedByPolicyAsCode: true,
+            role: access.role,
+            rule: policyEngineDecision.ruleId
+          });
+          recordMetric({
+            toolName: name,
+            traceId,
+            startedAt: startedAt.toISOString(),
+            durationMs: Date.now() - startedAt.getTime(),
+            status: "error"
+          });
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Policy-as-code denied: tool='${name}', role='${access.role}', reason='${policyEngineDecision.reason ?? "policy denied"}'`
+              }
+            ]
+          };
+        }
       }
 
       // Dangerous-action policy gate: block irreversible operations that require approval

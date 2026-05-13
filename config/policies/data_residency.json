@@ -1,0 +1,12 @@
+{
+  "version": "1.0",
+  "defaultEffect": "allow",
+  "rules": [
+    {
+      "id": "deny.export_to_markdown.service",
+      "effect": "deny",
+      "tools": ["export_to_markdown"],
+      "tenants": ["external-*"]
+    }
+  ]
+}

@@ -19,6 +19,10 @@
 #   - PostgreSQL:    localhost:5432
 #   - Temporal gRPC: localhost:7233  (profile: workflow)
 #   - Temporal UI:   http://localhost:8088  (profile: workflow)
+#   - Qdrant REST:   http://localhost:6333  (profile: vector-qdrant)
+#   - Qdrant gRPC:   localhost:6334         (profile: vector-qdrant)
+#   - Replay UI:     http://localhost:3001  (profile: replay-ui)
+#   - Ollama HA:     http://localhost:11444 (profile: ollama-ha)
 #   - Jaeger UI:     http://localhost:16686
 #   - Prometheus UI: http://localhost:9090
 #   - Grafana UI:    http://localhost:3000  (admin/admin)
@@ -95,6 +99,44 @@ services:
     volumes:
       - ollama-data:/root/.ollama
       - ./scripts/ollama-init.sh:/init/ollama-init.sh:ro
+
+  # ---------------------------------------------------------------------------
+  # Ollama HA example (profile: ollama-ha)
+  # Usage: docker compose --profile ollama-ha up -d ollama-1 ollama-2 ollama-haproxy
+  # MCP: OLLAMA_BASE_URL=http://localhost:11444
+  # ---------------------------------------------------------------------------
+  ollama-1:
+    image: ollama/ollama:0.21.2
+    container_name: sfai-ollama-1
+    profiles: ["ollama-ha"]
+    restart: unless-stopped
+    ports:
+      - "11435:11434"
+    volumes:
+      - ollama1-data:/root/.ollama
+
+  ollama-2:
+    image: ollama/ollama:0.21.2
+    container_name: sfai-ollama-2
+    profiles: ["ollama-ha"]
+    restart: unless-stopped
+    ports:
+      - "11436:11434"
+    volumes:
+      - ollama2-data:/root/.ollama
+
+  ollama-haproxy:
+    image: haproxy:3.1-alpine
+    container_name: sfai-ollama-haproxy
+    profiles: ["ollama-ha"]
+    restart: unless-stopped
+    depends_on:
+      - ollama-1
+      - ollama-2
+    ports:
+      - "11444:11434"
+    volumes:
+      - ./infra/llm/ollama-haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
 
   # ---- Observability -------------------------------------------------------
   jaeger:
@@ -214,8 +256,44 @@ services:
       - postgres
       - ollama
 
+  # ---------------------------------------------------------------------------
+  # Vector DB — Qdrant (profile: vector-qdrant)
+  # Usage: docker compose --profile vector-qdrant up -d qdrant
+  # MCP: SF_AI_VECTOR_BACKEND=qdrant  QDRANT_URL=http://localhost:6333
+  # ---------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.9.2
+    container_name: sfai-qdrant
+    profiles: ["vector-qdrant"]
+    restart: unless-stopped
+    ports:
+      - "6333:6333"   # REST API
+      - "6334:6334"   # gRPC
+    volumes:
+      - qdrant-data:/qdrant/storage
+
+  # ---------------------------------------------------------------------------
+  # Replay Debugger UI (profile: replay-ui)
+  # Serves the static HTML UI on port 3001.
+  # The UI fetches data from the MCP HTTP transport's /replay/* endpoints.
+  # Usage: docker compose --profile replay-ui up -d replay-ui
+  # Then open: http://localhost:3001?api=http://localhost:3800
+  # ---------------------------------------------------------------------------
+  replay-ui:
+    image: nginx:1.27-alpine
+    container_name: sfai-replay-ui
+    profiles: ["replay-ui"]
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    volumes:
+      - ./infra/replay-ui:/usr/share/nginx/html:ro
+
 volumes:
   grafana-data:
+  qdrant-data:
   ollama-data:
+  ollama1-data:
+  ollama2-data:
   postgres-data:
   temporal-postgres-data:

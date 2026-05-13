@@ -23,6 +23,36 @@ export const operationsCommands: Record<string, CliCommand> = {
     description: "日別チャット履歴をアーカイブし要約を生成",
     passThroughArgs: true
   },
+  "dr:drill": {
+    script: "dr:drill",
+    description: "DR drill を実行（既定: dry-run）",
+    passThroughArgs: true
+  },
+  "dr:restore": {
+    script: "dr:restore",
+    description: "outputs snapshot から DR 復元を実行",
+    passThroughArgs: true
+  },
+  "dr:verify-backup": {
+    script: "dr:verify-backup",
+    description: "バックアップ snapshot の整合性を検証",
+    passThroughArgs: true
+  },
+  "dr:compliance-report": {
+    script: "dr:compliance-report",
+    description: "SOC2 向け DR/SIEM コンプライアンスレポートを生成",
+    passThroughArgs: true
+  },
+  "siem:export:audit": {
+    script: "siem:export:audit",
+    description: "audit log を SIEM (Splunk/Datadog/NDJSON) にエクスポート",
+    passThroughArgs: true
+  },
+  "siem:replay-dead-letter": {
+    script: "siem:replay-dead-letter",
+    description: "dead-letter に退避した SIEM バッチを再送",
+    passThroughArgs: true
+  },
   "test:matrix": {
     script: "test:matrix",
     description: "ツールとテストの対応表を出力",

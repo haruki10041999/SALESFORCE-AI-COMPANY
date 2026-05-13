@@ -4,6 +4,8 @@ import { registerChatDomain } from "./domain-chat.js";
 import { registerHistoryContextDomain } from "./domain-history-context.js";
 import { registerTenantDomain } from "../../registration/domain-tenant.js";
 import { registerResourceDomain } from "./domain-resource.js";
+import { registerReplayDomain } from "./domain-replay.js";
+import { registerLearningDomain } from "./domain-learning.js";
 import type { GovTool } from "@mcp/tool-types.js";
 import type { GovernanceState } from "../governance/governance-state.js";
 import type { SystemEventType } from "../event/event-dispatcher.js";
@@ -195,6 +197,8 @@ interface RegisterAllToolsDeps {
   emitEvent: (event: { type: SystemEventType; timestamp: string; payload: Record<string, unknown> }) => Promise<void>;
   resourceScore: (usage: number, bugSignals: number) => number;
   proposalQueue: ProposalQueueStore;
+  /** Optional DATABASE_URL for event-store replay tools. */
+  databaseUrl?: string;
 }
 
 export function registerAllTools(deps: RegisterAllToolsDeps): void {
@@ -203,4 +207,6 @@ export function registerAllTools(deps: RegisterAllToolsDeps): void {
   registerHistoryContextDomain(deps);
   registerTenantDomain(deps);
   registerResourceDomain(deps);
+  registerReplayDomain(deps);
+  registerLearningDomain(deps);
 }

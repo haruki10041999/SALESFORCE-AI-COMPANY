@@ -15,6 +15,10 @@
 | `SF_AI_STATE_DB_PATH` | SQLite DB ファイルの保存先（`SF_AI_HISTORY_SQLITE=true` 時） | `outputs/state.sqlite` |
 | `SF_AI_METRICS_REPORTING_HOURS` | 学習ダッシュボード更新時の集計ウィンドウ（時間） | `24` |
 | `SF_AI_METRICS_WITH_DRIFT` | メトリクス更新時に drift / regression 検知を同時実行（`true`/`false`） | `false` |
+| `SF_AI_LEARNING_ORCHESTRATOR_ENABLED` | metrics 更新時に learning orchestrator バッチを実行するか（`true`/`false`） | `false` |
+| `SF_AI_LEARNING_SNAPSHOT_PATH` | learning orchestrator が読み書きする model-registry snapshot JSON パス | 未設定 |
+| `SF_AI_LEARNING_MODEL_NAMES` | orchestrator 対象モデル名（`,` 区切り） | 未設定 |
+| `SF_AI_LEARNING_CANARY_STATE_PATH` | canary 中モデルの状態を自動永続化する JSON パス | 未設定 |
 | `LOG_LEVEL` | ログの詳しさ（`error` / `warn` / `info` / `debug`） | `info` |
 | `SF_AI_LOCALE` | エラーメッセージ等のローカライズ言語（`ja` / `en`） | `ja` |
 | `AI_LOW_RELEVANCE_THRESHOLD` | 低関連度判定のしきい値（高いほど厳格） | `6` |
@@ -232,6 +236,16 @@ Get-Content env.profiles/prod.overlay | Add-Content .env
 | `SF_AI_DRIFT_FREEZE_ENABLED` | drift alert 検知時に学習 freeze 状態を有効化するか (`true`/`false`) | `true` |
 | `SF_AI_DRIFT_FREEZE_HOURS` | freeze の有効期間（時間）。未設定または `0` 以下の場合は手動解除まで継続 | 未設定 |
 | `SF_AI_DRIFT_FREEZE_STATE_PATH` | freeze 状態ファイルの保存先 | `outputs/learning/drift-freeze.json` |
+| `SF_AI_LEARNING_ORCHESTRATOR_ENABLED` | `metrics:update` 実行時に learning orchestrator を起動するか | `false` |
+| `SF_AI_LEARNING_SNAPSHOT_PATH` | learning orchestrator が読み書きする model-registry snapshot JSON | 未設定 |
+| `SF_AI_LEARNING_MODEL_NAMES` | orchestrator 対象モデル名（`,` 区切り） | 未設定 |
+| `SF_AI_LEARNING_CURRENT_CANARY_MAP` | 現在 canary 中モデルの `model:version` 対応（`,` 区切り） | 未設定 |
+| `SF_AI_LEARNING_CANARY_STATE_PATH` | canary 中モデルの `model -> version` を scheduler 実行時に保存/読込する JSON | 未設定 |
+| `SF_AI_LEARNING_CANARY_TRAFFIC_PERCENT` | canary traffic 比率（1-100） | `5` |
+| `SF_AI_LEARNING_MANUAL_APPROVAL_REQUIRED` | promote 前に proposal queue で手動承認を要求するか | 未設定 |
+| `SF_AI_LEARNING_MANUAL_OVERRIDE` | 手動 override（`approve`/`reject`） | 未設定 |
+| `SF_AI_LEARNING_ACTOR_ID` | event/proposal 記録に使う actor ID | 未設定 |
+| `SF_AI_LEARNING_ORCHESTRATOR_REPORT_PATH` | orchestrator 実行レポート出力先 JSON | 未設定 |
 | `SF_AI_AUTO_MEMORY` | チャット/ツール実行のたびに input/output サマリを `memory.jsonl` と `vector-store.jsonl` へ自動追記する。`1`/`true`/`on`/`yes` で有効。memory/vector 系ツール自身は再帰防止のため除外 | `false` |
 | `SF_AI_PROGRESS_BANNER` | ツール応答テキストの先頭に進捗タイムライン (フェーズ別開始時刻・所要時間) を追加表示する。`false`/`0`/`off`/`no` で無効。`get_tool_progress` / `ping` は対象外 | `true` |
 | `SF_AI_RATE_LIMIT_ENABLED` | actor/tenant/tool 単位の固定ウィンドウ rate limit を有効化する (`true`/`false`) | `true` |

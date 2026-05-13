@@ -16,7 +16,7 @@ export { addRecord, searchByKeyword, searchByKeywordAsync, clearRecords, resetVe
 export { JsonlVectorStoreAdapter } from "../../../memory/adapters/jsonl-vector-store.js";
 
 // Hierarchical retrieval
-export { HierarchicalMemoryStore, type HierarchicalSearchOptions } from "../../../memory/hierarchical-store.js";
+export { HierarchicalMemoryStore, type HierarchicalSearchOptions, type HybridSearchResult, type KnowledgeGraphSearchOptions } from "../../../memory/hierarchical-store.js";
 export { MemoryChunker, type ChunkedDocument } from "../../../memory/chunker.js";
 
 // Knowledge graph
@@ -27,6 +27,14 @@ export {
   type KnowledgeRelation as KnowledgeGraphEdge
 } from "../../../memory/knowledge-graph.js";
 export { extractEntitiesFromSummary, type GraphExtractionResult as ExtractionOptions } from "../../../memory/graph-extractor.js";
+export {
+  inferTransitiveRelations,
+  findSimilarEntities,
+  detectCommunities,
+  type TransitiveInference,
+  type SimilarEntity,
+  type GraphCommunity
+} from "./kg-reasoner.js";
 
 // Failure memory
 export {
@@ -49,4 +57,7 @@ export {
 
 // Vector tier classification (hot / warm / cold)
 export { classifyVectorTier, type VectorTierInput as VectorTierClassification } from "./vector-tier.js";
+
+// Memory tier policy (T-17 increment 2)
+export { MemoryTierPolicy, DEFAULT_TIER_CONFIG, type MemoryTier, type MemoryTierConfig, type MemoryTierMetrics } from "./memory-tier-policy.js";
 

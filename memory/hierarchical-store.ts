@@ -28,6 +28,19 @@ export interface HierarchicalSearchOptions {
   expandTo?: "chunk" | "section" | "document";
   minScore?: number;
   withContext?: boolean;
+  useKnowledgeGraph?: boolean;
+}
+
+export interface KnowledgeGraphSearchOptions extends HierarchicalSearchOptions {
+  useKnowledgeGraph?: boolean;
+  kgMaxDepth?: number;
+  kgMinCommunitySize?: number;
+  kgReasoningWeight?: number; // 0-1, weight for KG results vs vector results
+}
+
+export interface HybridSearchResult extends HierarchicalSearchResult {
+  inferredVia?: "vector" | "knowledge_graph" | "hybrid";
+  kgConfidence?: number;
 }
 
 /**
@@ -250,6 +263,163 @@ export class HierarchicalMemoryStore {
   clear(): void {
     this.documents.clear();
     this.vectors.clear();
+  }
+
+  /**
+   * Search with KG reasoner integration (hybrid retrieval)
+   * Combines vector search with knowledge graph transitive closure and community detection
+   */
+  async searchWithKnowledgeGraph(
+    query: string,
+    options: KnowledgeGraphSearchOptions = {}
+  ): Promise<HybridSearchResult[]> {
+    const { limit = 5, expandTo = "chunk", minScore = 0.5, withContext = false, 
+            kgMaxDepth = 3, kgMinCommunitySize = 2, kgReasoningWeight = 0.4 } = options;
+
+    // Step 1: Vector search for seed results
+    const vectorResults = await this.search(query, { limit: limit * 2, expandTo, minScore, withContext });
+
+    // Dynamic import of KG reasoner to avoid circular dependency
+    let kgResults: HybridSearchResult[] = [];
+    try {
+      const { inferTransitiveRelations, detectCommunities } = await import("../mcp/core/memory/kg-reasoner.js");
+
+      // Step 2: Use KG reasoner for transitive closure from seed documents
+      const seedDocIds = new Set(vectorResults.map(r => r.documentId));
+      const inferred = inferTransitiveRelations({ maxDepth: kgMaxDepth });
+      const transitiveEntities = new Set<string>();
+      
+      // Collect all entities reachable from seed documents
+      for (const rel of inferred) {
+        if (seedDocIds.has(rel.srcId)) {
+          transitiveEntities.add(rel.dstId);
+        }
+      }
+
+      // Step 3: Detect communities in the knowledge graph
+      const communities = detectCommunities();
+      
+      // Step 4: Re-score results by KG proximity to communities
+      for (const result of vectorResults) {
+        const inCommunity = communities.some(c => 
+          c.members.some(m => m.id === result.documentId)
+        );
+        const score = result.score;
+        const kgConfidence = inCommunity ? 0.8 : (transitiveEntities.has(result.documentId) ? 0.6 : 0.3);
+        
+        kgResults.push({
+          ...result,
+          score: (score * (1 - kgReasoningWeight)) + (kgConfidence * kgReasoningWeight),
+          inferredVia: "hybrid",
+          kgConfidence
+        });
+      }
+
+      // Step 5: Blend in transitive closure entities not yet in results
+      for (const entityId of transitiveEntities) {
+        if (!kgResults.some(r => r.documentId === entityId)) {
+          const relatedDocs = this.documents.get(entityId);
+          if (relatedDocs) {
+            kgResults.push({
+              type: "document",
+              sectionIndex: 0,
+              score: 0.5 * kgReasoningWeight, // lower score for inferred-only results
+              text: relatedDocs.sections[0]?.content || "",
+              documentId: entityId,
+              summary: relatedDocs.title,
+              inferredVia: "knowledge_graph",
+              kgConfidence: 0.5
+            });
+          }
+        }
+      }
+    } catch (e) {
+      // KG reasoner not available, fall back to pure vector results
+      return vectorResults.map(r => ({
+        ...r,
+        inferredVia: "vector" as const
+      }));
+    }
+
+    // Sort by hybrid score and return top-k
+    kgResults.sort((a, b) => b.score - a.score);
+    return kgResults.slice(0, limit);
+  }
+
+  /**
+   * Classify document's memory tier (hot/warm/cold) for TTL policy
+   */
+  classifyDocumentTier(documentId: string): "hot" | "warm" | "cold" {
+    const doc = this.documents.get(documentId);
+    if (!doc) return "cold";
+
+    const ageMs = Date.now() - doc.timestamp;
+    const ageDays = ageMs / (24 * 60 * 60 * 1000);
+    const sectionsCount = doc.sections.length;
+
+    // Hot: recent (< 7 days), small (< 3 sections)
+    if (ageDays <= 7 && sectionsCount < 3) return "hot";
+
+    // Warm: medium age (7-90 days) or medium size (3-10 sections)
+    if ((ageDays <= 90 && sectionsCount < 10) || (ageDays <= 30)) return "warm";
+
+    // Cold: old (> 90 days) or large (> 10 sections)
+    return "cold";
+  }
+
+  /**
+   * Prune documents by TTL policy (remove cold documents older than maxAgeDays)
+   */
+  pruneColdDocuments(maxAgeDays: number = 365): number {
+    const now = Date.now();
+    const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+    let pruned = 0;
+
+    for (const [docId, doc] of this.documents) {
+      const ageMs = now - doc.timestamp;
+      const tier = this.classifyDocumentTier(docId);
+
+      // Only prune cold-tier documents
+      if (tier === "cold" && ageMs > maxAgeMs) {
+        // Remove document vectors
+        for (const key of this.vectors.keys()) {
+          if (key.includes(`${docId}:`)) {
+            this.vectors.delete(key);
+          }
+        }
+        // Remove document
+        this.documents.delete(docId);
+        pruned++;
+      }
+    }
+
+    return pruned;
+  }
+
+  /**
+   * Get tier statistics for observability
+   */
+  getTierStatistics(): { hot: number; warm: number; cold: number; totalDocuments: number; totalAge: number } {
+    let hot = 0, warm = 0, cold = 0;
+    let totalAge = 0;
+
+    for (const docId of this.documents.keys()) {
+      const tier = this.classifyDocumentTier(docId);
+      const doc = this.documents.get(docId)!;
+      totalAge += Date.now() - doc.timestamp;
+
+      if (tier === "hot") hot++;
+      else if (tier === "warm") warm++;
+      else cold++;
+    }
+
+    return {
+      hot,
+      warm,
+      cold,
+      totalDocuments: this.documents.size,
+      totalAge: Math.round(totalAge / this.documents.size)
+    };
   }
 
   // Helpers

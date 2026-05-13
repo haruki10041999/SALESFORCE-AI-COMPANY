@@ -8,3 +8,4 @@ export { tenantQuotaWindowsTable } from "./quota.js";
 export { orchestrationSessionsTable, orchestrationStepsTable, sessionStatusEnum, orchestrationStepStatusEnum } from "./orchestration.js";
 export { resourceProposalsTable } from "./proposals.js";
 export { toolExecutionsTable } from "./tool-executions.js";
+export { eventStoreTable } from "./event-store.js";

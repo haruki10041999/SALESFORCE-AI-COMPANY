@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -365,6 +365,81 @@ test("P0-4: govTool wraps dict-of-Zod inputSchema into inputSchemaZod for descri
   const props = (schemaBody as { properties: Record<string, unknown> }).properties;
   assert.ok("query" in props, "query field should appear in JSON Schema");
   assert.ok("limit" in props, "limit field should appear in JSON Schema");
+
+  paths.cleanup();
+});
+
+test("governed tool registrar blocks execution when policy-as-code denies", async () => {
+  const handlers = new Map<string, ToolHandler>();
+  const events: Array<{ event: string; payload: Record<string, unknown> }> = [];
+  const paths = makeTempPaths();
+  mkdirSync(join(paths.serverRoot, "config", "policies"), { recursive: true });
+  writeFileSync(
+    join(paths.serverRoot, "config", "policies", "tool_access.json"),
+    JSON.stringify({
+      version: "1.0",
+      defaultEffect: "allow",
+      rules: [
+        {
+          id: "deny.admin.health_check",
+          effect: "deny",
+          tools: ["health_check"],
+          roles: ["admin"]
+        }
+      ]
+    }),
+    "utf-8"
+  );
+
+  const banditState = createBanditState();
+  const banditStateFile = join(paths.outputsDir, "bandit-state.jsonl");
+
+  const { govTool } = createGovernedToolRegistrar({
+    registerTool: (name, _config, handler) => {
+      handlers.set(name, handler as ToolHandler);
+    },
+    isToolDisabled: () => false,
+    normalizeResourceName: (name) => name,
+    outputsDir: paths.outputsDir,
+    serverRoot: paths.serverRoot,
+    emitSystemEvent: async (event, payload) => {
+      events.push({ event, payload });
+    },
+    summarizeValue: (value) => (value instanceof Error ? value.message : String(value)),
+    registerToolFailure: async () => {},
+    getBanditState: () => banditState,
+    banditStateFile,
+    getRetryConfig: async () => ({
+      retryEnabled: false,
+      maxRetries: 0,
+      baseDelayMs: 10,
+      maxDelayMs: 20,
+      retryablePatterns: [],
+      retryableCodes: []
+    })
+  });
+
+  let executed = false;
+  govTool("health_check", {}, async () => {
+    executed = true;
+    return {
+      content: [{ type: "text", text: "ok" }]
+    };
+  });
+
+  const handler = handlers.get("health_check");
+  assert.ok(handler);
+
+  const result = await handler!({
+    actor: {
+      role: "admin"
+    }
+  });
+  assert.equal(executed, false);
+  assert.match(result.content[0].text, /Policy-as-code denied/);
+
+  const blockedEvent = events.find((e) => e.event === "tool_after_execute" && e.payload.blockedByPolicyAsCode === true);
+  assert.ok(blockedEvent);
 
   paths.cleanup();
 });

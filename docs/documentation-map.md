@@ -74,6 +74,7 @@
 CLI で再生成されるドキュメントは次を参照してください。
 
 - [generated/features/tools-reference.md](./generated/features/tools-reference.md) — ツール一覧の自動生成版
+- [generated/features/dashboard-catalog.md](./generated/features/dashboard-catalog.md) — Grafana dashboard catalog の自動生成版
 - [generated/error-codes.md](./generated/error-codes.md) — エラーコード表の自動生成版
 - [generated/internal/tool-manifest.md](./generated/internal/tool-manifest.md) — ツール仕様の人間可読版
 - [generated/internal/tool-manifest.json](./generated/internal/tool-manifest.json) — ツール仕様の機械可読版

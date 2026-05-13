@@ -1,0 +1,24 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: sf-ai-backup-verify
+  labels:
+    app.kubernetes.io/name: sf-ai
+    app.kubernetes.io/component: dr
+spec:
+  schedule: "0 */6 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup-verify
+              image: ghcr.io/example/salesforce-ai-company:latest
+              imagePullPolicy: IfNotPresent
+              command: ["npm", "run", "dr:verify-backup", "--", "--min-entries", "1"]
+              env:
+                - name: SF_AI_OUTPUTS_DIR
+                  value: /app/outputs

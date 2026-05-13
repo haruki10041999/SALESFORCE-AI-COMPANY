@@ -1,0 +1,70 @@
+name: Dashboard As Code
+
+on:
+  pull_request:
+    paths:
+      - infra/observability/grafana-dashboards/**
+      - scripts/render-dashboards.ts
+      - scripts/generate-dashboard-catalog.ts
+      - docs/observability-cleanup-playbook.md
+      - package.json
+  push:
+    branches:
+      - main
+    paths:
+      - infra/observability/grafana-dashboards/**
+      - scripts/render-dashboards.ts
+      - scripts/generate-dashboard-catalog.ts
+      - docs/observability-cleanup-playbook.md
+      - package.json
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  render-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Render dashboards
+        run: npm run dashboards:render
+
+      - name: Generate dashboard catalog
+        run: npm run docs:dashboards
+
+      - name: Verify generated files are committed
+        if: github.event_name == 'pull_request'
+        run: |
+          if [ -n "$(git status --porcelain -- infra/observability/grafana-dashboards/generated docs/generated/features/dashboard-catalog.md)" ]; then
+            echo "❌ Generated dashboard artifacts are out of date."
+            echo "Run: npm run dashboards:render && npm run docs:dashboards"
+            git --no-pager diff -- infra/observability/grafana-dashboards/generated docs/generated/features/dashboard-catalog.md
+            exit 1
+          fi
+          echo "✅ Generated dashboard artifacts are up-to-date."
+
+      - name: Commit generated artifacts on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          if [ -z "$(git status --porcelain -- infra/observability/grafana-dashboards/generated docs/generated/features/dashboard-catalog.md)" ]; then
+            echo "No generated changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add infra/observability/grafana-dashboards/generated docs/generated/features/dashboard-catalog.md
+          git commit -m "ci(dashboards): sync rendered dashboards and catalog"
+          git push
