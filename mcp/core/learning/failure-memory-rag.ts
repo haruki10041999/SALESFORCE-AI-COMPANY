@@ -9,10 +9,11 @@ import type { FailureMemoryEntry } from "../../../memory/failure-memory.js";
 import { listFailureMemory } from "../../../memory/failure-memory.js";
 import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
 import { getOutputsDir } from "../config/runtime-config.js";
+import { withContextOutputsPort } from "../runtime/with-context.js";
 
 const OUTPUTS_DIR = resolve(getOutputsDir());
 const RAG_INJECTION_CACHE_PATH = resolve(OUTPUTS_DIR, "learning", "rag-injection-cache.jsonl");
-const outputsPort = new LocalOutputsAdapter({ outputsDir: OUTPUTS_DIR });
+const outputsPort = withContextOutputsPort(new LocalOutputsAdapter({ outputsDir: OUTPUTS_DIR }));
 
 export interface ErrorSignature {
   code?: string;

@@ -1,5 +1,6 @@
 import { escapeMermaidId, trimForNodeLabel } from "./analytics-formatters.js";
 import type { OutputsPort } from "../../../ports/outputs-port.js";
+import { withContextOutputsPort } from "../../../runtime/with-context.js";
 
 interface DashboardEntity {
   id: string;
@@ -86,11 +87,12 @@ export async function executeKnowledgeGraphDashboard(args: {
   const entities = args.listKnowledgeEntities().slice(0, entityLimit);
   const relations = args.listKnowledgeRelations().slice(0, relationLimit);
   const payload = buildKnowledgeDashboardPayload(entities, relations);
+  const outputsPort = withContextOutputsPort(args.outputsPort);
 
   let outputPath: string | null = null;
   if (args.write ?? false) {
     outputPath = "dashboards/knowledge-graph.md";
-    await args.outputsPort.writeArtifact(outputPath, payload.markdown, { contentType: "text/markdown" });
+    await outputsPort.writeArtifact(outputPath, payload.markdown, { contentType: "text/markdown" });
   }
 
   return {

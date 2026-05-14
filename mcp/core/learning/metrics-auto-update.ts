@@ -4,7 +4,7 @@
  */
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "url";
 import { parseBooleanLike } from "../config/env-flags.js";
 import { getMetricsAutoUpdateEnvConfig } from "../config/runtime-config.js";
@@ -16,6 +16,7 @@ import { runDriftDetectionAndPersist, type DriftReport } from "./drift-detector.
 import { activateDriftFreeze } from "./drift-freeze.js";
 import type { LearningOrchestratorResult, ManualOverrideDecision } from "./learning-orchestrator.js";
 import type { ModelRegistrySnapshot } from "./model-registry.js";
+import { appendLearningPromotionHistory, createPolicySnapshotTag } from "./promotion-history.js";
 
 export interface MetricsAutoUpdateOptions {
   reportingHours?: number;
@@ -100,6 +101,9 @@ async function runLearningOrchestratorBatch(options: {
   if (!options.snapshotPath || !options.modelNames || options.modelNames.length === 0) return undefined;
 
   const snapshotPath = resolve(options.snapshotPath);
+  const learningDir = dirname(snapshotPath);
+  const promotionHistoryPath = join(learningDir, "promotion-history.jsonl");
+  const policySnapshotDir = join(learningDir, "policy-snapshots");
   const raw = await readFile(snapshotPath, "utf-8");
   let snapshot = JSON.parse(raw) as ModelRegistrySnapshot;
   const results: LearningOrchestratorResult[] = [];
@@ -142,6 +146,17 @@ async function runLearningOrchestratorBatch(options: {
       },
       {
         eventStore: options.eventStore,
+        createPolicySnapshotTag: async ({ modelName, candidateVersion, productionVersion, reason, snapshot }) =>
+          createPolicySnapshotTag(policySnapshotDir, {
+            modelName,
+            candidateVersion,
+            productionVersion,
+            reason,
+            snapshot
+          }),
+        recordPromotionHistory: async (entry) => {
+          await appendLearningPromotionHistory(promotionHistoryPath, entry);
+        },
         queueProposal: options.queueProposal
       }
     );

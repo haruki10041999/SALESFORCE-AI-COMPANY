@@ -12,7 +12,7 @@
  *      their declared allowedDependencies.
  */
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { BOUNDED_CONTEXT_REGISTRY, isCrossContextDependencyAllowed } from "../mcp/contexts/contexts-manifest.js";
 import type { BoundedContext } from "../mcp/contexts/contexts-manifest.js";
@@ -59,8 +59,62 @@ const violations: Violation[] = [];
 const contextDirs = readdirSync(CONTEXTS_DIR).filter((d) => {
   return statSync(join(CONTEXTS_DIR, d)).isDirectory();
 });
+const manifestContexts = Object.keys(BOUNDED_CONTEXT_REGISTRY) as BoundedContext[];
+
+for (const dir of contextDirs) {
+  if (!(dir in BOUNDED_CONTEXT_REGISTRY)) {
+    violations.push({
+      file: `mcp/contexts/${dir}`,
+      line: 1,
+      importPath: "",
+      reason: `Context directory "${dir}" is not registered in BOUNDED_CONTEXT_REGISTRY.`,
+    });
+  }
+}
+
+for (const contextName of manifestContexts) {
+  const contextPath = join(CONTEXTS_DIR, contextName);
+  if (!existsSync(contextPath)) {
+    violations.push({
+      file: "mcp/contexts/contexts-manifest.ts",
+      line: 1,
+      importPath: "",
+      reason: `Registered context "${contextName}" does not have a directory at mcp/contexts/${contextName}.`,
+    });
+    continue;
+  }
+
+  const indexPath = join(contextPath, "index.ts");
+  if (!existsSync(indexPath)) {
+    violations.push({
+      file: `mcp/contexts/${contextName}`,
+      line: 1,
+      importPath: "",
+      reason: `Context "${contextName}" is missing required public barrel mcp/contexts/${contextName}/index.ts.`,
+    });
+  }
+
+  const registry = BOUNDED_CONTEXT_REGISTRY[contextName];
+  if (registry.status !== "complete") {
+    const hasLayerDir = ["application", "domain", "infrastructure"].some((layer) => {
+      const layerPath = join(contextPath, layer);
+      return existsSync(layerPath) && statSync(layerPath).isDirectory();
+    });
+    if (!hasLayerDir) {
+      violations.push({
+        file: `mcp/contexts/${contextName}`,
+        line: 1,
+        importPath: "",
+        reason: `Context "${contextName}" must have at least one layer directory (application/domain/infrastructure).`,
+      });
+    }
+  }
+}
 
 for (const contextDir of contextDirs) {
+  if (!(contextDir in BOUNDED_CONTEXT_REGISTRY)) {
+    continue;
+  }
   const fromContext = contextDir as BoundedContext;
   const files = walkTs(join(CONTEXTS_DIR, contextDir));
 

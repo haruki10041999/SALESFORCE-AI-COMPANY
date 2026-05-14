@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { getOutputsDir } from "../../core/config/runtime-config.js";
 import type { RegisterGovToolDeps } from "../types.js";
 import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
+import { withContextOutputsPort } from "../../core/runtime/with-context.js";
 import {
   executeGetSkillRatingReport
 } from "../../core/application/resource/services/resource-search-operations.js";
@@ -18,7 +19,7 @@ export function defineGetSkillRatingReportTool(deps: DefineGetSkillRatingReportD
   const skillRatingLogFile = join(outputsDir, "reports", "skill-rating.jsonl");
   const skillRatingModelFile = join(outputsDir, "reports", "skill-rating.json");
   const skillRatingReportFile = join(outputsDir, "reports", "skill-rating.md");
-  const outputsPort = new LocalOutputsAdapter({ outputsDir });
+  const outputsPort = withContextOutputsPort(new LocalOutputsAdapter({ outputsDir }));
 
   govTool(
     "get_skill_rating_report",

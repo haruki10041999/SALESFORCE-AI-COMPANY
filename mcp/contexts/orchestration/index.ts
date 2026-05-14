@@ -1,8 +1,6 @@
 /**
- * Orchestration Bounded Context — public API barrel (scaffolded)
- *
- * Status: scaffolded — files still reside in mcp/core/orchestration/.
+ * Orchestration Bounded Context — public API barrel
  */
-
-export * from "../../core/orchestration/session-registry.js";
-export * from "../../core/orchestration/chat-tool-runner.js";
+export * from "./application/index.js";
+export * from "./domain/index.js";
+export * from "./infrastructure/index.js";

@@ -9,6 +9,7 @@ import {
   type FlowConditionSimulationResult
 } from "./flow-condition-simulator.js";
 import { LocalOutputsAdapter } from "../infrastructure/outputs/local-outputs-adapter.js";
+import { withContextOutputsPort } from "../core/runtime/with-context.js";
 
 export type SuggestFlowTestCasesInput = {
   filePath: string;
@@ -338,7 +339,7 @@ export async function suggestFlowTestCases(input: SuggestFlowTestCasesInput): Pr
   const runtimeOutputsDir = process.env.SF_AI_OUTPUTS_DIR
     ? resolve(process.env.SF_AI_OUTPUTS_DIR)
     : resolve("outputs");
-  const outputsPort = new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir });
+  const outputsPort = withContextOutputsPort(new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir }));
   const flowAnalysis = analyzeFlow(input.filePath);
   const source = await fsPromises.readFile(input.filePath, "utf-8");
 

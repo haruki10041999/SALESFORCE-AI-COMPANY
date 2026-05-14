@@ -27,7 +27,7 @@ async function waitFor<T>(fn: () => Promise<T | null>, timeoutMs = 15000, interv
 
 test("temporal workflow integration persists queue and step state through worker activities", async (t) => {
   if (process.env.SF_AI_TEMPORAL_INTEGRATION !== "true") {
-    t.skip("Set SF_AI_TEMPORAL_INTEGRATION=true and start docker compose --profile workflow up -d temporal-postgres temporal temporal-ui");
+    t.skip("Set SF_AI_TEMPORAL_INTEGRATION=true and start docker compose --profile workflow up -d temporalite temporal-ui");
     return;
   }
 

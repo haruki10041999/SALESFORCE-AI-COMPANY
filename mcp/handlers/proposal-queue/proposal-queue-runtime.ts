@@ -5,6 +5,7 @@ import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-
 import type { ProposalApprovalAudit } from "../../core/application/governance/services/proposal-queue-apply-operations.js";
 import type { GovTool } from "../../tool-types.js";
 import { createFileProposalQueueStore, type ProposalQueueStore } from "../../core/resource/proposal/proposal-queue-store.js";
+import { withContextOutputsPort } from "../../core/runtime/with-context.js";
 
 export interface RegisterProposalQueueToolsDeps {
   govTool: GovTool;
@@ -30,7 +31,7 @@ export function createProposalQueueRuntime(deps: RegisterProposalQueueToolsDeps)
   const repoRoot = deps.repoRoot ?? resolve(".");
   const proposalQueue = deps.proposalQueue ?? createFileProposalQueueStore(outputsDir);
   const approvalAuditFile = resolve(outputsDir, "audit", "proposal-approvals.jsonl");
-  const outputsPort = new LocalOutputsAdapter({ outputsDir });
+  const outputsPort = withContextOutputsPort(new LocalOutputsAdapter({ outputsDir }));
 
   const appendApprovalAudit = async (event: ProposalApprovalAudit): Promise<void> => {
     try {

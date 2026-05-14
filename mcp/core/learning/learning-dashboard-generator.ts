@@ -21,10 +21,11 @@ import { getRewardHealth } from "./feedback-manager.js";
 import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
 import { getOutputsDir } from "../config/runtime-config.js";
 import { listProposals, summarizeProposalQueue } from "../resource/proposal/queue.js";
+import { withContextOutputsPort } from "../runtime/with-context.js";
 
 const DASHBOARD_PATH = resolve("outputs", "dashboards", "learning-progress.json");
 const SELF_REFINE_RUNS_PATH = resolve("outputs", "learning", "critic-runs.jsonl");
-const outputsPort = new LocalOutputsAdapter({ outputsDir: resolve(getOutputsDir()) });
+const outputsPort = withContextOutputsPort(new LocalOutputsAdapter({ outputsDir: resolve(getOutputsDir()) }));
 
 /**
  * Compute bandit convergence metrics

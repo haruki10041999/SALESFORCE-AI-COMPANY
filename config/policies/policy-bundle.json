@@ -1,0 +1,77 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-05-14T11:05:12.726Z",
+  "policySets": {
+    "cost_limits": {
+      "version": "1.0",
+      "defaultEffect": "allow",
+      "rules": [
+        {
+          "id": "deny.batch_chat.viewer",
+          "effect": "deny",
+          "tools": [
+            "batch_chat"
+          ],
+          "roles": [
+            "viewer"
+          ]
+        },
+        {
+          "id": "deny.benchmark_suite.non_admin",
+          "effect": "deny",
+          "tools": [
+            "benchmark_suite"
+          ],
+          "roles": [
+            "viewer",
+            "reviewer"
+          ]
+        }
+      ]
+    },
+    "data_residency": {
+      "version": "1.0",
+      "defaultEffect": "allow",
+      "rules": [
+        {
+          "id": "deny.export_to_markdown.service",
+          "effect": "deny",
+          "tools": [
+            "export_to_markdown"
+          ],
+          "tenants": [
+            "external-*"
+          ]
+        }
+      ]
+    },
+    "tool_access": {
+      "version": "1.0",
+      "defaultEffect": "allow",
+      "rules": [
+        {
+          "id": "deny.apply_resource_actions.non_admin",
+          "effect": "deny",
+          "tools": [
+            "apply_resource_actions"
+          ],
+          "roles": [
+            "operator",
+            "viewer",
+            "reviewer"
+          ]
+        },
+        {
+          "id": "deny.apply_proposal.viewer",
+          "effect": "deny",
+          "tools": [
+            "apply_proposal"
+          ],
+          "roles": [
+            "viewer"
+          ]
+        }
+      ]
+    }
+  }
+}

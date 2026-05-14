@@ -36,6 +36,7 @@ export type PolicyCheckResult =
         resourceType: string;
         name: string;
         content: string;
+        executionMode?: "saga";
       };
     };
 
@@ -94,15 +95,18 @@ export function createPolicyGate(options: PolicyGateOptions = {}): PolicyGate {
           `[Policy Gate] Tool \`${toolName}\` (action: ${entry.actionType}) is classified as ` +
           `${entry.riskLevel.toUpperCase()} risk and requires admin approval before execution.\n` +
           `Reason: ${entry.description}\n` +
+          `${entry.requiresSaga ? "Execution requirement: run this action via Saga/compensation workflow.\n" : ""}` +
           `To proceed, call \`enqueue_proposal\` with the details below, then wait for approval.`,
         requiredAction: "enqueue_proposal",
         proposalHint: {
           resourceType: "governance",
           name: `dangerous-action-approval:${toolName}:${entry.actionType}`,
+          ...(entry.requiresSaga ? { executionMode: "saga" as const } : {}),
           content: JSON.stringify({
             toolName,
             actionType: entry.actionType,
             riskLevel: entry.riskLevel,
+            requiresSaga: entry.requiresSaga === true,
             requestedAt: new Date().toISOString(),
             inputSnapshot:
               typeof input === "object"

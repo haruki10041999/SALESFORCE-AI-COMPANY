@@ -1,7 +1,7 @@
 /**
- * VectorStore port — TASK-13: Vector DB Pluggable (Qdrant/LanceDB)
+ * VectorStore port — TASK-13: Vector DB Pluggable
  *
- * Abstraction over pgvector / qdrant / lancedb / tfidf / memory backends.
+ * Abstraction over pgvector / qdrant / tfidf / memory backends.
  * All vector stores must implement this interface.
  */
 

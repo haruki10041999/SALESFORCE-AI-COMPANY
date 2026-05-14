@@ -24,6 +24,7 @@ import type { ProposalRecord } from "./queue.js";
 import { DeclarativeToolSpecSchema } from "../../declarative/tool-spec.js";
 import type { OutputsPort } from "../../ports/outputs-port.js";
 import { LocalOutputsAdapter } from "../../../infrastructure/outputs/local-outputs-adapter.js";
+import { withContextOutputsPort } from "../../runtime/with-context.js";
 
 export interface ProposalApplyResult {
   applied: boolean;
@@ -151,7 +152,7 @@ function resolveOutputsPort(options: ProposalApplyOptions): OutputsPort {
   if (options.outputsPort) {
     return options.outputsPort;
   }
-  return new LocalOutputsAdapter({ outputsDir: options.outputsDir });
+  return withContextOutputsPort(new LocalOutputsAdapter({ outputsDir: options.outputsDir })) as OutputsPort;
 }
 
 async function applyToolAsync(record: ProposalRecord, options: ProposalApplyOptions): Promise<ProposalApplyResult> {

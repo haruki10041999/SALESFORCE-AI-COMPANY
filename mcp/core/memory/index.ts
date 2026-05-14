@@ -26,6 +26,15 @@ export {
   type KnowledgeEntity as KnowledgeGraphNode,
   type KnowledgeRelation as KnowledgeGraphEdge
 } from "../../../memory/knowledge-graph.js";
+export type {
+  KnowledgeGraphPort,
+  KnowledgeGraphHybridSearchResult,
+  KnowledgeGraphNeighbors,
+  TransitiveInference as KnowledgeGraphPortTransitiveInference,
+  SimilarEntity as KnowledgeGraphPortSimilarEntity,
+  GraphCommunity as KnowledgeGraphPortCommunity
+} from "../ports/knowledge-graph-port.js";
+export { createKnowledgeGraphAdapter, KnowledgeGraphAdapter } from "../../infrastructure/memory/knowledge-graph-adapter.js";
 export { extractEntitiesFromSummary, type GraphExtractionResult as ExtractionOptions } from "../../../memory/graph-extractor.js";
 export {
   inferTransitiveRelations,
@@ -54,6 +63,17 @@ export {
   listMemory,
   clearMemory
 } from "../../../memory/project-memory.js";
+
+// Fine-grained memory ports (T07)
+export type {
+  HierarchicalMemoryPort,
+  HierarchicalIngestInput,
+  HierarchicalIngestResult,
+  HierarchicalSearchInput,
+  HierarchicalSearchOutput,
+  VectorTier
+} from "../ports/hierarchical-memory-port.js";
+export type { MemoryReader, MemoryWriter, MemoryService } from "../ports/memory-service.js";
 
 // Vector tier classification (hot / warm / cold)
 export { classifyVectorTier, type VectorTierInput as VectorTierClassification } from "./vector-tier.js";

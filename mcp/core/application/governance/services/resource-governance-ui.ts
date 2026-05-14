@@ -1,6 +1,7 @@
 import { renderGovernanceUi } from "../../../governance/governance-ui.js";
 import type { GovernanceState } from "../../../governance/governance-state.js";
 import type { OutputsPort } from "../../../ports/outputs-port.js";
+import { withContextOutputsPort } from "../../../runtime/with-context.js";
 
 export async function executeRenderGovernanceUi(args: {
   format?: "html" | "markdown" | "json";
@@ -13,13 +14,14 @@ export async function executeRenderGovernanceUi(args: {
 }): Promise<{ text: string }> {
   const state = await args.loadGovernanceState();
   const report = renderGovernanceUi(state, { topPerType: args.topPerType, title: args.title });
+  const outputsPort = withContextOutputsPort(args.outputsPort);
 
   const dashboardsDir = `${args.outputsDir}/dashboards`;
   const shouldWrite = args.write === true;
   if (shouldWrite) {
-    await args.outputsPort.writeArtifact("dashboards/governance.html", report.html, { contentType: "text/html" });
-    await args.outputsPort.writeArtifact("dashboards/governance.md", report.markdown, { contentType: "text/markdown" });
-    await args.outputsPort.writeArtifact("dashboards/governance.json", `${JSON.stringify({
+    await outputsPort.writeArtifact("dashboards/governance.html", report.html, { contentType: "text/html" });
+    await outputsPort.writeArtifact("dashboards/governance.md", report.markdown, { contentType: "text/markdown" });
+    await outputsPort.writeArtifact("dashboards/governance.json", `${JSON.stringify({
       generatedAt: report.generatedAt,
       thresholds: report.thresholds,
       sections: report.sections,

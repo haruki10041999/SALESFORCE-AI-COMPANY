@@ -15,6 +15,12 @@ import { defineGetOrchestrationSessionTool } from "./core-chat-session/get-orche
 import { defineSaveOrchestrationSessionTool } from "./core-chat-session/save-orchestration-session.js";
 import { defineRestoreOrchestrationSessionTool } from "./core-chat-session/restore-orchestration-session.js";
 import { defineListOrchestrationSessionsTool } from "./core-chat-session/list-orchestration-sessions.js";
+import { executeGetSessionOrRestore } from "../core/application/chat/services/chat-orchestration-session-retrieval.js";
+import {
+  projectWorkflowStepsToStoredEvents,
+  summarizeWorkflowEventProjection,
+  type WorkflowEventProjectionSummary
+} from "../infrastructure/workflow/temporal-workflow-event-projection.js";
 
 interface RegisterChatOrchestrationToolsDeps extends RegisterGovToolDeps {
   chatInputSchema: Record<string, unknown>;
@@ -90,14 +96,28 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
   const liveSessionCache = new Map<string, OrchestrationSession | undefined>();
 
   async function getSessionOrRestore(sessionId: string): Promise<OrchestrationSession | undefined> {
-    if (liveSessionCache.has(sessionId)) {
-      return liveSessionCache.get(sessionId);
+    return executeGetSessionOrRestore({
+      sessionId,
+      sessionStore,
+      orchestrationQueueStore,
+      liveSessionCache,
+      workflowEngine
+    });
+  }
+
+  async function getWorkflowEventProjection(
+    sessionId: string
+  ): Promise<WorkflowEventProjectionSummary | undefined> {
+    try {
+      const state = await workflowEngine.query(sessionId);
+      const events = projectWorkflowStepsToStoredEvents({
+        sessionId,
+        steps: state.steps
+      });
+      return summarizeWorkflowEventProjection({ sessionId, events });
+    } catch {
+      return undefined;
     }
-    const session = await sessionStore.getById(sessionId);
-    if (session) {
-      liveSessionCache.set(sessionId, session);
-    }
-    return session ?? undefined;
   }
 
   // core-chat-basic
@@ -143,10 +163,16 @@ export function registerChatOrchestrationTools(deps: RegisterChatOrchestrationTo
   });
 
   // core-chat-session
-  defineGetOrchestrationSessionTool({ ...deps, getSessionOrRestore });
+  defineGetOrchestrationSessionTool({ ...deps, getSessionOrRestore, getWorkflowEventProjection });
   defineSaveOrchestrationSessionTool({ ...deps, getSessionOrRestore, sessionStore });
-  defineRestoreOrchestrationSessionTool({ ...deps, sessionStore, liveSessionCache });
-  defineListOrchestrationSessionsTool({ ...deps, sessionStore });
+  defineRestoreOrchestrationSessionTool({
+    ...deps,
+    sessionStore,
+    liveSessionCache,
+    getSessionOrRestore,
+    getWorkflowEventProjection
+  });
+  defineListOrchestrationSessionsTool({ ...deps, sessionStore, getWorkflowEventProjection });
 }
 
 

@@ -11,6 +11,7 @@ export type EventBusBackend = "in-memory" | "postgres-notify" | "redis-streams";
 export interface EventBusMessage<TPayload = unknown> {
   topic: string;
   payload: TPayload;
+  schemaVersion?: number;
   timestamp: string;
   source?: string;
   traceId?: string;

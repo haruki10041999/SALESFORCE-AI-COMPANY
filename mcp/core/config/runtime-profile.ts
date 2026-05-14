@@ -12,7 +12,7 @@ const PROFILE_PRESETS: Record<Exclude<RuntimeProfile, "custom">, ProfilePreset> 
   local: {
     SF_AI_STATE_BACKEND: "sqlite",
     SF_AI_PROPOSAL_QUEUE_BACKEND: "file",
-    SF_AI_VECTOR_BACKEND: "tfidf"
+    SF_AI_VECTOR_BACKEND: "pgvector"
   },
   operations: {
     SF_AI_STATE_BACKEND: "postgres",

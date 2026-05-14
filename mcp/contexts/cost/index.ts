@@ -1,10 +1,6 @@
 /**
- * Cost Bounded Context — public API barrel (scaffolded)
- *
- * Status: scaffolded — files still reside in mcp/core/governance/ (cost-related).
+ * Cost Bounded Context — public API barrel
  */
-
-export * from "../../core/governance/cost-ledger-manager.js";
-export * from "../../core/governance/cost-budget.js";
-export * from "../../core/reliability/postgres-quota-store.js";
-export * from "../../core/reliability/rate-limiter.js";
+export * from "./application/index.js";
+export * from "./domain/index.js";
+export * from "./infrastructure/index.js";

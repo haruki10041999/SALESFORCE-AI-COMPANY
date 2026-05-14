@@ -8,9 +8,21 @@ import { AppError } from "./core/errors/messages.js";
 import {
   initializeServerRuntime as initializeServerRuntimeModule,
   registerServerTools,
-  startMcpTransport,
+  startMcpSurfaceEntrypoint,
   runWithLifecycle
 } from "./surface/index.js";
+import { startTemporalWorkerBootstrap } from "./surface/bootstrap/bootstrap-workflow.js";
+import { startMetricsAutoUpdateBootstrap } from "./surface/bootstrap/bootstrap-metrics-auto-update.js";
+import { startObservabilityBootstrap } from "./surface/bootstrap/bootstrap-observability.js";
+import { runGovernanceCleanupStartupSync } from "./surface/bootstrap/bootstrap-governance-cleanup-sync.js";
+import { startPresetsHistoryBootstrap } from "./surface/bootstrap/bootstrap-presets-history.js";
+import { startOrchestrationBootstrap } from "./surface/bootstrap/bootstrap-orchestration.js";
+import { startLeaderElectionBootstrap } from "./surface/bootstrap/bootstrap-leader-election.js";
+import { startOutboxDispatcherBootstrap } from "./surface/bootstrap/bootstrap-outbox-dispatcher.js";
+import { startVectorLifecycleBootstrap } from "./surface/bootstrap/bootstrap-vector-lifecycle.js";
+import { createSessionCompletedMemoryHook } from "./surface/bootstrap/bootstrap-memory.js";
+import { startGovernanceBootstrap } from "./surface/bootstrap/bootstrap-governance.js";
+import { createToolCatalog, type ToolCatalogEntry } from "./surface/tool-catalog.js";
 import type { HandlerContext } from "./core/application/handler-context.js";
 import type { ToolDefinition } from "./core/registry/define-tool.js";
 
@@ -69,52 +81,34 @@ import {
   checkDailyLimitExceeded
 } from "./core/governance/governance-manager.js";
 import { createOperationLog } from "./core/governance/operation-log.js";
-import { createGovernedToolRegistrar } from "./core/governance/governed-tool-registrar.js";
-import { createGovernanceEventAutomationManager } from "./core/governance/governance-event-automation.js";
-import { createDisabledResourceFilter } from "./core/governance/disabled-resource-filter.js";
-import { createDisabledToolsCacheManager } from "./core/governance/disabled-tools-cache.js";
 import { CostLedgerManager } from "./core/governance/cost-ledger-manager.js";
 import { createGovernanceStateManager } from "./core/governance/governance-state-manager.js";
 import { resolveStateBackend } from "./core/persistence/state-store.js";
 import {
   type GovernanceState
 } from "./core/governance/governance-state.js";
-import { createPresetStore } from "./core/context/preset-store.js";
-import { createHistoryStore } from "./core/context/history-store.js";
-import { PostgresSessionStore } from "./core/persistence/session-store.postgres.js";
-import { SqliteSessionStore } from "./core/persistence/session-store.sqlite.js";
-import type { SessionStore } from "./core/persistence/session-store.js";
 import { PostgresEventStore } from "./core/persistence/postgres-event-store.js";
-import { createOrchestrationQueueStore } from "./infrastructure/workflow/orchestration-queue-store.js";
-import { createOrchestrationJobRunner } from "./infrastructure/workflow/orchestration-job-runner.js";
-import { createWorkflowEngine } from "./infrastructure/workflow/workflow-engine-factory.js";
 import {
-  createTemporalWorkflowWorker,
+  createRuntimeTemporalWorkflowWorker,
   type TemporalWorkflowWorkerHandle
 } from "./infrastructure/workflow/temporal-workflow-worker.js";
-import { createTemporalWorkflowActivities } from "./infrastructure/workflow/temporal-workflow-activities.js";
-import { createPolicySnapshotManager } from "./core/learning/policy-snapshot.js";
 import { runMetricsAutoUpdate } from "./core/learning/metrics-auto-update.js";
 import { createPromptRenderer } from "./core/context/prompt-rendering.js";
 import { isEnvFlagEnabled, parseBooleanLike } from "./core/config/env-flags.js";
 import { evaluatePseudoHooks as evaluatePseudoHooksCore } from "./core/orchestration/pseudo-hooks.js";
-import { createChatToolRunner, generateSessionId } from "./core/orchestration/chat-tool-runner.js";
+import { generateSessionId } from "./core/orchestration/chat-tool-runner.js";
 import { clearOrchestrationSessionsForTest } from "./core/orchestration/session-registry.js";
 import { chatInputSchema, triggerRuleSchema } from "./core/orchestration/schemas.js";
-import { getDefaultSchedulesFilePath, loadCleanupSchedules } from "./core/resource/cleanup-scheduler.js";
-import { LeaderElection } from "./core/reliability/leader-election.js";
 import type { SystemEventType } from "./core/event/event-dispatcher.js";
 import { createLogger } from "./core/logging/logger.js";
 import {
   getMetricsAutoUpdateEnvConfig,
   getLowRelevanceScoreThreshold,
-  getTemporalAddress,
-  getTemporalNamespace,
+  getReplayDeterminismMode,
   getTemporalRunWorkerEnabled,
-  getTemporalTaskQueue,
   getWorkflowEngineMode
 } from "./core/config/runtime-config.js";
-import { startObservabilityRuntime } from "./core/observability/runtime.js";
+import { resolveEnvMode } from "./env-schema.js";
 import {
   createBanditState,
   loadBanditState,
@@ -199,6 +193,28 @@ const generateHandlersDashboardState = (state: HandlersDashboardState): Handlers
   errorTracker: state.errorTracker,
   qualityTracker: state.qualityTracker
 });
+const STATE_BACKEND = resolveStateBackend(process.env.SF_AI_STATE_BACKEND);
+const DATABASE_URL = process.env.DATABASE_URL;
+const presetsHistoryBootstrap = await startPresetsHistoryBootstrap({
+  outputsDir: OUTPUTS_DIR,
+  stateDbPath: STATE_DB_PATH,
+  stateBackend: STATE_BACKEND,
+  databaseUrl: DATABASE_URL,
+  agentLog,
+  env: process.env
+});
+const {
+  presetsDir: PRESETS_DIR,
+  ensureDir,
+  createPreset,
+  listPresetsData,
+  getPreset,
+  saveChatHistory,
+  saveSessionHistory,
+  loadChatHistories,
+  restoreChatHistory,
+  sessionStore
+} = presetsHistoryBootstrap;
 // NOTE: Postgres �x�[�X�ł̓t�@�C���x�[�X�̃��O�͕s�v�iaudit_logs �e�[�u���g�p�j
 const { loadRecentOperations, appendOperationLog } = createOperationLog({
   logFile: "",
@@ -217,8 +233,6 @@ const DEFAULT_PROTECTED_TOOLS = [
 ];
 const GOVERNANCE_FILE = join(OUTPUTS_DIR, "resource-governance.json");
 const GOVERNANCE_STORAGE_PATH = STATE_DB_PATH;
-const STATE_BACKEND = resolveStateBackend(process.env.SF_AI_STATE_BACKEND);
-const DATABASE_URL = process.env.DATABASE_URL;
 const costLedgerManager = DATABASE_URL ? new CostLedgerManager(createDbClient(DATABASE_URL)) : null;
 const PROPOSAL_QUEUE_BACKEND = resolveProposalQueueBackend(process.env.SF_AI_PROPOSAL_QUEUE_BACKEND, STATE_BACKEND);
 const TOOL_PROPOSALS_DIR = join(OUTPUTS_DIR, "tool-proposals");
@@ -264,6 +278,7 @@ type RegisteredToolHandler = (input: unknown) => Promise<{ content: Array<{ type
 const registeredToolHandlers = new Map<string, RegisteredToolHandler>();
 const registeredToolMetadata = new Map<string, { title?: string; description?: string; tags?: string[] }>();
 const registeredToolDefinitions = new Map<string, ToolDefinition>();
+const toolCatalog = createToolCatalog();
 const registerToolOriginal = server.registerTool.bind(server);
 
 (server as unknown as {
@@ -290,6 +305,10 @@ export function listRegisteredToolDefinitionsForTest(): ToolDefinition[] {
   return [...registeredToolDefinitions.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export function listRegisteredToolCatalogForTest(): ToolCatalogEntry[] {
+  return toolCatalog.list();
+}
+
 export async function invokeRegisteredToolForTest(name: string, input: unknown): Promise<{ content: Array<{ type: string; text: string }> }> {
   const handler = registeredToolHandlers.get(name);
   if (!handler) {
@@ -304,31 +323,55 @@ export { clearOrchestrationSessionsForTest };
 // ============================================================
 // �K�o�i���X�Ή��c�[���o�^���b�p�[�idisable �`�F�b�N�t���j
 // ============================================================
-
-const disabledToolsCache = createDisabledToolsCacheManager({
-  governanceFilePath: GOVERNANCE_STORAGE_PATH,
-  logger,
-  loadGovernanceState,
-  normalizeResourceName,
-  stateBackend: STATE_BACKEND,
-  databaseUrl: DATABASE_URL
-});
-
 const costLedger = costLedgerManager
   ? {
-      async record(input: {
-        toolName: string;
-        costUsd: number;
-        inputTokens?: number;
-        outputTokens?: number;
-        actorId?: string;
-        tenantId?: string;
-        sessionId?: string;
-        traceId?: string;
-        model?: string;
-        status?: "success" | "error" | "blocked";
-        metadata?: Record<string, unknown>;
-      }): Promise<void> {
+      async record(
+        ctxOrInput: {
+          tenantId: string;
+          actorId: string;
+          traceId: string;
+          sessionId?: string;
+          reasonCode?: string;
+        } | {
+          toolName: string;
+          costUsd: number;
+          inputTokens?: number;
+          outputTokens?: number;
+          actorId?: string;
+          tenantId?: string;
+          sessionId?: string;
+          traceId?: string;
+          model?: string;
+          status?: "success" | "error" | "blocked";
+          metadata?: Record<string, unknown>;
+        },
+        maybeInput?: {
+          toolName: string;
+          costUsd: number;
+          inputTokens?: number;
+          outputTokens?: number;
+          actorId?: string;
+          tenantId?: string;
+          sessionId?: string;
+          traceId?: string;
+          model?: string;
+          status?: "success" | "error" | "blocked";
+          metadata?: Record<string, unknown>;
+        }
+      ): Promise<void> {
+        const input = maybeInput ?? (ctxOrInput as {
+          toolName: string;
+          costUsd: number;
+          inputTokens?: number;
+          outputTokens?: number;
+          actorId?: string;
+          tenantId?: string;
+          sessionId?: string;
+          traceId?: string;
+          model?: string;
+          status?: "success" | "error" | "blocked";
+          metadata?: Record<string, unknown>;
+        });
         await costLedgerManager.recordCost({
           toolName: input.toolName,
           actorId: input.actorId ?? "system",
@@ -348,7 +391,28 @@ const costLedger = costLedgerManager
       }
     };
 
-const { govTool } = createGovernedToolRegistrar({
+let applyEventAutomationImpl:
+  | ((event: SystemEventName, payload: Record<string, unknown>) => Promise<void>)
+  | null = null;
+
+const governanceBootstrap = startGovernanceBootstrap({
+  logger,
+  governanceStoragePath: GOVERNANCE_STORAGE_PATH,
+  outputsDir: OUTPUTS_DIR,
+  serverRoot: ROOT,
+  stateBackend: STATE_BACKEND,
+  databaseUrl: DATABASE_URL,
+  toPosixPath,
+  loadGovernanceState,
+  saveGovernanceState,
+  normalizeDisabledEntries,
+  normalizeProtectedTools,
+  buildDefaultGovernanceState,
+  emitSystemEvent: emitSystemEventFromTools,
+  summarizeValue,
+  registerToolFailure,
+  getBanditState: () => banditState,
+  banditStateFile: BANDIT_STATE_FILE,
   registerTool: (name, config, handler) => {
     server.registerTool(
       name,
@@ -356,175 +420,61 @@ const { govTool } = createGovernedToolRegistrar({
       handler as Parameters<typeof server.registerTool>[2]
     );
   },
-  isToolDisabled: (toolName: string) => {
-    return disabledToolsCache.isToolDisabled(toolName);
-  },
-  normalizeResourceName,
-  outputsDir: OUTPUTS_DIR,
-  databaseUrl: DATABASE_URL,
-  costLedger,
-  serverRoot: ROOT,
-  emitSystemEvent: emitSystemEventFromTools,
-  summarizeValue,
-  registerToolFailure,
-  getBanditState: () => banditState,
-  banditStateFile: BANDIT_STATE_FILE,
   onToolDefined: (definition) => {
     registeredToolDefinitions.set(definition.name, definition);
+    toolCatalog.upsert(definition);
   },
-  getRetryConfig: async () => {
-    const state = await loadGovernanceState();
-    return state.config.toolExecution;
-  }
+  costLedger
 });
 
+const {
+  govTool,
+  disabledToolsCache,
+  filterDisabledSkills,
+  isPresetDisabled,
+  applyEventAutomation: applyGovernanceEventAutomation
+} = governanceBootstrap;
+applyEventAutomationImpl = applyGovernanceEventAutomation;
 
-
-const disabledResourceFilter = createDisabledResourceFilter({
-  loadGovernanceState,
-  toPosixPath
-});
-
-function normalizeResourceName(name: string): string {
-  return disabledResourceFilter.normalizeResourceName(name);
-}
-
-async function filterDisabledSkills(skillNames: string[]): Promise<{ enabled: string[]; disabled: string[] }> {
-  return disabledResourceFilter.filterDisabledSkills(skillNames);
-}
-
-async function isPresetDisabled(presetName: string): Promise<boolean> {
-  return disabledResourceFilter.isPresetDisabled(presetName);
-}
-
-const runChatTool = createChatToolRunner({
+const orchestrationBootstrap = await startOrchestrationBootstrap({
+  rootDir: ROOT,
+  stateBackend: STATE_BACKEND,
+  databaseUrl: DATABASE_URL,
+  outputsDir: OUTPUTS_DIR,
+  banditStateFile: BANDIT_STATE_FILE,
   listSkills: () => listMdFiles("skills"),
   filterDisabledSkills,
   emitSystemEvent: emitSystemEventFromTools,
   buildChatPrompt
 });
 
-const HISTORY_DIR = join(OUTPUTS_DIR, "history");
-const USE_SQLITE_HISTORY = isEnvFlagEnabled("SF_AI_HISTORY_SQLITE");
-const ALLOW_HISTORY_FILE_FALLBACK = isEnvFlagEnabled("SF_AI_HISTORY_FILE_FALLBACK");
-const ALLOW_PRESET_FILE_FALLBACK = isEnvFlagEnabled("SF_AI_PRESET_FILE_FALLBACK");
-// NOTE: Postgres �x�[�X�ł̓f�B���N�g���x�[�X�̗����Ǘ��͕s�v
-// ���ׂ� Postgres state_records �e�[�u���ɕۑ������
-const PRESETS_DIR = join(OUTPUTS_DIR, "presets");
-const HISTORY_RETENTION_DAYS = 30;
-const HISTORY_MAX_FILES = 200;
-const SESSION_RETENTION_DAYS = 30;
-
-// NOTE: Postgres �x�[�X�ł� ensureDir �͕s�v�����A
-// �������W���[���݊����̂��� dummy �������
-async function ensureDir(_dir: string): Promise<void> {
-  // No-op: Postgres �x�[�X�ł� dir creation �͕s�v
-}
-
-const { createPreset, listPresetsData, getPreset } = createPresetStore({
-  presetsDir: PRESETS_DIR,
-  ensureDir,
-  allowFileFallback: ALLOW_PRESET_FILE_FALLBACK
-});
-const { saveChatHistory, saveSessionHistory, loadChatHistories, restoreChatHistory } = createHistoryStore({
-  historyDir: HISTORY_DIR,
-  ensureDir,
-  agentLog,
-  maxHistoryFiles: HISTORY_MAX_FILES,
-  retentionDays: HISTORY_RETENTION_DAYS,
-  allowFileFallback: ALLOW_HISTORY_FILE_FALLBACK,
-  sqlite: {
-    enabled: USE_SQLITE_HISTORY,
-    dbPath: STATE_DB_PATH
-  }
-});
-const sessionStore: SessionStore = STATE_BACKEND === "postgres" && DATABASE_URL
-  ? await PostgresSessionStore.open({
-      databaseUrl: DATABASE_URL,
-      retentionDays: SESSION_RETENTION_DAYS
-    })
-  : SqliteSessionStore.open({
-      dbPath: STATE_DB_PATH,
-      retentionDays: SESSION_RETENTION_DAYS
-    });
-const orchestrationQueueStore = await createOrchestrationQueueStore({
-  stateBackend: STATE_BACKEND,
-  databaseUrl: DATABASE_URL,
-  queuePrefix: "orchestration-session"
-});
-const orchestrationJobRunner = createOrchestrationJobRunner({
-  stateBackend: STATE_BACKEND,
-  databaseUrl: DATABASE_URL
-});
-const workflowEngine = createWorkflowEngine({
+const {
+  runChatTool,
   orchestrationQueueStore,
-  orchestrationJobRunner
-});
-const policySnapshotManager = createPolicySnapshotManager({
-  banditStateFile: BANDIT_STATE_FILE,
-  agentReputationFile: join(OUTPUTS_DIR, "agent-reputation.jsonl"),
-  databaseUrl: DATABASE_URL,
-  debounceMs: 200
-});
+  orchestrationJobRunner,
+  workflowEngine,
+  policySnapshotManager
+} = orchestrationBootstrap;
+
 const proposalQueue: ProposalQueueStore = await createProposalQueueStore({
   backend: PROPOSAL_QUEUE_BACKEND,
   outputsDir: OUTPUTS_DIR,
   databaseUrl: DATABASE_URL
 });
-const leaderElection = LeaderElection.open({
+
+const leaderElection = startLeaderElectionBootstrap({
   databaseUrl: DATABASE_URL,
-  enabled: isEnvFlagEnabled("SF_AI_LEADER_ELECTION_ENABLED", process.env, true),
-  lockNamespace: "sfai:leader",
-  instanceId: process.env.SF_AI_INSTANCE_ID
+  env: process.env
 });
 
-if (
-  PROPOSAL_QUEUE_BACKEND === "pg-boss" &&
-  typeof proposalQueue.scheduleRecurringJob === "function" &&
-  typeof proposalQueue.unscheduleRecurringJob === "function"
-) {
-  const scheduleRecurringJob = proposalQueue.scheduleRecurringJob.bind(proposalQueue);
-  const unscheduleRecurringJob = proposalQueue.unscheduleRecurringJob.bind(proposalQueue);
-
-  try {
-    await leaderElection.runIfLeader({
-      lockKey: "governance-auto-cleanup:start-sync",
-      onLeader: async () => {
-        const cleanupSchedules = await loadCleanupSchedules(getDefaultSchedulesFilePath(ROOT));
-        for (const schedule of cleanupSchedules.schedules) {
-          if (schedule.status !== "active") {
-            await unscheduleRecurringJob({
-              queue: "governance-auto-cleanup",
-              key: schedule.id
-            });
-            continue;
-          }
-
-          await scheduleRecurringJob({
-            queue: "governance-auto-cleanup",
-            cron: schedule.cron,
-            key: schedule.id,
-            data: {
-              scheduleId: schedule.id,
-              action: schedule.action,
-              daysUnused: schedule.daysUnused,
-              limit: schedule.limit,
-              requireApproval: schedule.requireApproval
-            }
-          });
-        }
-        logger.info("cleanup schedule startup sync completed as leader");
-      },
-      onFollower: async () => {
-        logger.info(
-          `cleanup schedule startup sync skipped (not leader, instance=${leaderElection.describeInstance()})`
-        );
-      }
-    });
-  } catch (error) {
-    logger.warn(`cleanup schedule startup sync failed: ${summarizeValue(error, 300)}`);
-  }
-}
+await runGovernanceCleanupStartupSync({
+  proposalQueueBackend: PROPOSAL_QUEUE_BACKEND,
+  proposalQueue,
+  leaderElection,
+  rootDir: ROOT,
+  logger,
+  summarizeError: (error) => summarizeValue(error, 300)
+});
 
 const { loadedCustomToolNames, registerCustomTool, unregisterCustomTool, loadCustomToolsFromDir } = createCustomToolRegistry({
   govTool,
@@ -549,19 +499,10 @@ const {
   listRegisteredToolNames: () => [...registeredToolMetadata.keys()]
 });
 
-const governanceEventAutomation = createGovernanceEventAutomationManager({
-  loadGovernanceState,
-  saveGovernanceState,
-  normalizeResourceName,
-  normalizeDisabledEntries,
-  normalizeProtectedTools,
-  refreshDisabledToolsCache: () => disabledToolsCache.refresh("event-automation"),
-  getDefaultEventAutomationConfig: () => buildDefaultGovernanceState().config.eventAutomation,
-  summarizeError: summarizeValue
-});
-
 async function applyEventAutomation(event: SystemEventName, payload: Record<string, unknown>): Promise<void> {
-  await governanceEventAutomation.applyEventAutomation(event, payload);
+  if (applyEventAutomationImpl) {
+    await applyEventAutomationImpl(event, payload);
+  }
 }
 
 type RegisterServerToolsOptions = Parameters<typeof registerServerTools>[0];
@@ -587,23 +528,7 @@ const chatAndSessionDeps = {
   workflowEngine,
   policySnapshotManager,
   saveSessionHistory,
-  onSessionCompleted: async ({ sessionId, topic, history }) => {
-    if (!history || history.length === 0) {
-      return null;
-    }
-
-    const lines = [
-      `session: ${sessionId}`,
-      `topic: ${topic}`,
-      ...history.slice(-30).map((entry) => `${entry.agent}: ${entry.message}`)
-    ];
-
-    const result = ingestKnowledgeSummary(lines.join("\n"));
-    return {
-      entities: result.entities.length,
-      relations: result.relations.length
-    };
-  }
+  onSessionCompleted: createSessionCompletedMemoryHook({ ingestKnowledgeSummary })
 } satisfies Pick<
   RegisterServerToolsOptions,
   | "runChatTool"
@@ -814,8 +739,8 @@ async function main(): Promise<void> {
   await policySnapshotManager.start();
   logger.info(`Policy snapshot started (mode=${policySnapshotManager.mode})`);
 
-  const observabilityRuntime = await startObservabilityRuntime(logger);
-  observabilityRuntime.setReady(false);
+  const observabilityBootstrap = await startObservabilityBootstrap(logger);
+  const observabilityRuntime = observabilityBootstrap.runtime;
 
   await initializeServerRuntimeModule({
     logger,
@@ -829,32 +754,32 @@ async function main(): Promise<void> {
   });
 
   let temporalWorker: TemporalWorkflowWorkerHandle | null = null;
-  const workflowMode = getWorkflowEngineMode("in-process", process.env);
-  if (workflowMode === "temporal" && getTemporalRunWorkerEnabled(false, process.env)) {
-    try {
-      temporalWorker = await createTemporalWorkflowWorker({
-        temporalAddress: getTemporalAddress("localhost:7233", process.env),
-        temporalNamespace: getTemporalNamespace("default", process.env),
-        taskQueue: getTemporalTaskQueue("sfai-orchestration", process.env),
-        activities: createTemporalWorkflowActivities({
-          orchestrationQueueStore,
-          orchestrationJobRunner
-        })
-      });
-      logger.info("Temporal workflow worker started");
-    } catch (error) {
-      logger.warn(`Temporal workflow worker startup failed: ${summarizeValue(error, 300)}`);
-    }
+  const envMode = resolveEnvMode(process.env);
+  const workflowMode = getWorkflowEngineMode(envMode === "prod" ? "temporal" : "in-process", process.env);
+  if (envMode === "prod" && workflowMode !== "temporal") {
+    throw new Error("SF_AI_ENV_MODE=prod requires SF_AI_WORKFLOW_ENGINE=temporal");
   }
+  temporalWorker = await startTemporalWorkerBootstrap({
+    workflowMode,
+    runWorkerEnabled: getTemporalRunWorkerEnabled(false, process.env),
+    logger,
+    createWorker: async () =>
+      createRuntimeTemporalWorkflowWorker({
+        orchestrationQueueStore,
+        orchestrationJobRunner,
+        env: process.env
+      }),
+    summarizeError: (error) => summarizeValue(error, 300)
+  });
 
-  observabilityRuntime.setStartupComplete(true);
-  observabilityRuntime.setReady(true);
+  observabilityBootstrap.markStartupReady();
 
-  let metricsAutoUpdateTimer: NodeJS.Timeout | null = null;
+  let metricsAutoUpdateHandle: { stop(): void } | null = null;
+  let outboxDispatcherHandle: { stop(): Promise<void> } | null = null;
+  let vectorLifecycleHandle: { stop(): Promise<void> } | null = null;
   const metricsAutoUpdateEnabled = isEnvFlagEnabled("SF_AI_METRICS_AUTO_UPDATE_ENABLED", process.env, false);
   if (metricsAutoUpdateEnabled) {
     const intervalMinutes = Math.max(1, parseOptionalNumber(process.env.SF_AI_METRICS_AUTO_UPDATE_INTERVAL_MINUTES) ?? 60);
-    const intervalMs = intervalMinutes * 60 * 1000;
 
     const runLeaderGatedMetricsUpdate = async (): Promise<void> => {
       const metricsEnv = getMetricsAutoUpdateEnvConfig();
@@ -922,23 +847,68 @@ async function main(): Promise<void> {
       });
     };
 
-    try {
-      await runLeaderGatedMetricsUpdate();
-    } catch (error) {
-      logger.warn(`metrics auto-update startup run failed: ${summarizeValue(error, 300)}`);
-    }
-
-    metricsAutoUpdateTimer = setInterval(() => {
-      void runLeaderGatedMetricsUpdate().catch((error) => {
-        logger.warn(`metrics auto-update interval run failed: ${summarizeValue(error, 300)}`);
-      });
-    }, intervalMs);
-
-    logger.info(`metrics auto-update scheduler started (interval=${intervalMinutes}m, leader-gated)`);
+    metricsAutoUpdateHandle = await startMetricsAutoUpdateBootstrap({
+      enabled: metricsAutoUpdateEnabled,
+      intervalMinutes,
+      logger,
+      runLeaderGatedUpdate: runLeaderGatedMetricsUpdate,
+      summarizeError: (error) => summarizeValue(error, 300)
+    });
   }
 
+  const replayDeterminismMode = getReplayDeterminismMode("observe", process.env);
+  const outboxDispatchEnabledByEnv = isEnvFlagEnabled("SF_AI_OUTBOX_DISPATCH_ENABLED", process.env, true);
+  const outboxDispatchEnabled = outboxDispatchEnabledByEnv && replayDeterminismMode !== "strict";
+  if (outboxDispatchEnabledByEnv && replayDeterminismMode === "strict") {
+    logger.info("[outbox-dispatch] disabled because SF_AI_REPLAY_MODE=strict");
+  }
+  const outboxDispatchIntervalSeconds = Math.max(
+    5,
+    parseOptionalNumber(process.env.SF_AI_OUTBOX_DISPATCH_INTERVAL_SECONDS) ?? 30
+  );
+  const outboxDispatchLimit = Math.max(
+    1,
+    parseOptionalNumber(process.env.SF_AI_OUTBOX_DISPATCH_LIMIT) ?? 200
+  );
+  const outboxQueuePrefix = process.env.SF_AI_OUTBOX_QUEUE_PREFIX?.trim() || "outbox";
+  outboxDispatcherHandle = await startOutboxDispatcherBootstrap({
+    enabled: outboxDispatchEnabled,
+    databaseUrl: DATABASE_URL,
+    queuePrefix: outboxQueuePrefix,
+    dispatchLimit: outboxDispatchLimit,
+    intervalSeconds: outboxDispatchIntervalSeconds,
+    logger,
+    leaderElection
+  });
+
+  const vectorLifecycleEnabled = isEnvFlagEnabled("SF_AI_VECTOR_LIFECYCLE_ENABLED", process.env, false);
+  const vectorLifecycleCron = process.env.SF_AI_VECTOR_LIFECYCLE_CRON?.trim() || "0 3 * * *";
+  const vectorLifecycleHotToWarmDays = Math.max(
+    1,
+    parseOptionalNumber(process.env.SF_AI_VECTOR_HOT_TO_WARM_DAYS) ?? 7
+  );
+  const vectorLifecycleWarmToColdDays = Math.max(
+    vectorLifecycleHotToWarmDays + 1,
+    parseOptionalNumber(process.env.SF_AI_VECTOR_WARM_TO_COLD_DAYS) ?? 90
+  );
+  const vectorLifecycleRunOnStartup = isEnvFlagEnabled("SF_AI_VECTOR_LIFECYCLE_RUN_ON_STARTUP", process.env, false);
+  const vectorLifecycleStartupLimit = Math.max(
+    1,
+    parseOptionalNumber(process.env.SF_AI_VECTOR_LIFECYCLE_STARTUP_LIMIT) ?? 2000
+  );
+  vectorLifecycleHandle = await startVectorLifecycleBootstrap({
+    enabled: vectorLifecycleEnabled,
+    databaseUrl: DATABASE_URL,
+    cronPattern: vectorLifecycleCron,
+    runOnStartup: vectorLifecycleRunOnStartup,
+    startupLimit: vectorLifecycleStartupLimit,
+    hotToWarmDays: vectorLifecycleHotToWarmDays,
+    warmToColdDays: vectorLifecycleWarmToColdDays,
+    logger
+  });
+
   try {
-    await startMcpTransport(server, logger);
+    await startMcpSurfaceEntrypoint(server, logger);
   } finally {
     await persistShutdownState("main-finally");
     if (typeof proposalQueue.close === "function") {
@@ -948,9 +918,9 @@ async function main(): Promise<void> {
     await policySnapshotManager.close();
     await orchestrationJobRunner.close();
     await orchestrationQueueStore.close();
-    if (metricsAutoUpdateTimer) {
-      clearInterval(metricsAutoUpdateTimer);
-    }
+    metricsAutoUpdateHandle?.stop();
+    await vectorLifecycleHandle?.stop();
+    await outboxDispatcherHandle?.stop();
     await sessionStore.close();
     if (temporalWorker) {
       await temporalWorker.close();

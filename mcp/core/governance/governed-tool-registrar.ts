@@ -31,6 +31,8 @@ import {
 import { resolveActorFromOidcInput } from "../identity/oidc-verifier.js";
 import { currentActor, runWithActorContext } from "../identity/actor-context.js";
 import { buildTraceparentFromTraceId, runWithTraceContext } from "../trace/trace-context.js";
+import { getRequestContext, runWithRequestContext } from "../runtime/request-context.js";
+import { withContextOutputsPort } from "../runtime/with-context.js";
 
 const PROGRESS_BANNER_SKIP_TOOLS = new Set([
   // 進捗表示の意味が薄い軽量ツール (応答が JSON のみで構造化されているもの含む)
@@ -56,6 +58,82 @@ function attachProgressBanner<T extends { content?: Array<{ type: string; text: 
     ...result,
     content: [{ type: "text", text: banner }, ...result.content]
   };
+}
+
+function attachDeprecationNotice<T extends { content?: Array<{ type: string; text: string }> }>(
+  result: T,
+  toolDefinition: ToolDefinition
+): T {
+  if (!toolDefinition.deprecatedAt) {
+    return result;
+  }
+
+  const warning = {
+    type: "text" as const,
+    text: toolDefinition.replacedBy
+      ? `Deprecated tool: '${toolDefinition.name}' (since ${toolDefinition.deprecatedAt}). Use '${toolDefinition.replacedBy}' instead.`
+      : `Deprecated tool: '${toolDefinition.name}' (since ${toolDefinition.deprecatedAt}).`
+  };
+
+  if (!Array.isArray(result.content)) {
+    return {
+      ...result,
+      content: [warning]
+    };
+  }
+
+  return {
+    ...result,
+    content: [warning, ...result.content]
+  };
+}
+
+type CatalogPolicyMode = "off" | "warn" | "error";
+
+function resolveCatalogPolicyMode(): CatalogPolicyMode {
+  const raw = (process.env.SF_AI_TOOL_CATALOG_POLICY ?? "warn").trim().toLowerCase();
+  if (raw === "off" || raw === "warn" || raw === "error") {
+    return raw;
+  }
+  return "warn";
+}
+
+function asOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function asStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const normalized = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function collectMissingCatalogFields(input: {
+  category?: string;
+  capabilities?: string[];
+  owner?: string;
+  since?: string;
+  deprecatedAt?: string;
+  replacedBy?: string;
+}): string[] {
+  const missing: string[] = [];
+
+  if (!input.category) missing.push("category");
+  if (!input.capabilities || input.capabilities.length === 0) missing.push("capabilities");
+  if (!input.owner) missing.push("owner");
+  if (!input.since) missing.push("since");
+  if (input.deprecatedAt && !input.replacedBy) missing.push("replacedBy");
+
+  return missing;
 }
 
 const AUTO_MEMORY_SKIP_TOOLS = new Set([
@@ -145,16 +223,16 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
     onToolDefined
   } = deps;
   const rateLimiter = injectedRateLimiter ?? getGlobalToolRateLimiter();
-  const runtimeStorePromise = databaseUrl
+  const _runtimeStorePromise = databaseUrl
     ? PostgresRuntimeLogStore.open({ databaseUrl }).catch(() => null)
     : Promise.resolve(null);
   const outputsPort = new LocalOutputsAdapter({ outputsDir });
+  const contextOutputsPort = withContextOutputsPort(outputsPort);
   const toolRecorder = new ToolExecutionRecorder({
     outputsDir,
     databaseUrl
   });
   const costBudget = new CostBudgetManager({ outputsDir });
-  const policyEngine = createOpaPolicyEngine({ serverRoot });
 
   function isCostBudgetEnforcerEnabled(): boolean {
     return isEnvFlagEnabled("SF_AI_COST_BUDGET_ENFORCER_ENABLED", process.env, true);
@@ -191,7 +269,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
       ...entry
     };
     try {
-      await outputsPort.appendEvent("audit/tool-executions.jsonl", {
+      await contextOutputsPort.appendEvent("audit/tool-executions.jsonl", {
         recordedAt: new Date().toISOString(),
         eventType: "tool_execution",
         resourceType: "tools",
@@ -201,6 +279,23 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
       // audit logging failures should not block tool execution
     }
   }
+
+  const policyEngine = createOpaPolicyEngine({
+    serverRoot,
+    onPolicyBundleFallback: (reason, context) => {
+      void emitSystemEvent("policy_bundle_fallback", {
+        policySet: context.policySet,
+        reason
+      }).catch(() => {});
+
+      void appendToolAudit({
+        toolName: "__policy_engine",
+        status: "policy-bundle-fallback",
+        policySet: context.policySet,
+        reason
+      }).catch(() => {});
+    }
+  });
 
   async function recordCostLedger(input: {
     toolName: string;
@@ -216,6 +311,23 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
       return;
     }
     try {
+      const ctx = getRequestContext();
+      if (ctx) {
+        await costLedger.record(ctx, {
+          toolName: input.toolName,
+          costUsd: input.usdEstimate,
+          inputTokens: input.inputTokens,
+          outputTokens: input.outputTokens,
+          actorId: currentActor().id,
+          tenantId: currentActor().tenantId,
+          traceId: input.traceId,
+          model: input.model,
+          status: input.status,
+          metadata: input.reason ? { reason: input.reason } : undefined
+        });
+        return;
+      }
+
       await costLedger.record({
         toolName: input.toolName,
         costUsd: input.usdEstimate,
@@ -267,12 +379,51 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
   }
 
   function govTool<TInput = unknown>(name: string, config: GovToolConfig, handler: GovToolHandler<TInput>): void {
+    const catalogPolicyMode = resolveCatalogPolicyMode();
+    const configRecord = config as unknown as Record<string, unknown>;
+    const declaredCapabilities = asStringArray(configRecord.capabilities)
+      ?? (asOptionalString(configRecord.capability) ? [asOptionalString(configRecord.capability) as string] : undefined);
+    const declaredCategory = asOptionalString(configRecord.category);
+    const declaredOwner = asOptionalString(configRecord.owner);
+    const declaredSince = asOptionalString(configRecord.since);
+    const declaredDeprecatedAt = asOptionalString(configRecord.deprecatedAt);
+    const declaredReplacedBy = asOptionalString(configRecord.replacedBy);
+
+    const missingCatalogFields = collectMissingCatalogFields({
+      category: declaredCategory,
+      capabilities: declaredCapabilities,
+      owner: declaredOwner,
+      since: declaredSince,
+      deprecatedAt: declaredDeprecatedAt,
+      replacedBy: declaredReplacedBy
+    });
+
+    if (catalogPolicyMode === "error" && missingCatalogFields.length > 0) {
+      throw new Error(
+        `Tool catalog metadata required for '${name}': missing ${missingCatalogFields.join(", ")} (set SF_AI_TOOL_CATALOG_POLICY=warn to allow autofill)`
+      );
+    }
+
+    if (catalogPolicyMode === "warn" && missingCatalogFields.length > 0) {
+      void emitSystemEvent("tool_catalog_metadata_missing", {
+        toolName: name,
+        missingFields: missingCatalogFields,
+        policy: catalogPolicyMode
+      }).catch(() => {});
+    }
+
     const rawSchema = config.inputSchema;
     const toolDefinition = defineTool({
       name,
       title: config.title,
       description: config.description,
       tags: config.tags,
+      capabilities: declaredCapabilities,
+      category: declaredCategory,
+      owner: declaredOwner,
+      since: declaredSince,
+      deprecatedAt: declaredDeprecatedAt,
+      replacedBy: declaredReplacedBy,
       ...(isZodSchema(rawSchema)
         ? { inputSchemaZod: rawSchema as unknown as ZodTypeAny }
         : isDictOfZod(rawSchema)
@@ -299,6 +450,9 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
       const sessionId = typeof (input as { sessionId?: unknown } | null | undefined)?.sessionId === "string"
         ? (input as { sessionId: string }).sessionId
         : undefined;
+      const reasonCode = typeof (input as { reasonCode?: unknown } | null | undefined)?.reasonCode === "string"
+        ? (input as { reasonCode: string }).reasonCode
+        : undefined;
       const modelName = resolveModelName(input);
       // T-OBS-01: OTel span 開始 (no-op when OTEL_ENABLED!=true)
       void import("../observability/otel-tracer.js")
@@ -310,7 +464,24 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
         input: inputSummary
       });
 
-      return runWithTraceContext({ traceId, traceparent }, async () => {
+      if (toolDefinition.deprecatedAt) {
+        await emitSystemEvent("tool_deprecated_invoked", {
+          toolName: name,
+          traceId,
+          deprecatedAt: toolDefinition.deprecatedAt,
+          replacedBy: toolDefinition.replacedBy,
+          actorId: actor.id,
+          actorRole: actor.role
+        });
+      }
+
+      return runWithRequestContext({
+        tenantId: actor.tenantId ?? "global",
+        actorId: actor.id,
+        traceId,
+        ...(sessionId ? { sessionId } : {}),
+        ...(reasonCode ? { reasonCode } : {})
+      }, () => runWithTraceContext({ traceId, traceparent }, async () => {
       const access = await authorizeToolExecution(actor, normalizeResourceName(name), serverRoot);
       if (!access.allowed) {
         await emitSystemEvent("tool_after_execute", {
@@ -778,7 +949,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
               error: summarizeValue(saveError, 200)
             }).catch(() => {});
           }
-          return attachProgressBanner(name, traceId, result);
+          return attachProgressBanner(name, traceId, attachDeprecationNotice(result, toolDefinition));
         } catch (error) {
           const retryable = retryConfig.retryEnabled && (
             isRetryableError(error, patterns) || isRetryableByCode(error, retryableCodes)
@@ -880,7 +1051,7 @@ export function createGovernedToolRegistrar(deps: CreateGovernedToolRegistrarDep
           attempt += 1;
         }
       }
-      });
+      }));
       });
     });
   }

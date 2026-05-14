@@ -8,12 +8,13 @@ import { join, resolve } from "path";
 import { randomUUID } from "crypto";
 import { loadAllRewards } from "./reward-aggregator.js";
 import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
+import { withContextOutputsPort } from "../runtime/with-context.js";
 import { getOutputsDir } from "../config/runtime-config.js";
 
 export type AdoptionStage = "shadow" | "canary" | "stable" | "rolling-back" | "rolled-back";
 
 const OUTPUTS_DIR = resolve(getOutputsDir());
-const outputsPort = new LocalOutputsAdapter({ outputsDir: OUTPUTS_DIR });
+const outputsPort = withContextOutputsPort(new LocalOutputsAdapter({ outputsDir: OUTPUTS_DIR }));
 
 export interface StagedToolProposal {
   /** Unique proposal ID */

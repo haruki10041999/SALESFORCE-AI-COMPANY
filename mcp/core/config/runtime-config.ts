@@ -61,7 +61,7 @@ export function getLlmClientMode(defaultMode = "native"): string {
   return configured && configured.length > 0 ? configured : defaultMode;
 }
 
-export function getVectorBackend(defaultBackend = "tfidf"): string {
+export function getVectorBackend(defaultBackend = "pgvector"): string {
   const configured = process.env.SF_AI_VECTOR_BACKEND?.trim().toLowerCase();
   return configured && configured.length > 0 ? configured : defaultBackend;
 }
@@ -102,6 +102,41 @@ export function getTemporalTaskQueue(
 ): string {
   const configured = env.SF_AI_TEMPORAL_TASK_QUEUE?.trim();
   return configured && configured.length > 0 ? configured : defaultTaskQueue;
+}
+
+export type TemporalTaskQueueCapability =
+  | "core-orchestration"
+  | "llm-heavy"
+  | "analysis-heavy"
+  | "deploy-heavy"
+  | "scheduler";
+
+export function getTemporalTaskQueueForCapability(
+  capability: TemporalTaskQueueCapability,
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  const byCapability: Record<TemporalTaskQueueCapability, string> = {
+    "core-orchestration": "sfai-orchestration",
+    "llm-heavy": "sfai-llm",
+    "analysis-heavy": "sfai-analysis",
+    "deploy-heavy": "sfai-deploy",
+    scheduler: "sfai-scheduler"
+  };
+
+  const capabilityEnvKey: Record<TemporalTaskQueueCapability, string | undefined> = {
+    "core-orchestration": env.SF_AI_TEMPORAL_TASK_QUEUE_CORE_ORCHESTRATION,
+    "llm-heavy": env.SF_AI_TEMPORAL_TASK_QUEUE_LLM_HEAVY,
+    "analysis-heavy": env.SF_AI_TEMPORAL_TASK_QUEUE_ANALYSIS_HEAVY,
+    "deploy-heavy": env.SF_AI_TEMPORAL_TASK_QUEUE_DEPLOY_HEAVY,
+    scheduler: env.SF_AI_TEMPORAL_TASK_QUEUE_SCHEDULER
+  };
+
+  const configuredCapabilityQueue = capabilityEnvKey[capability]?.trim();
+  if (configuredCapabilityQueue && configuredCapabilityQueue.length > 0) {
+    return configuredCapabilityQueue;
+  }
+
+  return getTemporalTaskQueue(byCapability[capability], env);
 }
 
 export function getTemporalRunWorkerEnabled(
@@ -160,6 +195,27 @@ export function getLangChainEmbeddingModel(defaultModel = "nomic-embed-text"): s
 export function getReplayMode(defaultMode = "passthrough"): string {
   const configured = process.env.SF_AI_REPLAY_MODE?.trim();
   return configured && configured.length > 0 ? configured : defaultMode;
+}
+
+export function getReplayDeterminismMode(
+  defaultMode: "observe" | "strict" = "observe",
+  env: NodeJS.ProcessEnv = process.env
+): "observe" | "strict" {
+  const configured = (env.SF_AI_REPLAY_MODE ?? "").trim().toLowerCase();
+  if (configured === "strict") {
+    return "strict";
+  }
+  if (configured === "observe") {
+    return "observe";
+  }
+  return defaultMode;
+}
+
+export function getReplayRequireLlmCacheHit(
+  defaultValue = false,
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  return parseBooleanEnv(env.SF_AI_REPLAY_REQUIRE_LLM_CACHE_HIT, defaultValue);
 }
 
 export function getRoleFromRuntimeEnv(): string | undefined {

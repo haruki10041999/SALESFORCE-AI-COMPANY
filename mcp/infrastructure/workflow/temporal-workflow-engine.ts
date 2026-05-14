@@ -19,6 +19,7 @@ import {
 
 export interface CreateTemporalWorkflowEngineOptions {
   fallbackEngine: WorkflowEngine;
+  allowFallbackToInProcess?: boolean;
   temporalAddress?: string;
   temporalNamespace?: string;
   taskQueue?: string;
@@ -52,6 +53,7 @@ export function createTemporalWorkflowEngine(
   options: CreateTemporalWorkflowEngineOptions
 ): WorkflowEngine {
   const { fallbackEngine } = options;
+  const allowFallbackToInProcess = options.allowFallbackToInProcess ?? true;
   const temporalAddress = options.temporalAddress ?? "localhost:7233";
   const temporalNamespace = options.temporalNamespace ?? "default";
   const taskQueue = options.taskQueue ?? "sfai-orchestration";
@@ -104,6 +106,20 @@ export function createTemporalWorkflowEngine(
       outcome: "fallback",
       fallbackReason: reason
     });
+  }
+
+  function buildTemporalUnavailableError(operation: string, reason: string): Error {
+    return new Error(
+      `Temporal workflow ${operation} failed (${reason}) and in-process fallback is disabled`
+    );
+  }
+
+  function assertFallbackAllowed(operation: string, reason: string): void {
+    if (allowFallbackToInProcess) {
+      return;
+    }
+    recordTemporalWorkflowOperationForPrometheus({ operation, outcome: "failed", fallbackReason: reason });
+    throw buildTemporalUnavailableError(operation, reason);
   }
 
   async function safeSignal(
@@ -190,6 +206,7 @@ export function createTemporalWorkflowEngine(
       }
 
       if (!temporalStarted) {
+        assertFallbackAllowed("start", temporal ? "start_failed" : "temporal_unavailable");
         recordFallback("start", temporal ? "start_failed" : "temporal_unavailable");
         await fallbackEngine.enqueue(input);
       }
@@ -204,6 +221,7 @@ export function createTemporalWorkflowEngine(
     async query(sessionId) {
       const handle = await getTemporalHandle(sessionId);
       if (!handle) {
+        assertFallbackAllowed("query", "temporal_unavailable");
         recordFallback("query", "temporal_unavailable");
         return {
           ...(await fallbackEngine.query(sessionId)),
@@ -219,6 +237,7 @@ export function createTemporalWorkflowEngine(
           mode: "temporal"
         };
       } catch {
+        assertFallbackAllowed("query", "query_failed");
         recordFallback("query", "query_failed");
         return {
           ...(await fallbackEngine.query(sessionId)),
@@ -234,11 +253,13 @@ export function createTemporalWorkflowEngine(
     async enqueue(input) {
       const handle = await getTemporalHandle(input.sessionId);
       if (!handle) {
+        assertFallbackAllowed("enqueue", "temporal_unavailable");
         recordFallback("enqueue", "temporal_unavailable");
         return fallbackEngine.enqueue(input);
       }
       const signaled = await safeSignal(input.sessionId, "enqueue", temporalWorkflowEnqueueSignal, input);
       if (signaled !== "success") {
+        assertFallbackAllowed("enqueue", signaled === "failed" ? "signal_failed" : "temporal_unavailable");
         recordFallback("enqueue", signaled === "failed" ? "signal_failed" : "temporal_unavailable");
         await fallbackEngine.enqueue(input);
       }
@@ -247,6 +268,7 @@ export function createTemporalWorkflowEngine(
     async signal(input) {
       const handle = await getTemporalHandle(input.sessionId);
       if (!handle) {
+        assertFallbackAllowed("signal", "temporal_unavailable");
         recordFallback("signal", "temporal_unavailable");
         return fallbackEngine.signal(input);
       }
@@ -258,6 +280,7 @@ export function createTemporalWorkflowEngine(
       };
       const signaled = await safeSignal(input.sessionId, "signal", temporalWorkflowSignalStep, temporalInput);
       if (signaled !== "success") {
+        assertFallbackAllowed("signal", signaled === "failed" ? "signal_failed" : "temporal_unavailable");
         recordFallback("signal", signaled === "failed" ? "signal_failed" : "temporal_unavailable");
         return fallbackEngine.signal(input);
       }
@@ -267,6 +290,7 @@ export function createTemporalWorkflowEngine(
     async retry(input) {
       const handle = await getTemporalHandle(input.sessionId);
       if (!handle) {
+        assertFallbackAllowed("retry", "temporal_unavailable");
         recordFallback("retry", "temporal_unavailable");
         return fallbackEngine.retry(input);
       }
@@ -279,6 +303,7 @@ export function createTemporalWorkflowEngine(
       };
       const signaled = await safeSignal(input.sessionId, "retry", temporalWorkflowRetryStep, temporalInput);
       if (signaled !== "success") {
+        assertFallbackAllowed("retry", signaled === "failed" ? "signal_failed" : "temporal_unavailable");
         recordFallback("retry", signaled === "failed" ? "signal_failed" : "temporal_unavailable");
         return fallbackEngine.retry(input);
       }
@@ -292,11 +317,13 @@ export function createTemporalWorkflowEngine(
     async markDequeued(sessionId, agent) {
       const handle = await getTemporalHandle(sessionId);
       if (!handle) {
+        assertFallbackAllowed("markDequeued", "temporal_unavailable");
         recordFallback("markDequeued", "temporal_unavailable");
         return fallbackEngine.markDequeued(sessionId, agent);
       }
       const signaled = await safeSignal(sessionId, "markDequeued", temporalWorkflowMarkDequeued, { sessionId, agent });
       if (signaled !== "success") {
+        assertFallbackAllowed("markDequeued", signaled === "failed" ? "signal_failed" : "temporal_unavailable");
         recordFallback("markDequeued", signaled === "failed" ? "signal_failed" : "temporal_unavailable");
         return fallbackEngine.markDequeued(sessionId, agent);
       }
@@ -306,6 +333,7 @@ export function createTemporalWorkflowEngine(
     async completeStep(input) {
       const handle = await getTemporalHandle(input.sessionId);
       if (!handle) {
+        assertFallbackAllowed("completeStep", "temporal_unavailable");
         recordFallback("completeStep", "temporal_unavailable");
         return fallbackEngine.completeStep(input);
       }
@@ -317,6 +345,7 @@ export function createTemporalWorkflowEngine(
       };
       const signaled = await safeSignal(input.sessionId, "completeStep", temporalWorkflowCompleteStep, temporalInput);
       if (signaled !== "success") {
+        assertFallbackAllowed("completeStep", signaled === "failed" ? "signal_failed" : "temporal_unavailable");
         recordFallback("completeStep", signaled === "failed" ? "signal_failed" : "temporal_unavailable");
         return fallbackEngine.completeStep(input);
       }
@@ -326,6 +355,7 @@ export function createTemporalWorkflowEngine(
     async failStep(input) {
       const handle = await getTemporalHandle(input.sessionId);
       if (!handle) {
+        assertFallbackAllowed("failStep", "temporal_unavailable");
         recordFallback("failStep", "temporal_unavailable");
         return fallbackEngine.failStep(input);
       }
@@ -337,6 +367,7 @@ export function createTemporalWorkflowEngine(
       };
       const signaled = await safeSignal(input.sessionId, "failStep", temporalWorkflowFailStep, temporalInput);
       if (signaled !== "success") {
+        assertFallbackAllowed("failStep", signaled === "failed" ? "signal_failed" : "temporal_unavailable");
         recordFallback("failStep", signaled === "failed" ? "signal_failed" : "temporal_unavailable");
         return fallbackEngine.failStep(input);
       }

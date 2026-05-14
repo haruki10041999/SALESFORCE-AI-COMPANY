@@ -37,10 +37,23 @@ export interface ObservabilityGovernanceFlagged {
   reason: string;
 }
 
+export interface ObservabilityLearningPromotion {
+  modelName: string;
+  stage: "shadow" | "canary" | "proposal_required" | "promoted" | "rolled_back" | "held";
+  action: "none" | "start_canary" | "queue_proposal" | "promote" | "rollback" | "reject_candidate";
+  reason: string;
+  candidateVersion?: string;
+  currentProductionVersion: string;
+  previousVersion?: string;
+  policySnapshotTag?: string;
+  occurredAt: string;
+}
+
 export interface ObservabilityInput {
   traces: ObservabilityTrace[];
   events: ObservabilityEvent[];
   governanceFlagged?: ObservabilityGovernanceFlagged[];
+  learningPromotions?: ObservabilityLearningPromotion[];
   /** タイムウィンドウ。trace endedAt から ±msEnvelope の event を関連付ける。デフォルト 5000ms */
   correlationWindowMs?: number;
   /** 出力件数の上限（直近 N 件）。デフォルト 50 */
@@ -55,6 +68,7 @@ export interface ObservabilitySummary {
   errorRate: number;
   eventCount: number;
   governanceFlaggedCount: number;
+  learningPromotionCount: number;
   topFailingTools: Array<{ toolName: string; failures: number }>;
 }
 
@@ -72,6 +86,7 @@ export interface ObservabilityReport {
   summary: ObservabilitySummary;
   correlations: ObservabilityCorrelation[];
   governanceFlagged: ObservabilityGovernanceFlagged[];
+  learningPromotions: ObservabilityLearningPromotion[];
   html: string;
   markdown: string;
 }
@@ -116,6 +131,7 @@ function buildSummary(input: ObservabilityInput): ObservabilitySummary {
     errorRate,
     eventCount: input.events.length,
     governanceFlaggedCount: input.governanceFlagged?.length ?? 0,
+    learningPromotionCount: input.learningPromotions?.length ?? 0,
     topFailingTools
   };
 }
@@ -162,7 +178,8 @@ function correlateEventsWithTraces(
 function renderMarkdown(
   summary: ObservabilitySummary,
   correlations: ObservabilityCorrelation[],
-  flagged: ObservabilityGovernanceFlagged[]
+  flagged: ObservabilityGovernanceFlagged[],
+  learningPromotions: ObservabilityLearningPromotion[]
 ): string {
   const lines: string[] = [];
   lines.push(`# Observability Dashboard`);
@@ -172,6 +189,7 @@ function renderMarkdown(
   lines.push(`- error rate: ${(summary.errorRate * 100).toFixed(1)}%`);
   lines.push(`- events: ${summary.eventCount}`);
   lines.push(`- governance flagged: ${summary.governanceFlaggedCount}`);
+  lines.push(`- learning promotions: ${summary.learningPromotionCount}`);
   lines.push("");
 
   if (summary.topFailingTools.length > 0) {
@@ -188,6 +206,18 @@ function renderMarkdown(
     lines.push("");
     for (const f of flagged) {
       lines.push(`- [${f.resourceType}] ${f.name} — ${f.reason}`);
+    }
+    lines.push("");
+  }
+
+  if (learningPromotions.length > 0) {
+    lines.push(`## Learning Promotion History`);
+    lines.push("");
+    for (const promotion of learningPromotions) {
+      lines.push(
+        `- ${promotion.occurredAt} [${promotion.modelName}] stage=${promotion.stage}, action=${promotion.action}, current=${promotion.currentProductionVersion}${promotion.candidateVersion ? `, candidate=${promotion.candidateVersion}` : ""}${promotion.policySnapshotTag ? `, snapshot=${promotion.policySnapshotTag}` : ""}`
+      );
+      lines.push(`  - reason: ${promotion.reason}`);
     }
     lines.push("");
   }
@@ -216,7 +246,8 @@ function renderMarkdown(
 function renderHtml(
   summary: ObservabilitySummary,
   correlations: ObservabilityCorrelation[],
-  flagged: ObservabilityGovernanceFlagged[]
+  flagged: ObservabilityGovernanceFlagged[],
+  learningPromotions: ObservabilityLearningPromotion[]
 ): string {
   const correlationRows = correlations
     .map((c) => {
@@ -244,6 +275,12 @@ function renderHtml(
 
   const failingRows = summary.topFailingTools
     .map((t) => `<tr><td>${escapeHtml(t.toolName)}</td><td>${t.failures}</td></tr>`)
+    .join("");
+
+  const promotionRows = learningPromotions
+    .map(
+      (p) => `<tr><td>${escapeHtml(p.occurredAt)}</td><td>${escapeHtml(p.modelName)}</td><td>${escapeHtml(p.stage)}</td><td>${escapeHtml(p.action)}</td><td>${escapeHtml(p.currentProductionVersion)}</td><td>${escapeHtml(p.candidateVersion ?? "")}</td><td>${escapeHtml(p.policySnapshotTag ?? "")}</td><td>${escapeHtml(p.reason)}</td></tr>`
+    )
     .join("");
 
   return `<!doctype html>
@@ -274,6 +311,7 @@ ul { margin: 0; padding-left: 1.2rem; }
   <span class="kpi">Error rate: <b>${(summary.errorRate * 100).toFixed(1)}%</b></span>
   <span class="kpi">Events: <b>${summary.eventCount}</b></span>
   <span class="kpi">Flagged: <b>${summary.governanceFlaggedCount}</b></span>
+  <span class="kpi">Learning promotions: <b>${summary.learningPromotionCount}</b></span>
 </div>
 <h2>Top Failing Tools</h2>
 <table>
@@ -284,6 +322,11 @@ ul { margin: 0; padding-left: 1.2rem; }
 <table>
   <thead><tr><th>Type</th><th>Name</th><th>Reason</th></tr></thead>
   <tbody>${flaggedRows || "<tr><td colspan='3'>(none)</td></tr>"}</tbody>
+</table>
+<h2>Learning Promotion History</h2>
+<table>
+  <thead><tr><th>OccurredAt</th><th>Model</th><th>Stage</th><th>Action</th><th>Current</th><th>Candidate</th><th>Snapshot Tag</th><th>Reason</th></tr></thead>
+  <tbody>${promotionRows || "<tr><td colspan='8'>(none)</td></tr>"}</tbody>
 </table>
 <h2>Recent Trace Correlations</h2>
 <table>
@@ -303,7 +346,8 @@ export function buildObservabilityDashboard(input: ObservabilityInput): Observab
   const summary = buildSummary(input);
   const correlations = correlateEventsWithTraces(input);
   const flagged = input.governanceFlagged ?? [];
-  const markdown = renderMarkdown(summary, correlations, flagged);
-  const html = renderHtml(summary, correlations, flagged);
-  return { summary, correlations, governanceFlagged: flagged, html, markdown };
+  const learningPromotions = input.learningPromotions ?? [];
+  const markdown = renderMarkdown(summary, correlations, flagged, learningPromotions);
+  const html = renderHtml(summary, correlations, flagged, learningPromotions);
+  return { summary, correlations, governanceFlagged: flagged, learningPromotions, html, markdown };
 }

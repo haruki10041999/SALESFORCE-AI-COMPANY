@@ -5,6 +5,7 @@ import type { SystemEventType } from "../../../event/event-dispatcher.js";
 import type { ChatPreset, CustomToolDefinition, ResourceOperation } from "../../../types/index.js";
 import { evaluateCascadeDeletion, renderCascadeImpactMarkdown, type CascadeMode } from "../../../resource/cascading-delete.js";
 import type { OutputsPort } from "../../../ports/outputs-port.js";
+import { withContextOutputsPort } from "../../../runtime/with-context.js";
 import { LocalOutputsAdapter } from "../../../../infrastructure/outputs/local-outputs-adapter.js";
 
 type GovernanceActionType = "create" | "delete" | "disable" | "enable";
@@ -393,7 +394,7 @@ export async function executeApplyResourceActions(args: {
   }
 
   const auditFile = join(dirname(args.governanceFile), "audit", "resource-actions.jsonl");
-  const outputsPort = args.outputsPort ?? new LocalOutputsAdapter({ outputsDir: dirname(args.governanceFile) });
+  const outputsPort = withContextOutputsPort(args.outputsPort ?? new LocalOutputsAdapter({ outputsDir: dirname(args.governanceFile) }));
   try {
     const timestamp = new Date().toISOString();
     const records = results.map((result) => ({

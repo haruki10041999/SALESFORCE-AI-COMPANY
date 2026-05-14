@@ -4,13 +4,15 @@ import {
   executeListOrchestrationSessionsTool
 } from "../../core/application/chat/services/chat-orchestration-session-tools.js";
 import type { SessionStore } from "../../core/persistence/session-store.js";
+import type { WorkflowEventProjectionSummary } from "../../infrastructure/workflow/temporal-workflow-event-projection.js";
 
 export interface DefineListOrchestrationSessionsDeps extends RegisterGovToolDeps {
   sessionStore: SessionStore;
+  getWorkflowEventProjection: (sessionId: string) => Promise<WorkflowEventProjectionSummary | undefined>;
 }
 
 export function defineListOrchestrationSessionsTool(deps: DefineListOrchestrationSessionsDeps): void {
-  const { govTool, sessionStore } = deps;
+  const { govTool, sessionStore, getWorkflowEventProjection } = deps;
 
   govTool(
     "list_orchestration_sessions",
@@ -21,7 +23,8 @@ export function defineListOrchestrationSessionsTool(deps: DefineListOrchestratio
     },
     async () => {
       const sessions = await executeListOrchestrationSessionsTool({
-        listSessions: () => sessionStore.list()
+        listSessions: () => sessionStore.list(),
+        getWorkflowEventProjection
       });
 
       return {

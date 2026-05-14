@@ -1,4 +1,4 @@
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { getOrCreatePgPool, releasePgPoolKey } from "./pg-pool-registry.js";
 import { currentTenantId } from "../identity/tenant-context.js";
 import {
@@ -6,21 +6,27 @@ import {
   type DomainEvent,
   type EventHandler,
   type EventStore,
+  type OutboxCapableEventStore,
   type ReadEventsOptions,
   type StoredEvent,
   type SubscribeOptions,
   OptimisticConcurrencyError
 } from "../ports/event-store.js";
+import type { OutboxEnqueueInput, OutboxPort } from "../ports/outbox-port.js";
+import { createPostgresUnitOfWork } from "./unit-of-work.js";
+import { EventSchemaRegistry } from "../event/schema-registry.js";
+import { DOMAIN_EVENT_SCHEMA_REGISTRY } from "../../domain/events/index.js";
 
 export interface PostgresEventStoreOptions {
   databaseUrl: string;
 }
 
-export class PostgresEventStore implements EventStore {
+export class PostgresEventStore implements EventStore, OutboxCapableEventStore {
   private readonly pool: Pool;
   private readonly poolKey: string;
   private schemaReady = false;
   private readonly subscribers: Array<{ handler: EventHandler; options: SubscribeOptions }> = [];
+  private readonly schemaRegistry = new EventSchemaRegistry(DOMAIN_EVENT_SCHEMA_REGISTRY);
 
   private constructor(pool: Pool, poolKey: string) {
     this.pool = pool;
@@ -73,71 +79,31 @@ export class PostgresEventStore implements EventStore {
 
   async append(input: AppendEventInput): Promise<StoredEvent> {
     await this.ensureSchema();
-    const tenantId = input.tenantId ?? currentTenantId() ?? null;
-    const occurredAt = input.occurredAt ?? new Date().toISOString();
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
+    const unitOfWork = createPostgresUnitOfWork(this.pool);
+    const stored = await unitOfWork.runInTransaction(async (client) => this.appendWithClient(client, input));
 
-      // Read current max version under lock to enforce optimistic concurrency.
-      const versionResult = await client.query<{ max_version: number | null }>(
-        `SELECT MAX(version) AS max_version FROM event_store
-         WHERE stream_id = $1 FOR UPDATE`,
-        [input.streamId]
-      );
-      const currentVersion = versionResult.rows[0]?.max_version ?? -1;
-      if (currentVersion !== input.expectedVersion - 1) {
-        await client.query("ROLLBACK");
-        throw new OptimisticConcurrencyError(input.streamId, input.expectedVersion, currentVersion + 1);
+    // Notify in-process subscribers (best-effort, never blocks the caller).
+    this.notifySubscribers(stored);
+    return stored;
+  }
+
+  async appendWithOutbox(
+    input: AppendEventInput,
+    outbox: Pick<OutboxPort, "enqueue">,
+    messages: OutboxEnqueueInput[]
+  ): Promise<StoredEvent> {
+    await this.ensureSchema();
+    const unitOfWork = createPostgresUnitOfWork(this.pool);
+    const stored = await unitOfWork.runInTransaction(async (client) => {
+      const event = await this.appendWithClient(client, input);
+      for (const message of messages) {
+        await outbox.enqueue(message, { tx: client });
       }
+      return event;
+    });
 
-      const insertResult = await client.query<{
-        id: number;
-        global_seq: number;
-        occurred_at: Date | string;
-      }>(
-        `INSERT INTO event_store
-           (stream_id, event_type, version, tenant_id, actor_id, payload, occurred_at, status)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz, 'active')
-         RETURNING id, global_seq, occurred_at`,
-        [
-          input.streamId,
-          input.eventType,
-          input.expectedVersion,
-          tenantId,
-          input.actorId ?? null,
-          JSON.stringify(input.payload),
-          occurredAt
-        ]
-      );
-      await client.query("COMMIT");
-
-      const row = insertResult.rows[0]!;
-      const stored: StoredEvent = {
-        id: Number(row.id),
-        globalSeq: Number(row.global_seq),
-        streamId: input.streamId,
-        eventType: input.eventType,
-        version: input.expectedVersion,
-        tenantId,
-        actorId: input.actorId,
-        payload: input.payload,
-        occurredAt:
-          row.occurred_at instanceof Date
-            ? row.occurred_at.toISOString()
-            : String(row.occurred_at),
-        status: "active"
-      };
-
-      // Notify in-process subscribers (best-effort, never blocks the caller).
-      this.notifySubscribers(stored);
-      return stored;
-    } catch (err) {
-      await client.query("ROLLBACK").catch(() => {});
-      throw err;
-    } finally {
-      client.release();
-    }
+    this.notifySubscribers(stored);
+    return stored;
   }
 
   async read(streamId: string, options: ReadEventsOptions = {}): Promise<StoredEvent[]> {
@@ -216,6 +182,10 @@ export class PostgresEventStore implements EventStore {
     occurred_at: Date | string;
     status: string;
   }): StoredEvent {
+    const rawPayload = (typeof r.payload === "string"
+      ? JSON.parse(r.payload)
+      : r.payload ?? {}) as Record<string, unknown>;
+    const migratedPayload = this.schemaRegistry.migrateForRead(r.event_type, rawPayload);
     return {
       id: Number(r.id),
       globalSeq: Number(r.global_seq),
@@ -224,12 +194,68 @@ export class PostgresEventStore implements EventStore {
       version: Number(r.version),
       tenantId: r.tenant_id,
       actorId: r.actor_id ?? undefined,
-      payload: (typeof r.payload === "string"
-        ? JSON.parse(r.payload)
-        : r.payload ?? {}) as Record<string, unknown>,
+      payload: migratedPayload,
       occurredAt:
         r.occurred_at instanceof Date ? r.occurred_at.toISOString() : String(r.occurred_at),
       status: r.status === "tombstoned" ? "tombstoned" : "active"
+    };
+  }
+
+  private async appendWithClient(
+    client: { query: PoolClient["query"] },
+    input: AppendEventInput
+  ): Promise<StoredEvent> {
+      const validatedPayload = this.schemaRegistry.validateForAppend(input.eventType, input.payload);
+
+    const tenantId = input.tenantId ?? currentTenantId() ?? null;
+    const occurredAt = input.occurredAt ?? new Date().toISOString();
+
+    // Read current max version under lock to enforce optimistic concurrency.
+    const versionResult = await client.query<{ max_version: number | null }>(
+      `SELECT MAX(version) AS max_version FROM event_store
+       WHERE stream_id = $1 FOR UPDATE`,
+      [input.streamId]
+    );
+    const currentVersion = versionResult.rows[0]?.max_version ?? -1;
+    if (currentVersion !== input.expectedVersion - 1) {
+      throw new OptimisticConcurrencyError(input.streamId, input.expectedVersion, currentVersion + 1);
+    }
+
+    const insertResult = await client.query<{
+      id: number;
+      global_seq: number;
+      occurred_at: Date | string;
+    }>(
+      `INSERT INTO event_store
+         (stream_id, event_type, version, tenant_id, actor_id, payload, occurred_at, status)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz, 'active')
+       RETURNING id, global_seq, occurred_at`,
+      [
+        input.streamId,
+        input.eventType,
+        input.expectedVersion,
+        tenantId,
+        input.actorId ?? null,
+        JSON.stringify(validatedPayload),
+        occurredAt
+      ]
+    );
+
+    const row = insertResult.rows[0]!;
+    return {
+      id: Number(row.id),
+      globalSeq: Number(row.global_seq),
+      streamId: input.streamId,
+      eventType: input.eventType,
+      version: input.expectedVersion,
+      tenantId,
+      actorId: input.actorId,
+      payload: validatedPayload,
+      occurredAt:
+        row.occurred_at instanceof Date
+          ? row.occurred_at.toISOString()
+          : String(row.occurred_at),
+      status: "active"
     };
   }
 

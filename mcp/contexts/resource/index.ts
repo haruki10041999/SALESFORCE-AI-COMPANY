@@ -1,8 +1,6 @@
 /**
- * Resource Bounded Context — public API barrel (scaffolded)
- *
- * Status: scaffolded — files still reside in mcp/core/resource/.
+ * Resource Bounded Context — public API barrel
  */
-
-export * from "../../core/resource/resource-selector.js";
-export * from "../../core/resource/skill-rating.js";
+export * from "./application/index.js";
+export * from "./domain/index.js";
+export * from "./infrastructure/index.js";

@@ -1315,6 +1315,30 @@ test("Observability Dashboard - includes governance flagged rows", () => {
   assert.ok(r.html.includes("buggy-tool"));
 });
 
+test("Observability Dashboard - includes learning promotion history", () => {
+  const r = buildObservabilityDashboard({
+    traces: [],
+    events: [],
+    learningPromotions: [
+      {
+        modelName: "ranker",
+        stage: "promoted",
+        action: "promote",
+        reason: "policy-satisfied",
+        candidateVersion: "v2",
+        currentProductionVersion: "v2",
+        previousVersion: "v1",
+        policySnapshotTag: "policy-snapshot:ranker@v2",
+        occurredAt: "2026-05-14T00:00:00.000Z"
+      }
+    ]
+  });
+  assert.equal(r.summary.learningPromotionCount, 1);
+  assert.equal(r.learningPromotions.length, 1);
+  assert.ok(r.markdown.includes("Learning Promotion History"));
+  assert.ok(r.html.includes("policy-snapshot:ranker@v2"));
+});
+
 // ============================================================================
 // Model Registry Tests (TASK-045)
 // ============================================================================

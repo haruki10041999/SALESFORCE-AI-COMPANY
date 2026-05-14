@@ -35,6 +35,10 @@ export interface ReplayTimelineResult {
   sessionId: string;
   streams: ReplayStream[];
   events: ReplayEvent[];
+  replay: {
+    mode: "observe" | "strict";
+    requireLlmCacheHit: boolean;
+  };
 }
 
 export interface ReplayDiffEntry {
@@ -48,10 +52,16 @@ export interface ReplayDiffEntry {
 export interface ReplayDiffResult {
   streamId: string;
   diffs: ReplayDiffEntry[];
+  replay: {
+    mode: "observe" | "strict";
+    requireLlmCacheHit: boolean;
+  };
 }
 
 export interface ReplayReaderOptions {
   databaseUrl: string;
+  replayMode?: "observe" | "strict";
+  requireLlmCacheHit?: boolean;
 }
 
 function diffPayloads(
@@ -95,10 +105,21 @@ function rowToEvent(row: Record<string, unknown>): ReplayEvent {
 export class ReplayReader {
   private readonly pool: Pool;
   private readonly poolKey: string;
+  private readonly replayMode: "observe" | "strict";
+  private readonly requireLlmCacheHit: boolean;
 
   constructor(options: ReplayReaderOptions) {
     this.poolKey = `replay-reader:${options.databaseUrl}`;
     this.pool = getOrCreatePgPool(this.poolKey, options.databaseUrl);
+    this.replayMode = options.replayMode ?? "observe";
+    this.requireLlmCacheHit = options.requireLlmCacheHit ?? false;
+  }
+
+  getReplaySettings(): { mode: "observe" | "strict"; requireLlmCacheHit: boolean } {
+    return {
+      mode: this.replayMode,
+      requireLlmCacheHit: this.requireLlmCacheHit
+    };
   }
 
   /**
@@ -245,7 +266,12 @@ export class ReplayReader {
       lastAt: s.last,
     }));
 
-    return { sessionId, streams, events };
+    return {
+      sessionId,
+      streams,
+      events,
+      replay: this.getReplaySettings()
+    };
   }
 
   /**
@@ -272,7 +298,11 @@ export class ReplayReader {
       prev = { ...prev, ...ev.payload };
     }
 
-    return { streamId, diffs };
+    return {
+      streamId,
+      diffs,
+      replay: this.getReplaySettings()
+    };
   }
 
   static create(options: ReplayReaderOptions): ReplayReader {

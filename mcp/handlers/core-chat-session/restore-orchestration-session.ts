@@ -4,14 +4,18 @@ import {
   executeRestoreOrchestrationSessionTool
 } from "../../core/application/chat/services/chat-orchestration-session-tools.js";
 import type { SessionStore } from "../../core/persistence/session-store.js";
+import type { OrchestrationSession } from "../../core/types/index.js";
+import type { WorkflowEventProjectionSummary } from "../../infrastructure/workflow/temporal-workflow-event-projection.js";
 
 export interface DefineRestoreOrchestrationSessionDeps extends RegisterGovToolDeps {
   sessionStore: SessionStore;
-  liveSessionCache: Map<string, any>;
+  liveSessionCache: Map<string, OrchestrationSession | undefined>;
+  getSessionOrRestore: (sessionId: string) => Promise<OrchestrationSession | undefined>;
+  getWorkflowEventProjection: (sessionId: string) => Promise<WorkflowEventProjectionSummary | undefined>;
 }
 
 export function defineRestoreOrchestrationSessionTool(deps: DefineRestoreOrchestrationSessionDeps): void {
-  const { govTool, sessionStore, liveSessionCache } = deps;
+  const { govTool, getSessionOrRestore, liveSessionCache, getWorkflowEventProjection } = deps;
 
   govTool(
     "restore_orchestration_session",
@@ -25,7 +29,8 @@ export function defineRestoreOrchestrationSessionTool(deps: DefineRestoreOrchest
     async ({ sessionId }: { sessionId: string }) => {
       const result = await executeRestoreOrchestrationSessionTool({
         sessionId,
-        getById: (targetSessionId) => sessionStore.getById(targetSessionId),
+        getById: async (targetSessionId) => (await getSessionOrRestore(targetSessionId)) ?? null,
+        getWorkflowEventProjection,
         setLiveSession: (targetSessionId, session) => {
           liveSessionCache.set(targetSessionId, session);
         }

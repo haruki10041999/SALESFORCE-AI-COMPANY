@@ -16,7 +16,7 @@ test("applyRuntimeProfile enforces local preset in strict mode", () => {
     SF_AI_PROFILE_STRICT: "true",
     SF_AI_STATE_BACKEND: "postgres",
     SF_AI_PROPOSAL_QUEUE_BACKEND: "pg-boss",
-    SF_AI_VECTOR_BACKEND: "pgvector"
+    SF_AI_VECTOR_BACKEND: "tfidf"
   };
 
   const result = applyRuntimeProfile(env);
@@ -24,7 +24,7 @@ test("applyRuntimeProfile enforces local preset in strict mode", () => {
   assert.equal(result.profile, "local");
   assert.equal(env.SF_AI_STATE_BACKEND, "sqlite");
   assert.equal(env.SF_AI_PROPOSAL_QUEUE_BACKEND, "file");
-  assert.equal(env.SF_AI_VECTOR_BACKEND, "tfidf");
+  assert.equal(env.SF_AI_VECTOR_BACKEND, "pgvector");
   assert.ok(result.overridden.includes("SF_AI_STATE_BACKEND"));
 });
 

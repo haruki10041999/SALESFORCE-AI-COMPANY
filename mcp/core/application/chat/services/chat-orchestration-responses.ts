@@ -1,6 +1,11 @@
 import type { OrchestrationSession } from "../../../types/index.js";
+import type { WorkflowEventProjectionSummary } from "../../../../infrastructure/workflow/temporal-workflow-event-projection.js";
 
-export function buildGetOrchestrationSessionResponse(session: OrchestrationSession): Record<string, unknown> {
+export function buildGetOrchestrationSessionResponse(args: {
+  session: OrchestrationSession;
+  workflowEventProjection?: WorkflowEventProjectionSummary;
+}): Record<string, unknown> {
+  const { session, workflowEventProjection } = args;
   return {
     id: session.id,
     topic: session.topic,
@@ -8,7 +13,8 @@ export function buildGetOrchestrationSessionResponse(session: OrchestrationSessi
     queue: session.queue,
     triggerRules: session.triggerRules,
     historyCount: session.history.length,
-    firedRuleCount: session.firedRules.length
+    firedRuleCount: session.firedRules.length,
+    workflowEventProjection
   };
 }
 
@@ -26,13 +32,22 @@ export function buildSaveOrchestrationSessionResponse(args: {
 }
 
 export function buildRestoreOrchestrationSessionResponse(session: OrchestrationSession): Record<string, unknown> {
+  return buildRestoreOrchestrationSessionResponseWithProjection({ session });
+}
+
+export function buildRestoreOrchestrationSessionResponseWithProjection(args: {
+  session: OrchestrationSession;
+  workflowEventProjection?: WorkflowEventProjectionSummary;
+}): Record<string, unknown> {
+  const { session, workflowEventProjection } = args;
   return {
     restored: true,
     id: session.id,
     topic: session.topic,
     queueLength: session.queue.length,
     historyCount: session.history.length,
-    firedRuleCount: session.firedRules.length
+    firedRuleCount: session.firedRules.length,
+    workflowEventProjection
   };
 }
 

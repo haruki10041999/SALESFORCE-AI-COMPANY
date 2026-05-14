@@ -22,6 +22,7 @@ export interface DangerousActionEntry {
   riskLevel: DangerousActionRisk;
   description: string;
   requiresApproval: boolean;
+  requiresSaga?: boolean;
   requiredRole?: string;
 }
 
@@ -37,7 +38,8 @@ export const DANGEROUS_ACTIONS: DangerousActionEntry[] = [
     actionType: "wipe",
     riskLevel: "critical",
     description: "Erases all project memory — irreversible without a backup.",
-    requiresApproval: true
+    requiresApproval: true,
+    requiresSaga: true
   },
   // --- Resource governance ---
   {
@@ -45,14 +47,16 @@ export const DANGEROUS_ACTIONS: DangerousActionEntry[] = [
     actionType: "delete",
     riskLevel: "high",
     description: "Bulk-delete of governed resources (skills/tools/presets).",
-    requiresApproval: true
+    requiresApproval: true,
+    requiresSaga: true
   },
   {
     toolName: "apply_resource_actions",
     actionType: "disable_all",
     riskLevel: "critical",
     description: "Disable all tools simultaneously — shuts down all AI capabilities.",
-    requiresApproval: true
+    requiresApproval: true,
+    requiresSaga: true
   },
   // --- Org management ---
   {
@@ -60,7 +64,8 @@ export const DANGEROUS_ACTIONS: DangerousActionEntry[] = [
     actionType: "delete",
     riskLevel: "critical",
     description: "Permanently remove an org record and all associated data.",
-    requiresApproval: true
+    requiresApproval: true,
+    requiresSaga: true
   },
   {
     toolName: "deploy_org",
@@ -68,6 +73,7 @@ export const DANGEROUS_ACTIONS: DangerousActionEntry[] = [
     riskLevel: "high",
     description: "Deploy metadata to a production Salesforce org.",
     requiresApproval: true,
+    requiresSaga: true,
     requiredRole: "release-manager"
   },
   // --- Sessions ---

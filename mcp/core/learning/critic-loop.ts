@@ -12,6 +12,7 @@ import type { QualityCriterion } from "../llm/quality-rubric.js";
 import { createFileProposalQueueStore, type ProposalQueueStore } from "../resource/proposal/proposal-queue-store.js";
 import type { CritiqueNextAction, CritiqueRecord } from "../ports/critic.js";
 import type { NewProposalInput } from "../resource/proposal/queue.js";
+import { withContextOutputsPort } from "../runtime/with-context.js";
 
 export interface CritiqueLifecycleInput {
   response: string;
@@ -144,7 +145,7 @@ export async function executeCritiqueLifecycle(
   };
   critiqueResult.proposalDraft = buildProposalDraft(critiqueResult);
 
-  const outputsPort = new LocalOutputsAdapter({ outputsDir: resolve(getOutputsDir()) });
+  const outputsPort = withContextOutputsPort(new LocalOutputsAdapter({ outputsDir: resolve(getOutputsDir()) }));
   await outputsPort.appendEvent("learning/critic-runs.jsonl", critiqueResult);
 
   if (critiqueResult.nextAction === "proposal") {

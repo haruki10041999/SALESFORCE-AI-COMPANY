@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { z } from "zod";
-import { currentActor } from "../../core/identity/actor-context.js";
+import { currentActor } from "../../contexts/identity/index.js";
 import { DEFAULT_GOVERNANCE_CONFIG } from "../../core/governance/defaults.js";
 import { loadProposalFeedbackModel } from "../../core/resource/proposal-feedback.js";
 import {

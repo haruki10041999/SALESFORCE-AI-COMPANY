@@ -70,6 +70,26 @@ export interface EventStore {
   tombstone(id: number): Promise<void>;
 }
 
+export interface OutboxCapableEventStore extends EventStore {
+  appendWithOutbox(input: AppendEventInput, outbox: {
+    enqueue: (input: {
+      topic: string;
+      payload: Record<string, unknown>;
+      dedupeKey?: string;
+      availableAt?: string;
+      maxAttempts?: number;
+      headers?: Record<string, unknown>;
+    }, options?: { tx?: unknown }) => Promise<unknown>;
+  }, messages: Array<{
+    topic: string;
+    payload: Record<string, unknown>;
+    dedupeKey?: string;
+    availableAt?: string;
+    maxAttempts?: number;
+    headers?: Record<string, unknown>;
+  }>): Promise<StoredEvent>;
+}
+
 export class OptimisticConcurrencyError extends Error {
   constructor(
     public readonly streamId: string,

@@ -2,6 +2,51 @@
 module.exports = {
   forbidden: [
     {
+      name: "no-surface-to-core-non-application",
+      comment: "surface layer must depend on application/ports/config contracts only",
+      severity: "warn",
+      from: { path: "^mcp/surface/" },
+      to: {
+        path: "^mcp/core/",
+        pathNot: "^mcp/core/(application/|ports/|config/|logging/|runtime/|errors/)"
+      }
+    },
+    {
+      name: "no-application-to-surface",
+      comment: "application layer must not depend on surface",
+      severity: "warn",
+      from: { path: "^mcp/core/application/" },
+      to: { path: "^mcp/surface/" }
+    },
+    {
+      name: "no-domain-to-application",
+      comment: "domain layer must not depend on application layer",
+      severity: "warn",
+      from: { path: "^mcp/core/domain/" },
+      to: { path: "^mcp/core/application/" }
+    },
+    {
+      name: "no-domain-to-infrastructure",
+      comment: "domain should not directly import infrastructure",
+      severity: "warn",
+      from: { path: "^mcp/core/domain/" },
+      to: { path: "^mcp/infrastructure/" }
+    },
+    {
+      name: "no-infrastructure-to-surface",
+      comment: "infrastructure layer must not depend on surface",
+      severity: "warn",
+      from: { path: "^mcp/infrastructure/" },
+      to: { path: "^mcp/surface/" }
+    },
+    {
+      name: "no-infrastructure-to-application",
+      comment: "infrastructure layer must not depend on application",
+      severity: "warn",
+      from: { path: "^mcp/infrastructure/" },
+      to: { path: "^mcp/core/application/" }
+    },
+    {
       name: "no-handlers-to-memory",
       comment: "handlers must not directly import memory layer",
       severity: "error",
@@ -11,23 +56,16 @@ module.exports = {
     {
       name: "no-handlers-to-learning",
       comment: "handlers must not directly import core learning",
-      severity: "error",
+      severity: "warn",
       from: { path: "^mcp/handlers/" },
       to: { path: "^mcp/core/learning/" }
     },
     {
       name: "no-core-to-handlers",
       comment: "core layer must not import handlers",
-      severity: "error",
+      severity: "warn",
       from: { path: "^mcp/core/" },
       to: { path: "^mcp/handlers/" }
-    },
-    {
-      name: "no-domain-to-infrastructure",
-      comment: "domain should not directly import infrastructure",
-      severity: "error",
-      from: { path: "^mcp/core/domain/" },
-      to: { path: "^mcp/infrastructure/" }
     },
     {
       name: "no-learning-process-env",

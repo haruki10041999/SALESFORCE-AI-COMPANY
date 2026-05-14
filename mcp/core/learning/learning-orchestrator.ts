@@ -1,4 +1,5 @@
-import type { EventStore } from "../ports/event-store.js";
+import type { EventStore, OutboxCapableEventStore } from "../ports/event-store.js";
+import type { OutboxPort } from "../ports/outbox-port.js";
 import type { DriftReport } from "./drift-detector.js";
 import {
   clearShadowVersion,
@@ -12,6 +13,7 @@ import {
 } from "./model-registry.js";
 import type { ArbitrationPolicy, ArbitrationDecision } from "./model-arbitration.js";
 import type { NewProposalInput, ProposalRecord } from "../resource/proposal/queue.js";
+import { LEARNING_EVENT_TYPES } from "../../domain/events/learning-event-types.js";
 
 export type LearningStage = "shadow" | "canary" | "proposal_required" | "promoted" | "rolled_back" | "held";
 export type LearningAction = "none" | "start_canary" | "queue_proposal" | "promote" | "rollback" | "reject_candidate";
@@ -35,8 +37,13 @@ export interface LearningOrchestratorInput {
 
 export interface LearningOrchestratorDeps {
   eventStore?: EventStore;
+  outboxPort?: OutboxPort;
   queueProposal?: (input: NewProposalInput) => Promise<ProposalRecord>;
   now?: () => Date;
+}
+
+function isOutboxCapableEventStore(eventStore: EventStore): eventStore is OutboxCapableEventStore {
+  return typeof (eventStore as OutboxCapableEventStore).appendWithOutbox === "function";
 }
 
 export interface LearningOrchestratorResult {
@@ -56,6 +63,7 @@ export interface LearningOrchestratorResult {
 
 async function appendLearningEvent(
   eventStore: EventStore | undefined,
+  outboxPort: OutboxPort | undefined,
   modelName: string,
   eventType: string,
   payload: Record<string, unknown>,
@@ -64,13 +72,37 @@ async function appendLearningEvent(
   if (!eventStore) return false;
   const streamId = `learning-orchestrator:${modelName}`;
   const existing = await eventStore.read(streamId, { limit: 1000 });
-  await eventStore.append({
+  const appendInput = {
     streamId,
     eventType,
     expectedVersion: existing.length,
     actorId,
     payload
-  });
+  };
+
+  if (outboxPort && isOutboxCapableEventStore(eventStore)) {
+    await eventStore.appendWithOutbox(appendInput, outboxPort, [
+      {
+        topic: LEARNING_EVENT_TYPES.eventAppended,
+        dedupeKey: `${streamId}:${existing.length}`,
+        payload: {
+          streamId,
+          eventType,
+          version: existing.length,
+          actorId: actorId ?? null,
+          payload
+        },
+        headers: {
+          streamId,
+          eventType,
+          actorId: actorId ?? null
+        }
+      }
+    ]);
+    return true;
+  }
+
+  await eventStore.append(appendInput);
   return true;
 }
 
@@ -120,8 +152,9 @@ export async function runLearningOrchestrator(
       const rolledBack = rollback(input.registry, input.modelName);
       const eventRecorded = await appendLearningEvent(
         deps.eventStore,
+        deps.outboxPort,
         input.modelName,
-        "learning.rollback.triggered",
+        LEARNING_EVENT_TYPES.rollbackTriggered,
         {
           from: rolledBack.from,
           to: rolledBack.to,
@@ -176,8 +209,9 @@ export async function runLearningOrchestrator(
     clearShadowVersion(input.registry, input.modelName, candidateVersion);
     const eventRecorded = await appendLearningEvent(
       deps.eventStore,
+      deps.outboxPort,
       input.modelName,
-      "learning.candidate.rejected",
+      LEARNING_EVENT_TYPES.candidateRejected,
       { candidateVersion, productionVersion: entry.productionVersion },
       input.actorId
     );
@@ -197,8 +231,9 @@ export async function runLearningOrchestrator(
   if (!input.currentCanaryVersion || input.currentCanaryVersion !== candidateVersion) {
     const eventRecorded = await appendLearningEvent(
       deps.eventStore,
+      deps.outboxPort,
       input.modelName,
-      "learning.canary.started",
+      LEARNING_EVENT_TYPES.canaryStarted,
       {
         candidateVersion,
         productionVersion: entry.productionVersion,
@@ -234,8 +269,9 @@ export async function runLearningOrchestrator(
       : undefined;
     const eventRecorded = await appendLearningEvent(
       deps.eventStore,
+      deps.outboxPort,
       input.modelName,
-      "learning.promotion.proposal-requested",
+      LEARNING_EVENT_TYPES.promotionProposalRequested,
       {
         candidateVersion,
         productionVersion: entry.productionVersion,
@@ -274,8 +310,9 @@ export async function runLearningOrchestrator(
   const promoted = promoteShadow(input.registry, input.modelName, candidateVersion);
   const eventRecorded = await appendLearningEvent(
     deps.eventStore,
+    deps.outboxPort,
     input.modelName,
-    "learning.promoted",
+    LEARNING_EVENT_TYPES.promoted,
     {
       previousVersion: promoted.previous,
       currentVersion: promoted.current,

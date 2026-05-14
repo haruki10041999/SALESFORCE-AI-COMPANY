@@ -12,9 +12,16 @@ interface ReplayRecord {
   outputJson: Record<string, unknown>;
 }
 
-function parseArgs(argv: string[]): { sessionId?: string; outputsDir: string } {
+function parseArgs(argv: string[]): {
+  sessionId?: string;
+  outputsDir: string;
+  replayMode: "observe" | "strict";
+  requireLlmCacheHit: boolean;
+} {
   let sessionId: string | undefined;
   let outputsDir = resolve(process.cwd(), "outputs");
+  let replayMode: "observe" | "strict" = "observe";
+  let requireLlmCacheHit = false;
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (token === "--session") {
@@ -25,13 +32,22 @@ function parseArgs(argv: string[]): { sessionId?: string; outputsDir: string } {
     if (token === "--outputs-dir") {
       outputsDir = resolve(argv[index + 1]);
       index += 1;
+      continue;
+    }
+    if (token === "--replay-mode") {
+      replayMode = argv[index + 1] === "strict" ? "strict" : "observe";
+      index += 1;
+      continue;
+    }
+    if (token === "--require-llm-cache-hit") {
+      requireLlmCacheHit = true;
     }
   }
-  return { sessionId, outputsDir };
+  return { sessionId, outputsDir, replayMode, requireLlmCacheHit };
 }
 
 async function main(): Promise<void> {
-  const { sessionId, outputsDir } = parseArgs(process.argv.slice(2));
+  const { sessionId, outputsDir, replayMode, requireLlmCacheHit } = parseArgs(process.argv.slice(2));
   if (!sessionId) {
     throw new Error("--session is required");
   }
@@ -51,7 +67,15 @@ async function main(): Promise<void> {
     recordedAt: record.recordedAt,
     durationMs: record.durationMs ?? null
   }));
-  process.stdout.write(`${JSON.stringify({ sessionId, count: records.length, records: summary }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({
+    sessionId,
+    count: records.length,
+    replay: {
+      mode: replayMode,
+      requireLlmCacheHit
+    },
+    records: summary
+  }, null, 2)}\n`);
 }
 
 main().catch((error) => {

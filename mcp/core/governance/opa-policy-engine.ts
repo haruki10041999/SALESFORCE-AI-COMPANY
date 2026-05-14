@@ -1,6 +1,8 @@
 import { promises as fsPromises } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
+import { createHash, createPublicKey, verify } from "node:crypto";
 import type { PolicyEngine, PolicyEngineDecision, PolicyEngineEvaluateInput } from "../ports/policy-engine.js";
+import { createLogger } from "../logging/logger.js";
 
 type PolicyEffect = "allow" | "deny";
 
@@ -25,6 +27,12 @@ interface PolicyBundle {
   rules: PolicyRule[];
 }
 
+interface PolicyBundleEnvelope {
+  version?: string;
+  generatedAt?: string;
+  policySets?: Record<string, Partial<PolicyBundle>>;
+}
+
 const DEFAULT_BUNDLE: PolicyBundle = {
   version: "1.0",
   defaultEffect: "allow",
@@ -34,6 +42,20 @@ const DEFAULT_BUNDLE: PolicyBundle = {
 export interface OpaPolicyEngineOptions {
   serverRoot: string;
   policyDir?: string;
+  policyBundlePublicKeyPath?: string;
+  onPolicyBundleFallback?: (reason: string, context: { policySet: string }) => void;
+}
+
+interface LoadPolicyBundleResult {
+  bundle: PolicyBundle;
+  source: "bundle" | "policy-file" | "default";
+  fallbackReason?: string;
+}
+
+const logger = createLogger("OpaPolicyEngine");
+
+function resolveMaybeAbsolute(serverRoot: string, target: string): string {
+  return isAbsolute(target) ? target : resolve(serverRoot, target);
 }
 
 function matchesPattern(value: string, pattern: string): boolean {
@@ -84,34 +106,153 @@ function isRuleMatched(rule: PolicyRule, request: PolicyEngineEvaluateInput): bo
   return isConditionMatched(rule.condition, request.input);
 }
 
-async function loadPolicyBundle(policyDir: string, policySet: string): Promise<PolicyBundle> {
+function normalizePolicyBundle(parsed: Partial<PolicyBundle> | undefined): PolicyBundle {
+  return {
+    version: typeof parsed?.version === "string" ? parsed.version : DEFAULT_BUNDLE.version,
+    defaultEffect: parsed?.defaultEffect === "deny" ? "deny" : "allow",
+    rules: Array.isArray(parsed?.rules) ? parsed.rules.filter((rule): rule is PolicyRule => {
+      if (!rule || typeof rule !== "object") return false;
+      const casted = rule as Partial<PolicyRule>;
+      return typeof casted.id === "string" && (casted.effect === "allow" || casted.effect === "deny");
+    }) : []
+  };
+}
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+async function verifyPolicyBundleSignature(policyDir: string, bundleRaw: string, publicKeyPath: string): Promise<boolean> {
+  try {
+    const publicKeyPem = await fsPromises.readFile(publicKeyPath, "utf-8");
+    const signatureRaw = (await fsPromises.readFile(join(policyDir, "policy-bundle.sig"), "utf-8")).trim();
+    if (!signatureRaw) {
+      return false;
+    }
+    const signature = Buffer.from(signatureRaw, "base64");
+    return verify(null, Buffer.from(bundleRaw, "utf-8"), createPublicKey(publicKeyPem), signature);
+  } catch {
+    return false;
+  }
+}
+
+async function hasPolicyBundleFile(policyDir: string): Promise<boolean> {
+  try {
+    await fsPromises.access(join(policyDir, "policy-bundle.json"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readExpectedDigest(policyDir: string): Promise<string | undefined> {
+  const digestPath = join(policyDir, "policy-bundle.sha256");
+  try {
+    const raw = (await fsPromises.readFile(digestPath, "utf-8")).trim();
+    if (!raw) return undefined;
+    const [digest] = raw.split(/\s+/);
+    return digest?.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+async function loadPolicyBundleFromEnvelope(
+  policyDir: string,
+  policySet: string,
+  options: { policyBundlePublicKeyPath?: string }
+): Promise<{ bundle?: PolicyBundle; reason?: string }> {
+  const bundlePath = join(policyDir, "policy-bundle.json");
+  try {
+    const raw = await fsPromises.readFile(bundlePath, "utf-8");
+    if (options.policyBundlePublicKeyPath) {
+      const signatureValid = await verifyPolicyBundleSignature(
+        policyDir,
+        raw,
+        options.policyBundlePublicKeyPath
+      );
+      if (!signatureValid) {
+        return { reason: "bundle-signature-verification-failed" };
+      }
+    }
+
+    const expectedDigest = await readExpectedDigest(policyDir);
+    if (expectedDigest && sha256Hex(raw) !== expectedDigest) {
+      return { reason: "bundle-digest-mismatch" };
+    }
+
+    const parsed = JSON.parse(raw) as PolicyBundleEnvelope;
+    const policySets = parsed.policySets;
+    if (!policySets || typeof policySets !== "object") {
+      return { reason: "bundle-policy-sets-missing" };
+    }
+
+    return { bundle: normalizePolicyBundle(policySets[policySet]) };
+  } catch {
+    return { reason: "bundle-read-or-parse-failed" };
+  }
+}
+
+async function loadPolicyBundle(
+  policyDir: string,
+  policySet: string,
+  options: { policyBundlePublicKeyPath?: string }
+): Promise<LoadPolicyBundleResult> {
+  const bundleExists = await hasPolicyBundleFile(policyDir);
+  const bundled = await loadPolicyBundleFromEnvelope(policyDir, policySet, options);
+  if (bundled.bundle) {
+    return {
+      bundle: bundled.bundle,
+      source: "bundle"
+    };
+  }
+
   const filePath = join(policyDir, `${policySet}.json`);
   try {
     const raw = await fsPromises.readFile(filePath, "utf-8");
     const parsed = JSON.parse(raw) as Partial<PolicyBundle>;
     return {
-      version: typeof parsed.version === "string" ? parsed.version : DEFAULT_BUNDLE.version,
-      defaultEffect: parsed.defaultEffect === "deny" ? "deny" : "allow",
-      rules: Array.isArray(parsed.rules) ? parsed.rules.filter((rule): rule is PolicyRule => {
-        if (!rule || typeof rule !== "object") return false;
-        const casted = rule as Partial<PolicyRule>;
-        return typeof casted.id === "string" && (casted.effect === "allow" || casted.effect === "deny");
-      }) : []
+      bundle: normalizePolicyBundle(parsed),
+      source: "policy-file",
+      fallbackReason: bundleExists ? bundled.reason ?? "bundle-fallback" : undefined
     };
   } catch {
-    return DEFAULT_BUNDLE;
+    return {
+      bundle: DEFAULT_BUNDLE,
+      source: "default",
+      fallbackReason: bundleExists ? bundled.reason ?? "bundle-fallback" : undefined
+    };
   }
 }
 
 export class OpaPolicyEngine implements PolicyEngine {
   private readonly policyDir: string;
+  private readonly policyBundlePublicKeyPath?: string;
+  private readonly onPolicyBundleFallback?: (reason: string, context: { policySet: string }) => void;
 
   constructor(options: OpaPolicyEngineOptions) {
     this.policyDir = resolve(options.serverRoot, options.policyDir ?? "config/policies");
+    const configuredPath =
+      options.policyBundlePublicKeyPath ?? process.env.SF_AI_POLICY_BUNDLE_PUBLIC_KEY_PATH;
+    this.policyBundlePublicKeyPath = configuredPath
+      ? resolveMaybeAbsolute(options.serverRoot, configuredPath)
+      : undefined;
+    this.onPolicyBundleFallback = options.onPolicyBundleFallback;
   }
 
   async evaluate(input: PolicyEngineEvaluateInput): Promise<PolicyEngineDecision> {
-    const bundle = await loadPolicyBundle(this.policyDir, input.policySet);
+    const loaded = await loadPolicyBundle(this.policyDir, input.policySet, {
+      policyBundlePublicKeyPath: this.policyBundlePublicKeyPath
+    });
+    const bundle = loaded.bundle;
+
+    if (loaded.fallbackReason) {
+      this.onPolicyBundleFallback?.(loaded.fallbackReason, { policySet: input.policySet });
+      logger.warn(
+        `Policy bundle fallback for policySet=${input.policySet}: reason=${loaded.fallbackReason}, source=${loaded.source}`
+      );
+    }
+
     for (const rule of bundle.rules) {
       if (!isRuleMatched(rule, input)) continue;
       return {

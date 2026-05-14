@@ -7,7 +7,9 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { Logger } from "./core/logging/logger.js";
 import { resolveActorFromOidcInput } from "./core/identity/oidc-verifier.js";
+import { runWithRequestContext } from "./core/runtime/request-context.js";
 import { ReplayReader } from "./core/persistence/replay-reader.js";
+import { getReplayDeterminismMode, getReplayRequireLlmCacheHit } from "./core/config/runtime-config.js";
 
 interface ConnectableServer {
   connect: (transport: Transport) => Promise<void>;
@@ -71,6 +73,36 @@ export async function startMcpHttpTransport(options: StartMcpHttpTransportOption
   const app = new Hono();
   const sessionTransports = new Map<string, WebStandardStreamableHTTPServerTransport>();
   const rateLimitMap = new Map<string, HttpRateLimitState>();
+
+  function resolveTransportRequestContext(req: Request): {
+    tenantId: string;
+    actorId: string;
+    traceId: string;
+    sessionId?: string;
+    reasonCode?: string;
+  } {
+    const tenantId =
+      req.headers.get("x-tenant-id")
+      ?? req.headers.get("sf-ai-tenant-id")
+      ?? "global";
+    const actorId =
+      req.headers.get("x-actor-id")
+      ?? req.headers.get("sf-ai-actor-id")
+      ?? "transport-http";
+    const traceId =
+      req.headers.get("x-trace-id")
+      ?? req.headers.get("traceparent")
+      ?? randomUUID();
+    const sessionId = req.headers.get("mcp-session-id") ?? undefined;
+
+    return {
+      tenantId,
+      actorId,
+      traceId,
+      ...(sessionId ? { sessionId } : {}),
+      reasonCode: "http-transport"
+    };
+  }
 
   app.use(
     "*",
@@ -191,7 +223,9 @@ export async function startMcpHttpTransport(options: StartMcpHttpTransportOption
       );
     }
 
-    return transport.handleRequest(c.req.raw, { parsedBody: body });
+    return runWithRequestContext(resolveTransportRequestContext(c.req.raw), () =>
+      transport.handleRequest(c.req.raw, { parsedBody: body })
+    );
   });
 
   app.get("/mcp", async (c) => {
@@ -223,7 +257,9 @@ export async function startMcpHttpTransport(options: StartMcpHttpTransportOption
         404
       );
     }
-    return transport.handleRequest(c.req.raw);
+    return runWithRequestContext(resolveTransportRequestContext(c.req.raw), () =>
+      transport.handleRequest(c.req.raw)
+    );
   });
 
   app.delete("/mcp", async (c) => {
@@ -255,7 +291,9 @@ export async function startMcpHttpTransport(options: StartMcpHttpTransportOption
         404
       );
     }
-    return transport.handleRequest(c.req.raw);
+    return runWithRequestContext(resolveTransportRequestContext(c.req.raw), () =>
+      transport.handleRequest(c.req.raw)
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -263,7 +301,11 @@ export async function startMcpHttpTransport(options: StartMcpHttpTransportOption
   // Only available when DATABASE_URL is configured.
   // -------------------------------------------------------------------------
   const replayReader = env.DATABASE_URL?.trim()
-    ? ReplayReader.create({ databaseUrl: env.DATABASE_URL.trim() })
+    ? ReplayReader.create({
+        databaseUrl: env.DATABASE_URL.trim(),
+        replayMode: getReplayDeterminismMode("observe", env),
+        requireLlmCacheHit: getReplayRequireLlmCacheHit(false, env)
+      })
     : null;
 
   app.get("/replay/streams", async (c) => {

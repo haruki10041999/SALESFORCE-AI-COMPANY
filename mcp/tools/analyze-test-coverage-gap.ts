@@ -11,6 +11,7 @@ import {
 } from "./test-scaffold-extractor.js";
 import { LocalOutputsAdapter } from "../infrastructure/outputs/local-outputs-adapter.js";
 import { getOutputsDir } from "../core/config/runtime-config.js";
+import { withContextOutputsPort } from "../core/runtime/with-context.js";
 
 export type AnalyzeTestCoverageGapInput = CoverageEstimateInput & {
   reportOutputDir?: string;
@@ -111,7 +112,7 @@ export async function analyzeTestCoverageGap(input: AnalyzeTestCoverageGapInput)
   // Debug: keep minimal runtime context without touching outputs paths.
   const cwd = process.cwd();
   const runtimeOutputsDir = resolve(getOutputsDir());
-  const outputsPort = new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir });
+  const outputsPort = withContextOutputsPort(new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir }));
   
   const estimate = estimateChangedCoverage(input);
   const generatedAt = new Date().toISOString();

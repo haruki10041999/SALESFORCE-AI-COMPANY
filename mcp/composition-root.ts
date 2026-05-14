@@ -1,15 +1,17 @@
 import { asValue, createContainer, AwilixContainer, InjectionMode } from "awilix";
 import type { HandlerContext } from "./core/application/handler-context.js";
+import type { AgentChatService } from "./core/application/chat/services/agent-chat-service.js";
 import type { CostLedgerPort } from "./core/ports/cost-ledger-port.js";
 import type { GovernanceGate } from "./core/ports/governance-gate.js";
-import type { LlmGateway } from "./core/ports/llm-gateway.js";
+import type { LlmCompletionPort } from "./core/ports/llm-completion-port.js";
 import type { MemoryService } from "./core/ports/memory-service.js";
 import type { ObservabilityPort } from "./core/ports/observability-port.js";
 import type { OutputsPort } from "./core/ports/outputs-port.js";
 import type { WorkflowEngine } from "./core/ports/workflow-engine.js";
 
 export interface CompositionRootOptions {
-  llmGateway: LlmGateway;
+  agentChatService: AgentChatService;
+  llmCompletionPort: LlmCompletionPort;
   memoryService: MemoryService;
   workflowEngine: WorkflowEngine;
   governanceGate: GovernanceGate;
@@ -31,7 +33,8 @@ export function createCompositionRoot(options: CompositionRootOptions): { handle
 
   // Register ports as singleton values without fallback casts.
   newContainer.register({
-    llmGateway: asValue(options.llmGateway),
+    agentChatService: asValue(options.agentChatService),
+    llmCompletionPort: asValue(options.llmCompletionPort),
     memoryService: asValue(options.memoryService),
     workflowEngine: asValue(options.workflowEngine),
     governanceGate: asValue(options.governanceGate),
@@ -41,7 +44,8 @@ export function createCompositionRoot(options: CompositionRootOptions): { handle
   });
 
   const handlerContext: HandlerContext = {
-    llmGateway: options.llmGateway,
+    agentChatService: options.agentChatService,
+    llmCompletionPort: options.llmCompletionPort,
     memoryService: options.memoryService,
     workflowEngine: options.workflowEngine,
     governanceGate: options.governanceGate,

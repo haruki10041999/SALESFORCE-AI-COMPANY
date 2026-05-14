@@ -276,6 +276,38 @@
         "/^\\(Get-Content tests/otel-sampling-pii\\.test\\.ts\\)\\.Replace\\('import \\{ maskPii \\}', 'import \\{ maskLogMessage as maskPii \\}'\\) \\| Set-Content tests/otel-sampling-pii\\.test\\.ts$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^Get-ChildItem -Path mcp -Recurse \\| Select-String -Pattern \"\\\\b\\(writeArtifact\\|appendEvent\\|readArtifact\\)\\\\\\(\" , \"\\\\b\\(memoryService\\|observability\\|costLedger\\)\\\\\\.\\[a-zA-Z\\]\\+\\\\\\(\" \\| Group-Object Path \\| ForEach-Object \\{ write-host \"`nFile: \\$\\(\\$_\\.Name\\)\"; \\$_\\.Group \\| ForEach-Object \\{ write-host \"  Line \\$\\(\\$_\\.LineNumber\\): \\$\\(\\$_\\.Line\\.Trim\\(\\)\\)\" \\} \\}$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-ChildItem -Path mcp -Recurse \\| Select-String -Pattern \"\\\\b\\(writeArtifact\\|appendEvent\\|readArtifact\\)\\\\\\(\" , \"\\\\b\\(memoryService\\|observability\\|costLedger\\)\\\\\\.\\[a-zA-Z\\]\\+\\\\\\(\" \\| Group-Object Path \\| ForEach-Object \\{ \\$relative = Resolve-Path \\$_\\.Name -Relative; write-host \"`nFile: \\$relative\"; \\$_\\.Group \\| ForEach-Object \\{ write-host \"  Line \\$\\(\\$_\\.LineNumber\\): \\$\\(\\$_\\.Line\\.Trim\\(\\)\\)\" \\} \\}$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-ChildItem -Path \\. -Recurse -Filter \\*\\.ts \\| Select-String -Pattern \"memoryService\\\\\\.\\(add\\|search\\|list\\|clear\\)\\\\\\(\" \\| ForEach-Object \\{ \"\\{0\\}:\\{1\\}:\\{2\\}\" -f \\(Resolve-Path \\$_\\.Path -Relative\\), \\$_\\.LineNumber, \\$_\\.Line\\.Trim\\(\\) \\} \\| Sort-Object$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-ChildItem -Path mcp -Recurse -Filter \\*\\.ts \\| Select-String -Pattern \"MemoryService\\|HierarchicalStore\\|knowledge graph\\|kg\\|knowledge-graph\\|hierarchical\" \\| ForEach-Object \\{ \"\\{0\\}:\\{1\\}:\\{2\\}\" -f \\(Resolve-Path \\$_\\.Path -Relative\\), \\$_\\.LineNumber, \\$_\\.Line\\.Trim\\(\\) \\}$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-ChildItem -Recurse -Filter \\*\\.ts \\| Select-String -Pattern \"MemoryService\" \\| ForEach-Object \\{ \"\\{0\\}:\\{1\\}:\\{2\\}\" -f \\(Resolve-Path \\$_\\.Path -Relative\\), \\$_\\.LineNumber, \\$_\\.Line\\.Trim\\(\\) \\}$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-ChildItem -Recurse -Filter \\*\\.ts \\| Select-String -Pattern \"from \\\\\"\\.\\*memory-service\\\\\\.js\\\\\"\\|from '\\.\\*memory-service\\\\\\.js'\" \\| ForEach-Object \\{ \"\\{0\\}:\\{1\\}:\\{2\\}\" -f \\(Resolve-Path \\$_\\.Path -Relative\\), \\$_\\.LineNumber, \\$_\\.Line\\.Trim\\(\\) \\}$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-ChildItem -Recurse -Filter \\*\\.ts \\| Select-String -Pattern 'from \"\\.\\*memory-service\\\\\\.js\"\\|from ''\\.\\*memory-service\\\\\\.js''' \\| ForEach-Object \\{ \"\\{0\\}:\\{1\\}:\\{2\\}\" -f \\(Resolve-Path \\$_\\.Path -Relative\\), \\$_\\.LineNumber, \\$_\\.Line\\.Trim\\(\\) \\}$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-ChildItem -Recurse -Filter \\*\\.ts \\| Select-String -Pattern \"mcp/contexts/\\|contexts/\\(identity\\|governance\\|orchestration\\|memory\\|learning\\|observability\\|resource\\|cost\\)\" \\| ForEach-Object \\{ \"\\{0\\}:\\{1\\}:\\{2\\}\" -f \\(Resolve-Path \\$_\\.Path -Relative\\), \\$_\\.LineNumber, \\$_\\.Line\\.Trim\\(\\) \\} \\| Sort-Object$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     },
     "sqltools.connections": [

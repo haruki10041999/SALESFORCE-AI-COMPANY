@@ -1,4 +1,5 @@
 import { writeTextFileAtomic } from "./atomic-file.js";
+import type { Pool, PoolClient } from "pg";
 
 interface StagedFileWrite {
   targetFile: string;
@@ -60,6 +61,33 @@ export class FileUnitOfWork {
     this.stagedWrites.clear();
     this.prepared = false;
   }
+}
+
+export interface PostgresUnitOfWork {
+  runInTransaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T>;
+}
+
+class DefaultPostgresUnitOfWork implements PostgresUnitOfWork {
+  constructor(private readonly pool: Pool) {}
+
+  public async runInTransaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await work(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+}
+
+export function createPostgresUnitOfWork(pool: Pool): PostgresUnitOfWork {
+  return new DefaultPostgresUnitOfWork(pool);
 }
 
 export { appendTextFileAtomic, writeTextFileAtomic } from "./atomic-file.js";

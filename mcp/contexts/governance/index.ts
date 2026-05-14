@@ -1,16 +1,8 @@
 /**
- * Governance Bounded Context — public API barrel (scaffolded)
+ * Governance Bounded Context — public API barrel
  *
- * Status: scaffolded — files still reside in mcp/core/governance/.
- * Physical migration is tracked in TASK-14 (subsequent increments).
- *
- * New code should import from this barrel rather than mcp/core/governance/ directly.
+ * Cross-context imports must target this barrel only.
  */
-
-// Re-export from current location until physical migration is complete
-export * from "../../core/governance/governed-tool-registrar.js";
-export * from "../../core/governance/governance-state-manager.js";
-export * from "../../core/governance/rbac-policy.js";
-export * from "../../core/governance/execution-policy.js";
-export * from "../../core/governance/dangerous-actions.js";
-export * from "../../core/governance/policy-gate.js";
+export * from "./application/index.js";
+export * from "./domain/index.js";
+export * from "./infrastructure/index.js";

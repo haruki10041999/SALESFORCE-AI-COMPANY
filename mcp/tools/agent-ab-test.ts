@@ -1,6 +1,7 @@
 import { promises as fsPromises } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { applyAgentOutcomes, type AgentTrustHistoriesFile } from "../core/quality/agent-trust-store.js";
+import { withContextOutputsPort } from "../core/runtime/with-context.js";
 import { LocalOutputsAdapter } from "../infrastructure/outputs/local-outputs-adapter.js";
 
 type PromptMetrics = {
@@ -160,7 +161,7 @@ export async function runAgentAbTest(
   // 既定はメモリ返却のみ。必要時のみ reportOutputDir へ保存する。
   const reportDir = input.reportOutputDir ? resolve(input.reportOutputDir) : null;
   const runtimeOutputsDir = resolve(deps.outputsDir);
-  const outputsPort = new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir });
+  const outputsPort = withContextOutputsPort(new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir }));
 
   const [agentA, agentB] = await Promise.all([
     runSingle(deps.runChatTool, deps.evaluatePromptMetrics, input, input.agentA),

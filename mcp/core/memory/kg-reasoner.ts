@@ -217,3 +217,17 @@ export function detectCommunities(): GraphCommunity[] {
 
   return communities.sort((a, b) => b.members.length - a.members.length);
 }
+
+export interface KnowledgeGraphReasoner {
+  inferTransitiveRelations: typeof inferTransitiveRelations;
+  findSimilarEntities: typeof findSimilarEntities;
+  detectCommunities: typeof detectCommunities;
+}
+
+export function createKnowledgeGraphReasoner(): KnowledgeGraphReasoner {
+  return {
+    inferTransitiveRelations,
+    findSimilarEntities,
+    detectCommunities
+  };
+}

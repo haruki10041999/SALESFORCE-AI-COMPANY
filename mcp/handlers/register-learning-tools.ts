@@ -2,9 +2,16 @@ import { z } from "zod";
 import type { RegisterGovToolDeps } from "./types.js";
 import type { ProposalQueueStore } from "../core/resource/proposal/proposal-queue-store.js";
 import { PostgresEventStore } from "../core/persistence/postgres-event-store.js";
+import { PgBossOutboxPort } from "../infrastructure/outbox/pgboss-outbox.js";
 import { runLearningPromotionWorkflow } from "../core/orchestration/workflows/learning-promotion.workflow.js";
-import { DEFAULT_ARBITRATION_POLICY } from "../core/learning/model-arbitration.js";
-import { DEFAULT_PROMOTION_POLICY } from "../core/learning/model-registry.js";
+import {
+  DEFAULT_ARBITRATION_POLICY,
+  DEFAULT_PROMOTION_POLICY,
+  appendLearningPromotionHistory,
+  createPolicySnapshotTag,
+  resolveLearningPromotionHistoryPath,
+  resolvePolicySnapshotDirectory
+} from "../contexts/learning/index.js";
 
 const evaluationStatsSchema = z.object({
   shadowVersion: z.string(),
@@ -33,10 +40,13 @@ const registrySnapshotSchema = z.object({
 export interface RegisterLearningToolsDeps extends RegisterGovToolDeps {
   proposalQueue: ProposalQueueStore;
   databaseUrl?: string;
+  root: string;
 }
 
 export function registerLearningTools(deps: RegisterLearningToolsDeps): void {
-  const { govTool, proposalQueue, databaseUrl } = deps;
+  const { govTool, proposalQueue, databaseUrl, root } = deps;
+  const learningHistoryPath = resolveLearningPromotionHistoryPath(root);
+  const policySnapshotDir = resolvePolicySnapshotDirectory(root);
 
   govTool(
     "learning_orchestrator",
@@ -83,6 +93,7 @@ export function registerLearningTools(deps: RegisterLearningToolsDeps): void {
     }) => {
       const useSideEffects = input.dryRun !== true;
       const eventStore = useSideEffects && databaseUrl ? await PostgresEventStore.open({ databaseUrl }) : undefined;
+      const outboxPort = useSideEffects && databaseUrl ? await PgBossOutboxPort.open({ databaseUrl }) : undefined;
       const policy = input.policy
         ? {
             minSamples: input.policy.minSamples ?? DEFAULT_PROMOTION_POLICY.minSamples,
@@ -114,16 +125,35 @@ export function registerLearningTools(deps: RegisterLearningToolsDeps): void {
           },
           {
             eventStore,
+            outboxPort,
+            createPolicySnapshotTag: useSideEffects
+              ? async ({ modelName, candidateVersion, productionVersion, reason, snapshot }) =>
+                  createPolicySnapshotTag(policySnapshotDir, {
+                    modelName,
+                    candidateVersion,
+                    productionVersion,
+                    reason,
+                    snapshot
+                  })
+              : undefined,
+            recordPromotionHistory: useSideEffects
+              ? async (entry) => {
+                  await appendLearningPromotionHistory(learningHistoryPath, entry);
+                }
+              : undefined,
             queueProposal: useSideEffects
               ? async (proposalInput) => proposalQueue.enqueue(proposalInput)
               : undefined
           }
         );
 
+        await outboxPort?.dispatchPending({ limit: 100 });
+
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
         };
       } finally {
+        await outboxPort?.close();
         await eventStore?.close();
       }
     }

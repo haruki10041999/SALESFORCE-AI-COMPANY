@@ -2,6 +2,7 @@ import js from "@eslint/js";
 import globals from "globals";
 import tsParser from "@typescript-eslint/parser";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
+import requestContextRules from "./eslint-rules/require-request-context.js";
 
 export default [
   {
@@ -22,7 +23,8 @@ export default [
       }
     },
     plugins: {
-      "@typescript-eslint": tsPlugin
+      "@typescript-eslint": tsPlugin,
+      "request-context": requestContextRules
     },
     rules: {
       ...tsPlugin.configs.recommended.rules,
@@ -39,7 +41,8 @@ export default [
           argsIgnorePattern: "^_",
           varsIgnorePattern: "^_"
         }
-      ]
+      ],
+      "request-context/require-request-context": "warn"
     }
   }
 ];

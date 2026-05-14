@@ -1,10 +1,10 @@
 import type {
   HierarchicalIngestInput,
   HierarchicalIngestResult,
+  HierarchicalMemoryPort,
   HierarchicalSearchInput,
-  HierarchicalSearchOutput,
-  HierarchicalStore
-} from "../../core/ports/memory-service.js";
+  HierarchicalSearchOutput
+} from "../../core/ports/hierarchical-memory-port.js";
 import pgvector from "pgvector/pg";
 import { Pool, type PoolClient } from "pg";
 import type { MemoryChunker } from "../../../memory/chunker.js";
@@ -20,7 +20,7 @@ export interface PgvectorHierarchicalStoreOptions {
   embeddingProvider?: VectorEmbeddingProvider;
 }
 
-export class PgvectorHierarchicalStore implements HierarchicalStore {
+export class PgvectorHierarchicalStore implements HierarchicalMemoryPort {
   private readonly chunker: MemoryChunker;
   private readonly pool: Pool;
   private readonly poolKey: string;
@@ -39,7 +39,13 @@ export class PgvectorHierarchicalStore implements HierarchicalStore {
     this.embeddingProvider = options.embeddingProvider ?? createEmbeddingProvider({ env: process.env });
   }
 
-  async ingest(input: HierarchicalIngestInput): Promise<HierarchicalIngestResult> {
+  async ingest(ctx: import("../../core/runtime/request-context.js").RequestContext, input: HierarchicalIngestInput): Promise<HierarchicalIngestResult>;
+  async ingest(input: HierarchicalIngestInput): Promise<HierarchicalIngestResult>;
+  async ingest(
+    ctxOrInput: import("../../core/runtime/request-context.js").RequestContext | HierarchicalIngestInput,
+    maybeInput?: HierarchicalIngestInput
+  ): Promise<HierarchicalIngestResult> {
+    const input = maybeInput ?? (ctxOrInput as HierarchicalIngestInput);
     const chunked = (input.isMarkdown ?? true)
       ? this.chunker.chunkMarkdown(input.content, input.title)
       : this.chunker.chunkPlainText(input.content, input.title);
@@ -136,7 +142,13 @@ export class PgvectorHierarchicalStore implements HierarchicalStore {
     };
   }
 
-  async search(input: HierarchicalSearchInput): Promise<HierarchicalSearchOutput[]> {
+  async search(ctx: import("../../core/runtime/request-context.js").RequestContext, input: HierarchicalSearchInput): Promise<HierarchicalSearchOutput[]>;
+  async search(input: HierarchicalSearchInput): Promise<HierarchicalSearchOutput[]>;
+  async search(
+    ctxOrInput: import("../../core/runtime/request-context.js").RequestContext | HierarchicalSearchInput,
+    maybeInput?: HierarchicalSearchInput
+  ): Promise<HierarchicalSearchOutput[]> {
+    const input = maybeInput ?? (ctxOrInput as HierarchicalSearchInput);
     const limit = Math.max(1, input.limit ?? 5);
     const minScore = input.minScore ?? 0.5;
     const expandTo = input.expandTo ?? "chunk";

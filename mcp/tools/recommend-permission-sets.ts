@@ -8,6 +8,7 @@ import {
 import { diffPermissionSet, type PermissionSetDiffResult } from "./permission-set-diff.js";
 import { LocalOutputsAdapter } from "../infrastructure/outputs/local-outputs-adapter.js";
 import { getOutputsDir } from "../core/config/runtime-config.js";
+import { withContextOutputsPort } from "../core/runtime/with-context.js";
 
 export type PermissionUsageSignals = {
   objects?: string[];
@@ -230,7 +231,7 @@ function buildMarkdown(result: RecommendPermissionSetsResult): string {
 
 export async function recommendPermissionSets(input: RecommendPermissionSetsInput): Promise<RecommendPermissionSetsResult> {
   const runtimeOutputsDir = resolve(getOutputsDir());
-  const outputsPort = new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir });
+  const outputsPort = withContextOutputsPort(new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir }));
   if (!Array.isArray(input.permissionSetFiles) || input.permissionSetFiles.length === 0) {
     throw new Error("permissionSetFiles must include at least one file path");
   }

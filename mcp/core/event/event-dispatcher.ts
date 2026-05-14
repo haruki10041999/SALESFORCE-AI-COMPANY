@@ -7,9 +7,12 @@
 import { createLogger } from "../logging/logger.js";
 import { getEventHistoryMax } from "../config/runtime-config.js";
 import type { EventBus } from "./event-bus.js";
+import { EventSchemaRegistry } from "./schema-registry.js";
+import { SYSTEM_EVENT_SCHEMA_REGISTRY } from "../../domain/events/system-events.js";
 
 const logger = createLogger("EventDispatcher");
 const SYSTEM_EVENT_TOPIC = "system_event";
+const systemEventSchemaRegistry = new EventSchemaRegistry(SYSTEM_EVENT_SCHEMA_REGISTRY);
 
 export type SystemEventType =
   | "resource_gap_detected"
@@ -24,6 +27,13 @@ export interface SystemEvent {
   type: SystemEventType;
   timestamp: string;
   payload: Record<string, unknown>;
+}
+
+function normalizeSystemEvent(event: SystemEvent): SystemEvent {
+  return {
+    ...event,
+    payload: systemEventSchemaRegistry.validateForAppend(event.type, event.payload)
+  };
 }
 
 export type EventListener = (event: SystemEvent) => Promise<void>;
@@ -134,7 +144,7 @@ export class EventDispatcher {
    * イベントを発火
    */
   public async emit(event: SystemEvent): Promise<void> {
-    await this.emitInternal(event, true);
+    await this.emitInternal(normalizeSystemEvent(event), true);
   }
 
   private async emitInternal(event: SystemEvent, publishToBus: boolean): Promise<void> {

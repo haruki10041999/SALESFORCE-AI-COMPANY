@@ -111,16 +111,55 @@ Get-Content env.profiles/prod.overlay | Add-Content .env
 - `postgres-notify` は `DATABASE_URL` を使います
 - `redis-streams` は trace context（`traceId` / `traceparent`）を message に含めて伝播します
 
+## Policy Bundle 署名検証 (T15)
+
+| 変数名 | 何に使うか | 既定値 |
+|---|---|---|
+| `SF_AI_POLICY_BUNDLE_PUBLIC_KEY_PATH` | `policy-bundle.sig` 検証に使う Ed25519 公開鍵 PEM のパス | 未設定 |
+
+補足:
+
+- `SF_AI_POLICY_BUNDLE_PUBLIC_KEY_PATH` を設定すると、`config/policies/policy-bundle.json` の読み込み時に `policy-bundle.sig` を検証します
+- 署名検証失敗時は bundle を採用せず、`<policySet>.json` へフォールバックします
+- `policy-bundle.sha256` がある場合は digest も検証します
+
+### bundle 署名生成
+
+```bash
+npm run policy:bundle -- --signing-private-key ./secrets/policy-bundle.private.pem
+```
+
+生成物:
+
+- `config/policies/policy-bundle.json`
+- `config/policies/policy-bundle.sha256`
+- `config/policies/policy-bundle.sig`（`--signing-private-key` 指定時）
+
+### 鍵ローテーション手順（推奨）
+
+1. 新しい Ed25519 鍵ペアを生成し、公開鍵をサーバへ配布
+2. 新秘密鍵で `npm run policy:bundle -- --signing-private-key ...` を実行して bundle 再生成
+3. `SF_AI_POLICY_BUNDLE_PUBLIC_KEY_PATH` を新公開鍵へ切り替えて再起動
+4. 起動後に policy decision が `bundle` 経由で変わらないことを smoke test
+5. 問題なければ旧公開鍵/秘密鍵を廃棄
+
+運用メモ:
+
+- ローテーション中に署名不一致が発生しても、policy set JSON へのフォールバックで fail-open/fail-closed を避けられます
+- フォールバック理由は OPA policy engine の warning ログに出力されます
+
 ## Observability / trace
 
 | 変数名 | 何に使うか | 既定値 |
 |---|---|---|
 | `OTEL_TRACES_SAMPLER_RATIO` | trace の deterministic sampling 比率（0.0〜1.0） | `0.1` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP HTTP endpoint（Collector 推奨: `http://localhost:4318`） | `http://localhost:4318` |
 
 補足:
 
 - 低い比率にすると trace コストは下がりますが、詳細追跡性も下がります
 - `OTEL_ENABLED=true` と組み合わせて利用します
+- 運用は OTel Collector 経由を推奨します（`docker compose --profile observability up -d otel-collector jaeger`）
 
 ### profile固定 (T-26)
 

@@ -7,6 +7,7 @@ import {
 } from "../../core/application/analytics/services/analytics-ab-history.js";
 import { persistAbHistoryAnalysis } from "../../core/application/analytics/services/analytics-ab-history-output.js";
 import type { OutputsPort } from "../../core/ports/outputs-port.js";
+import { withContextOutputsPort } from "../../core/runtime/with-context.js";
 import type { RegisterGovToolDeps } from "../types.js";
 
 export interface DefineAnalyzeAbTestHistoryDeps extends RegisterGovToolDeps {
@@ -15,7 +16,8 @@ export interface DefineAnalyzeAbTestHistoryDeps extends RegisterGovToolDeps {
 }
 
 export function defineAnalyzeAbTestHistoryTool(deps: DefineAnalyzeAbTestHistoryDeps): void {
-  const { govTool, outputsDir, outputsPort } = deps;
+  const { govTool, outputsDir } = deps;
+  const outputsPort = withContextOutputsPort(deps.outputsPort);
 
   govTool(
     "analyze_ab_test_history",

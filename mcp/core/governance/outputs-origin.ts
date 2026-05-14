@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
 import { getOutputsDir } from "../config/runtime-config.js";
+import { withContextOutputsPort } from "../runtime/with-context.js";
 
 export interface ExecutionOriginRecord {
   timestamp: string;
@@ -118,7 +119,7 @@ export async function appendExecutionOrigin(outputsDir: string, record: Executio
   const relativePath = resolve(outputsDir) === DEFAULT_OUTPUTS_DIR
     ? "execution-origins.jsonl"
     : join("execution-origins.jsonl");
-  const outputsPort = new LocalOutputsAdapter({ outputsDir });
+  const outputsPort = withContextOutputsPort(new LocalOutputsAdapter({ outputsDir }));
   await outputsPort.appendEvent(relativePath, record).catch(() => {
     // provenance 記録失敗はツール実行を阻害しない
   });

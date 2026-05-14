@@ -148,7 +148,7 @@ jobs:
         run: npm ci
 
       - name: Start Temporal workflow stack
-        run: docker compose --profile workflow up -d temporal-postgres temporal temporal-ui
+        run: docker compose --profile workflow up -d temporalite temporal-ui
 
       - name: Run Temporal integration test
         env:
@@ -159,7 +159,7 @@ jobs:
 
       - name: Dump Temporal stack logs on failure
         if: failure()
-        run: docker compose --profile workflow logs temporal-postgres temporal temporal-ui
+        run: docker compose --profile workflow logs temporalite temporal-ui
 
       - name: Stop Temporal workflow stack
         if: always()

@@ -1,9 +1,6 @@
 /**
- * Observability Bounded Context — public API barrel (scaffolded)
- *
- * Status: scaffolded — files still reside in mcp/core/observability/.
+ * Observability Bounded Context — public API barrel
  */
-
-export * from "../../core/observability/prometheus-metrics.js";
-export * from "../../core/observability/otel-tracer.js";
-export * from "../../core/observability/dashboard.js";
+export * from "./application/index.js";
+export * from "./domain/index.js";
+export * from "./infrastructure/index.js";

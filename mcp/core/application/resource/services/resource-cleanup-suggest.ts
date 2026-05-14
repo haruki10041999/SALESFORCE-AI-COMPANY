@@ -5,6 +5,7 @@ import type { SystemEventRecord } from "../../../event/system-event-manager.js";
 import { suggestCleanupResources } from "../../../../tools/suggest-cleanup-resources.js";
 import type { GovernedResourceType } from "../../../governance/governance-state.js";
 import type { OutputsPort } from "../../../ports/outputs-port.js";
+import { withContextOutputsPort } from "../../../runtime/with-context.js";
 import { LocalOutputsAdapter } from "../../../../infrastructure/outputs/local-outputs-adapter.js";
 
 interface ResourceActivitySnapshot {
@@ -177,7 +178,7 @@ export async function executeSuggestCleanupResources(args: {
   const jsonPath = join(reportsDir, "latest.json");
   const mdPath = join(reportsDir, "latest.md");
 
-  const outputsPort = args.outputsPort ?? new LocalOutputsAdapter({ outputsDir });
+  const outputsPort = withContextOutputsPort(args.outputsPort ?? new LocalOutputsAdapter({ outputsDir }));
   await outputsPort.appendEvent("reports/cleanup-suggestions/runs.jsonl", suggestion);
   await outputsPort.writeArtifact("reports/cleanup-suggestions/latest.json", `${JSON.stringify(suggestion, null, 2)}\n`);
   await outputsPort.writeArtifact("reports/cleanup-suggestions/latest.md", renderCleanupMarkdown(suggestion));

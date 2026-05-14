@@ -5,10 +5,11 @@ import {
   hasAnalyticsDatabaseConfig
 } from "../persistence/analytics-store-provider.js";
 import { LocalOutputsAdapter } from "../../infrastructure/outputs/local-outputs-adapter.js";
+import { withContextOutputsPort } from "../runtime/with-context.js";
 import { getOutputsDir } from "../config/runtime-config.js";
 
 const runtimeOutputsDir = resolve(getOutputsDir());
-const outputsPort = new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir });
+const outputsPort = withContextOutputsPort(new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir }));
 
 /**
  * Reinforcement Learning Feedback (TASK-047)

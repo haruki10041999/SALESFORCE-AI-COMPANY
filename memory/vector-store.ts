@@ -1,13 +1,12 @@
 import { JsonlVectorStoreAdapter } from "./adapters/jsonl-vector-store.js";
 import { PgvectorVectorStoreAdapter } from "./adapters/pgvector-vector-store.js";
 import { QdrantVectorStoreAdapter } from "./adapters/qdrant-vector-store.js";
-import { LanceDBVectorStoreAdapter } from "./adapters/lancedb-vector-store.js";
 import type { EmbeddingProvider, MemoryRecord, VectorStoreAdapter } from "./vector-store-adapter.js";
 
 let defaultAdapter: VectorStoreAdapter | null = null;
 
 function resolveVectorBackend(): string {
-  return (process.env.SF_AI_VECTOR_BACKEND ?? "tfidf").trim().toLowerCase();
+  return (process.env.SF_AI_VECTOR_BACKEND ?? "pgvector").trim().toLowerCase();
 }
 
 function buildAdapter(): VectorStoreAdapter {
@@ -21,9 +20,6 @@ function buildAdapter(): VectorStoreAdapter {
   }
   if (backend === "qdrant") {
     return new QdrantVectorStoreAdapter();
-  }
-  if (backend === "lancedb") {
-    return new LanceDBVectorStoreAdapter();
   }
   return new JsonlVectorStoreAdapter();
 }

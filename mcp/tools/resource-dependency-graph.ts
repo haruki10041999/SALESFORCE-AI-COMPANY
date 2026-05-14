@@ -1,6 +1,7 @@
 import { existsSync, promises as fsPromises } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { LocalOutputsAdapter } from "../infrastructure/outputs/local-outputs-adapter.js";
+import { withContextOutputsPort } from "../core/runtime/with-context.js";
 
 type ResourceType = "skills" | "agents" | "personas" | "presets";
 
@@ -237,7 +238,7 @@ export async function buildResourceDependencyGraph(
   const runtimeOutputsDir = process.env.SF_AI_OUTPUTS_DIR
     ? resolve(process.env.SF_AI_OUTPUTS_DIR)
     : resolve("outputs");
-  const outputsPort = new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir });
+  const outputsPort = withContextOutputsPort(new LocalOutputsAdapter({ outputsDir: runtimeOutputsDir }));
   const includeTypes = new Set<ResourceType>(input.includeTypes ?? ["skills", "agents", "personas", "presets"]);
   const includeIsolated = input.includeIsolated !== false;
   const maxImpacts = Number.isFinite(input.maxImpacts) ? Math.max(1, Math.floor(input.maxImpacts ?? 50)) : 50;

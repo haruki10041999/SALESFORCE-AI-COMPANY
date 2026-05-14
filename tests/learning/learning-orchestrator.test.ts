@@ -163,6 +163,92 @@ test("runLearningPromotionWorkflow promotes approved canary candidate", async ()
   assert.equal(result.action, "promote");
   assert.equal(result.currentProductionVersion, "v2");
   assert.equal(result.previousVersion, "v1");
+  assert.ok(result.dag.some((node) => node.node === "promotion" && node.status === "passed"));
+});
+
+test("runLearningPromotionWorkflow tags policy snapshot on successful promotion", async () => {
+  const registry = buildRegistry();
+  const result = await runLearningPromotionWorkflow(
+    {
+      registrySnapshot: toSnapshot(registry),
+      modelName: "ranker",
+      currentCanaryVersion: "v2",
+      manualApprovalRequired: true,
+      manualOverride: "approve"
+    },
+    {
+      createPolicySnapshotTag: async () => "policy-snapshot:ranker@v2"
+    }
+  );
+
+  assert.equal(result.stage, "promoted");
+  assert.equal(result.policySnapshotTag, "policy-snapshot:ranker@v2");
+  assert.ok(result.dag.some((node) => node.node === "policy-snapshot" && node.status === "passed"));
+});
+
+test("runLearningPromotionWorkflow rolls back when policy snapshot tagging fails", async () => {
+  const registry = buildRegistry();
+  const result = await runLearningPromotionWorkflow(
+    {
+      registrySnapshot: toSnapshot(registry),
+      modelName: "ranker",
+      currentCanaryVersion: "v2",
+      manualApprovalRequired: true,
+      manualOverride: "approve"
+    },
+    {
+      createPolicySnapshotTag: async () => {
+        throw new Error("tag-service-down");
+      }
+    }
+  );
+
+  assert.equal(result.stage, "rolled_back");
+  assert.equal(result.action, "rollback");
+  assert.equal(result.currentProductionVersion, "v1");
+  assert.equal(result.promotionRolledBack, true);
+  assert.ok(result.reason.includes("snapshot-tag-failed"));
+  assert.ok(result.dag.some((node) => node.node === "policy-snapshot" && node.status === "failed"));
+});
+
+test("runLearningPromotionWorkflow records promotion history hook payload", async () => {
+  const registry = buildRegistry();
+  const history: Array<{
+    modelName: string;
+    stage: string;
+    action: string;
+    policySnapshotTag?: string;
+    dag: Array<{ node: string; status: string }>;
+  }> = [];
+
+  const result = await runLearningPromotionWorkflow(
+    {
+      registrySnapshot: toSnapshot(registry),
+      modelName: "ranker",
+      currentCanaryVersion: "v2",
+      manualApprovalRequired: true,
+      manualOverride: "approve"
+    },
+    {
+      createPolicySnapshotTag: async () => "policy-snapshot:ranker@v2",
+      recordPromotionHistory: async (entry) => {
+        history.push({
+          modelName: entry.modelName,
+          stage: entry.stage,
+          action: entry.action,
+          policySnapshotTag: entry.policySnapshotTag,
+          dag: entry.dag.map((node) => ({ node: node.node, status: node.status }))
+        });
+      }
+    }
+  );
+
+  assert.equal(result.stage, "promoted");
+  assert.equal(history.length, 1);
+  assert.equal(history[0]?.modelName, "ranker");
+  assert.equal(history[0]?.action, "promote");
+  assert.equal(history[0]?.policySnapshotTag, "policy-snapshot:ranker@v2");
+  assert.ok(history[0]?.dag.some((node) => node.node === "promotion" && node.status === "passed"));
 });
 
 test("runLearningOrchestrator rolls back on drift alert when history exists", async () => {

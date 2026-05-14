@@ -140,13 +140,22 @@ MCP サーバー起動時の流れ：
 Temporal ベースの durable workflow POC を使う場合は、workflow profile を起動します。
 
 ```bash
-docker compose --profile workflow up -d temporal-postgres temporal temporal-ui
+npm run docker:up:workflow
 ```
+
+開発時に core 依存もまとめて起動する場合:
+
+```bash
+npm run docker:up:dev-temporal
+```
+
+上記は Temporalite (dev/test 向け) を起動します。
 
 MCP 側の `.env` では以下を設定します。
 
 ```env
 SF_AI_WORKFLOW_ENGINE=temporal
+SF_AI_ALLOW_IN_PROCESS_WORKFLOW=false
 SF_AI_TEMPORAL_ADDRESS=localhost:7233
 SF_AI_TEMPORAL_NAMESPACE=default
 SF_AI_TEMPORAL_TASK_QUEUE=sfai-orchestration
@@ -158,8 +167,9 @@ SF_AI_TEMPORAL_ACTIVITY_RETRY_INITIAL_INTERVAL_MS=1000
 SF_AI_TEMPORAL_ACTIVITY_RETRY_BACKOFF_COEFFICIENT=2
 ```
 
-現時点の POC 実装は fallback 委譲を含む段階的移行モードです。既存 in-process 動作を維持したまま、workflow runtime の切替経路を検証できます。
-`SF_AI_TEMPORAL_RUN_WORKER=true` を指定すると、MCP サーバープロセス内で Temporal worker も起動します。
+現時点の POC 実装は段階的移行モードです。in-process は test-only で、通常は `SF_AI_WORKFLOW_ENGINE=temporal` を使います。どうしてもローカルで in-process を使う場合のみ、`SF_AI_ALLOW_IN_PROCESS_WORKFLOW=true` を明示してください。
+prod (`SF_AI_ENV_MODE=prod`) では Temporal 不可時の in-process fallback は無効化されています。
+`SF_AI_TEMPORAL_RUN_WORKER=true` を指定すると、MCP サーバープロセス内で Temporal worker も起動します（`env.profiles/dev.overlay` 既定）。
 workflow 実行は `SF_AI_TEMPORAL_WORKFLOW_RETRY_MAX_ATTEMPTS`、activity 実行は `SF_AI_TEMPORAL_ACTIVITY_*` で retry / timeout を調整できます。
 
 実 Temporal 統合テストを回す場合は、workflow profile 起動後に `SF_AI_TEMPORAL_INTEGRATION=true` を付けて対象テストを実行します。

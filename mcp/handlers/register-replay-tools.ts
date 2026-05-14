@@ -58,7 +58,10 @@ export function registerReplayTools(deps: RegisterReplayToolsDeps): void {
         since: input.since,
       });
       return {
-        content: [{ type: "text", text: JSON.stringify({ streams }, null, 2) }],
+        content: [{
+          type: "text",
+          text: JSON.stringify({ streams, replay: reader.getReplaySettings() }, null, 2)
+        }],
       };
     }
   );
@@ -123,7 +126,10 @@ export function registerReplayTools(deps: RegisterReplayToolsDeps): void {
         includeDeleted: input.includeDeleted,
       });
       return {
-        content: [{ type: "text", text: JSON.stringify({ streamId: input.streamId, events }, null, 2) }],
+        content: [{
+          type: "text",
+          text: JSON.stringify({ streamId: input.streamId, events, replay: reader.getReplaySettings() }, null, 2)
+        }],
       };
     }
   );

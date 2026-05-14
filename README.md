@@ -67,13 +67,13 @@ npm run ai -- outputs:cleanup -- --dry-run
 |---|---|---|---|
 | **State/Governance** | SQLite | Postgres | `SF_AI_STATE_BACKEND=sqlite│postgres` |
 | **Proposal Queue** | File-based | pg-boss | `SF_AI_PROPOSAL_QUEUE_BACKEND=file│pg-boss` |
-| **Vector Store** | TF-IDF | PGVector | `SF_AI_VECTOR_BACKEND=tfidf│pgvector` |
+| **Vector Store** | PGVector（失敗時 JSONL フォールバック） | PGVector（必要時 Qdrant） | `SF_AI_VECTOR_BACKEND=pgvector│qdrant│tfidf` |
 
-`.env.local.sample` で SQLite/file/tfidf、`.env.operations.sample` で Postgres/pg-boss/PGVector が既定値。
+`.env.local.sample` / `.env.operations.sample` ともにベクターバックエンドは PGVector を基準にし、接続不可時は JSONL へフォールバックします。
 
 `SF_AI_PROFILE` を設定した場合は backend 組み合わせを固定します。
 
-- `SF_AI_PROFILE=local` -> `sqlite/file/tfidf`
+- `SF_AI_PROFILE=local` -> `sqlite/file/pgvector`
 - `SF_AI_PROFILE=operations` -> `postgres/pg-boss/pgvector`
 
 既定の `SF_AI_PROFILE_STRICT=true` では上記 3 変数を強制適用します。
@@ -132,8 +132,8 @@ npm run ai -- doctor
 ### サーバー起動
 
 ```bash
-# 依存サービスだけ先に起動
-docker compose up -d postgres ollama
+# 依存サービスだけ先に起動 (T09: Temporalite を既定同梱)
+npm run docker:up:core
 
 # 観測性も含めてフル起動
 docker compose --profile observability up -d
@@ -149,6 +149,8 @@ npm run mcp:start:docker
 
 # 同時起動ショートカット
 npm run docker:up:core      # postgres + ollama
+npm run docker:up:workflow  # temporalite + temporal-ui
+npm run docker:up:dev-temporal # core + workflow (T09 推奨)
 npm run docker:up:ollama-ha # ollama x2 + haproxy (http://localhost:11444)
 npm run docker:up:replay    # core + mcp-http + replay-ui
 npm run docker:up:extended  # replay + qdrant + observability

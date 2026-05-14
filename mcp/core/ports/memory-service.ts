@@ -1,50 +1,35 @@
-export interface HierarchicalIngestInput {
-  id: string;
-  content: string;
-  title: string;
-  isMarkdown?: boolean;
-}
+import type { RequestContext } from "../runtime/request-context.js";
+import type {
+  HierarchicalIngestInput,
+  HierarchicalIngestResult,
+  HierarchicalMemoryPort,
+  HierarchicalSearchInput,
+  HierarchicalSearchOutput,
+  VectorTier
+} from "./hierarchical-memory-port.js";
 
-export interface HierarchicalIngestResult {
-  documentId: string;
-  sections: number;
-  chunks: number;
-}
+export type {
+  HierarchicalIngestInput,
+  HierarchicalIngestResult,
+  HierarchicalSearchInput,
+  HierarchicalSearchOutput,
+  VectorTier
+};
 
-export type VectorTier = "hot" | "warm" | "cold";
+export type HierarchicalStore = HierarchicalMemoryPort;
 
-export interface HierarchicalSearchInput {
-  query: string;
-  limit?: number;
-  expandTo?: "chunk" | "section" | "document";
-  minScore?: number;
-  withContext?: boolean;
-}
-
-export interface HierarchicalSearchOutput {
-  type: "chunk" | "section" | "document";
-  sectionIndex: number;
-  chunkIndex?: number;
-  score: number;
-  text: string;
-  documentId: string;
-  summary?: string;
-  tier?: VectorTier;
-  context?: {
-    prevChunk?: string;
-    nextChunk?: string;
-    sectionSummary?: string;
-  };
-}
-
-export interface HierarchicalStore {
-  ingest(input: HierarchicalIngestInput): Promise<HierarchicalIngestResult>;
-  search(input: HierarchicalSearchInput): Promise<HierarchicalSearchOutput[]>;
-}
-
-export interface MemoryService {
-  add(text: string): Promise<void>;
+export interface MemoryReader {
+  search(ctx: RequestContext, query: string): Promise<string[]>;
   search(query: string): Promise<string[]>;
+  list(ctx: RequestContext): Promise<string[]>;
   list(): Promise<string[]>;
+}
+
+export interface MemoryWriter {
+  add(ctx: RequestContext, text: string): Promise<void>;
+  add(text: string): Promise<void>;
+  clear(ctx: RequestContext): Promise<void>;
   clear(): Promise<void>;
 }
+
+export interface MemoryService extends MemoryReader, MemoryWriter {}

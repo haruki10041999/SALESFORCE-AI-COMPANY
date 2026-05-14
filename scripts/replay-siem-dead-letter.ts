@@ -6,6 +6,7 @@ import { parseArgs } from "node:util";
 import { exportAuditRowsToSiem, type AuditLogLike, type SiemProvider } from "../mcp/core/audit/siem-exporter.js";
 import { getOutputsDir } from "../mcp/core/config/runtime-config.js";
 import { writeTextFileAtomic } from "../mcp/core/persistence/atomic-file.js";
+import { PgBossOutboxPort } from "../mcp/infrastructure/outbox/pgboss-outbox.js";
 
 interface DeadLetterEntry {
   timestamp?: string;
@@ -28,6 +29,10 @@ interface CliOptions {
   maxRetries: number;
   retryBaseDelayMs: number;
   retryMaxDelayMs: number;
+  databaseUrl?: string;
+  outboxTopic?: string;
+  outboxQueuePrefix?: string;
+  outboxDispatchLimit?: number;
   dryRun: boolean;
 }
 
@@ -52,6 +57,10 @@ function parseCliArgs(argv: string[]): CliOptions {
       "max-retries": { type: "string" },
       "retry-base-ms": { type: "string" },
       "retry-max-ms": { type: "string" },
+      "database-url": { type: "string" },
+      "outbox-topic": { type: "string" },
+      "outbox-queue-prefix": { type: "string" },
+      "outbox-dispatch-limit": { type: "string" },
       "dry-run": { type: "boolean", default: false }
     },
     allowPositionals: false,
@@ -63,6 +72,7 @@ function parseCliArgs(argv: string[]): CliOptions {
   const maxRetries = Number.parseInt(values["max-retries"] ?? process.env.SF_AI_SIEM_MAX_RETRIES ?? "2", 10);
   const retryBaseDelayMs = Number.parseInt(values["retry-base-ms"] ?? process.env.SF_AI_SIEM_RETRY_BASE_MS ?? "250", 10);
   const retryMaxDelayMs = Number.parseInt(values["retry-max-ms"] ?? process.env.SF_AI_SIEM_RETRY_MAX_MS ?? "5000", 10);
+  const outboxDispatchLimit = Number.parseInt(values["outbox-dispatch-limit"] ?? "200", 10);
 
   return {
     provider: parseProvider(values.provider ?? process.env.SF_AI_SIEM_PROVIDER),
@@ -75,6 +85,10 @@ function parseCliArgs(argv: string[]): CliOptions {
     maxRetries: Number.isFinite(maxRetries) && maxRetries >= 0 ? maxRetries : 2,
     retryBaseDelayMs: Number.isFinite(retryBaseDelayMs) && retryBaseDelayMs > 0 ? retryBaseDelayMs : 250,
     retryMaxDelayMs: Number.isFinite(retryMaxDelayMs) && retryMaxDelayMs > 0 ? retryMaxDelayMs : 5000,
+    databaseUrl: values["database-url"]?.trim() ?? process.env.DATABASE_URL?.trim(),
+    outboxTopic: values["outbox-topic"]?.trim(),
+      outboxQueuePrefix: values["outbox-queue-prefix"]?.trim() || "outbox",
+      outboxDispatchLimit: Number.isFinite(outboxDispatchLimit) && outboxDispatchLimit > 0 ? outboxDispatchLimit : 200,
     dryRun: values["dry-run"]
   };
 }
@@ -96,6 +110,47 @@ async function loadDeadLetterRows(deadLetterPath: string): Promise<AuditLogLike[
 
 export async function replaySiemDeadLetter(options: CliOptions) {
   const rows = await loadDeadLetterRows(options.deadLetterPath);
+
+  if (options.outboxTopic) {
+    if (!options.databaseUrl) {
+      throw new Error("--outbox-topic を使う場合は --database-url (または DATABASE_URL) が必要です");
+    }
+
+    const outbox = await PgBossOutboxPort.open({
+      databaseUrl: options.databaseUrl,
+      queuePrefix: options.outboxQueuePrefix ?? "outbox"
+    });
+    try {
+      await outbox.enqueue({
+        topic: options.outboxTopic,
+        payload: {
+          source: "siem-dead-letter-replay",
+          provider: options.provider,
+          endpoint: options.endpoint ?? null,
+          rows
+        },
+        dedupeKey: `siem-dead-letter:${rows.map((row) => row.id).join(",")}`
+      });
+      const dispatch = await outbox.dispatchPending({ limit: options.outboxDispatchLimit ?? 200 });
+      const replayReport = {
+        deadLetterPath: options.deadLetterPath,
+        replayedRowCount: rows.length,
+        mode: "outbox",
+        outboxTopic: options.outboxTopic,
+        report: {
+          exportedCount: 0,
+          failedCount: dispatch.failed,
+          deadLetterCount: dispatch.failed
+        },
+        dispatch
+      };
+      await writeTextFileAtomic(options.reportPath, `${JSON.stringify(replayReport, null, 2)}\n`);
+      return replayReport;
+    } finally {
+      await outbox.close();
+    }
+  }
+
   const report = await exportAuditRowsToSiem(rows, {
     provider: options.provider,
     endpoint: options.endpoint,
@@ -111,6 +166,7 @@ export async function replaySiemDeadLetter(options: CliOptions) {
   const replayReport = {
     deadLetterPath: options.deadLetterPath,
     replayedRowCount: rows.length,
+    mode: "direct",
     report
   };
   await writeTextFileAtomic(options.reportPath, `${JSON.stringify(replayReport, null, 2)}\n`);

@@ -3,7 +3,7 @@ import { resolveRuntimeProfile } from "./core/config/runtime-profile.js";
 
 const stateBackendSchema = z.enum(["sqlite", "postgres", "memory"]);
 const proposalQueueBackendSchema = z.enum(["file", "pg-boss", "memory"]);
-const vectorBackendSchema = z.enum(["tfidf", "pgvector", "memory", "qdrant", "lancedb"]);
+const vectorBackendSchema = z.enum(["tfidf", "pgvector", "memory", "qdrant"]);
 const workflowEngineSchema = z.enum(["in-process", "temporal"]);
 const embeddingProviderSchema = z.enum(["ollama", "openai", "cohere", "ngram"]);
 const eventBusBackendSchema = z.enum(["in-memory", "postgres-notify", "redis-streams"]);
@@ -36,9 +36,15 @@ const envSchema = z
     SF_AI_PROPOSAL_QUEUE_BACKEND: proposalQueueBackendSchema.optional(),
     SF_AI_VECTOR_BACKEND: vectorBackendSchema.optional(),
     SF_AI_WORKFLOW_ENGINE: workflowEngineSchema.optional(),
+    SF_AI_ALLOW_IN_PROCESS_WORKFLOW: z.enum(["true", "false", "1", "0"]).optional(),
     SF_AI_TEMPORAL_ADDRESS: optionalNonEmptyString(),
     SF_AI_TEMPORAL_NAMESPACE: optionalNonEmptyString(),
     SF_AI_TEMPORAL_TASK_QUEUE: optionalNonEmptyString(),
+    SF_AI_TEMPORAL_TASK_QUEUE_CORE_ORCHESTRATION: optionalNonEmptyString(),
+    SF_AI_TEMPORAL_TASK_QUEUE_LLM_HEAVY: optionalNonEmptyString(),
+    SF_AI_TEMPORAL_TASK_QUEUE_ANALYSIS_HEAVY: optionalNonEmptyString(),
+    SF_AI_TEMPORAL_TASK_QUEUE_DEPLOY_HEAVY: optionalNonEmptyString(),
+    SF_AI_TEMPORAL_TASK_QUEUE_SCHEDULER: optionalNonEmptyString(),
     SF_AI_TEMPORAL_RUN_WORKER: z.enum(["true", "false", "1", "0"]).optional(),
     SF_AI_TEMPORAL_WORKFLOW_RETRY_MAX_ATTEMPTS: optionalNonEmptyString(),
     SF_AI_TEMPORAL_ACTIVITY_TIMEOUT_SECONDS: optionalNonEmptyString(),
@@ -77,6 +83,7 @@ const envSchema = z
     SF_AI_VAULT_AUTH_VALUE: optionalNonEmptyString(),
     // Policy-as-Code (TASK-11): set to "false"/"0" to disable OPA bundle evaluation
     SF_AI_POLICY_AS_CODE_ENABLED: z.enum(["true", "false", "1", "0"]).optional(),
+    SF_AI_POLICY_BUNDLE_PUBLIC_KEY_PATH: optionalNonEmptyString(),
     // Event Sourcing (TASK-12): set to "true"/"1" to persist domain events
     SF_AI_EVENT_SOURCING_ENABLED: z.enum(["true", "false", "1", "0"]).optional(),
     // HA / Leader Election (TASK-16)
@@ -84,9 +91,40 @@ const envSchema = z
     SF_AI_INSTANCE_ID: optionalNonEmptyString(),
     SF_AI_METRICS_AUTO_UPDATE_ENABLED: z.enum(["true", "false", "1", "0"]).optional(),
     SF_AI_METRICS_AUTO_UPDATE_INTERVAL_MINUTES: optionalNonEmptyString(),
+    SF_AI_REPLAY_MODE: z.enum(["passthrough", "record", "replay", "observe", "strict"]).optional(),
+    SF_AI_REPLAY_REQUIRE_LLM_CACHE_HIT: z.enum(["true", "false", "1", "0"]).optional(),
+    SF_AI_VECTOR_LIFECYCLE_ENABLED: z.enum(["true", "false", "1", "0"]).optional(),
+    SF_AI_VECTOR_LIFECYCLE_CRON: optionalNonEmptyString(),
+    SF_AI_VECTOR_HOT_TO_WARM_DAYS: optionalNonEmptyString(),
+    SF_AI_VECTOR_WARM_TO_COLD_DAYS: optionalNonEmptyString(),
+    SF_AI_VECTOR_LIFECYCLE_RUN_ON_STARTUP: z.enum(["true", "false", "1", "0"]).optional(),
+    SF_AI_VECTOR_LIFECYCLE_STARTUP_LIMIT: optionalNonEmptyString(),
   })
   .passthrough()
   .superRefine((env, ctx) => {
+    const profile = resolveRuntimeProfile(env.SF_AI_PROFILE ?? env.SF_AI_RUNTIME_PROFILE);
+    const isProductionMode =
+      (env.SF_AI_ENV_MODE ?? "").trim().toLowerCase() === "prod" ||
+      profile === "operations" ||
+      String(env.NODE_ENV ?? "").trim().toLowerCase() === "production";
+
+    if (isProductionMode && env.SF_AI_WORKFLOW_ENGINE === "in-process") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["SF_AI_WORKFLOW_ENGINE"],
+        message: "prod モードでは SF_AI_WORKFLOW_ENGINE=temporal を指定してください",
+      });
+    }
+
+    const allowInProcess = ["true", "1"].includes((env.SF_AI_ALLOW_IN_PROCESS_WORKFLOW ?? "").toLowerCase());
+    if (!isProductionMode && env.SF_AI_WORKFLOW_ENGINE === "in-process" && !allowInProcess) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["SF_AI_WORKFLOW_ENGINE"],
+        message: "in-process workflow は test-only です。必要時のみ SF_AI_ALLOW_IN_PROCESS_WORKFLOW=true を指定してください",
+      });
+    }
+
     if (env.SF_AI_STATE_BACKEND === "postgres" && !env.DATABASE_URL) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

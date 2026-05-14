@@ -3,13 +3,16 @@ import type { RegisterGovToolDeps } from "../types.js";
 import {
   executeGetOrchestrationSessionTool
 } from "../../core/application/chat/services/chat-orchestration-session-tools.js";
+import type { OrchestrationSession } from "../../core/types/index.js";
+import type { WorkflowEventProjectionSummary } from "../../infrastructure/workflow/temporal-workflow-event-projection.js";
 
 export interface DefineGetOrchestrationSessionDeps extends RegisterGovToolDeps {
-  getSessionOrRestore: (sessionId: string) => Promise<any>;
+  getSessionOrRestore: (sessionId: string) => Promise<OrchestrationSession | undefined>;
+  getWorkflowEventProjection: (sessionId: string) => Promise<WorkflowEventProjectionSummary | undefined>;
 }
 
 export function defineGetOrchestrationSessionTool(deps: DefineGetOrchestrationSessionDeps): void {
-  const { govTool, getSessionOrRestore } = deps;
+  const { govTool, getSessionOrRestore, getWorkflowEventProjection } = deps;
 
   govTool(
     "get_orchestration_session",
@@ -23,7 +26,8 @@ export function defineGetOrchestrationSessionTool(deps: DefineGetOrchestrationSe
     async ({ sessionId }: { sessionId: string }) => {
       const result = await executeGetOrchestrationSessionTool({
         sessionId,
-        getSessionOrRestore
+        getSessionOrRestore,
+        getWorkflowEventProjection
       });
       if (result.notFoundText) {
         return {
